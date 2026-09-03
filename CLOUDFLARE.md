@@ -1,8 +1,8 @@
 # Cloudflare Workers deployment
 
-This repository is ready to run as the `bitz-lab-air-monitoring` Cloudflare
-Worker. Its public address will use the account's standard `workers.dev`
-subdomain.
+This repository is ready to run as the `spark` Cloudflare Worker. With the
+Workers account subdomain set to `bioengineering`, its public address is
+`spark.bioengineering.workers.dev`.
 
 ## Cloudflare Builds
 
