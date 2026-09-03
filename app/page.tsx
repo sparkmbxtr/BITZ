@@ -28,12 +28,18 @@ type OutdoorSample = {
   humidity: number | null;
 };
 
+type OutdoorParticleSample = {
+  timestamp: number;
+  pm25: number | null;
+};
+
 type OutdoorData = {
   location: "Oberschneiding";
   source: "DWD via Bright Sky";
   station: string | null;
   samples: OutdoorSample[];
   latest: OutdoorSample | null;
+  particleLatest: OutdoorParticleSample | null;
 };
 
 type Check = {
@@ -154,6 +160,7 @@ const DEMO_DATA: DashboardData = {
       humidity: 74 - Math.sin(index / 2.7) * 18,
     })),
     latest: { timestamp: createdAt, temperature: 14.1, humidity: 73 },
+    particleLatest: { timestamp: createdAt, pm25: 7.2 },
   },
   rooms: { lab: demoRoom("LAB"), office: demoRoom("OFFICE") },
 };
@@ -1070,8 +1077,9 @@ function OutdoorWeather({ outdoor }: { outdoor: OutdoorData }) {
   const latest = outdoor.latest;
   if (!latest || (latest.temperature === null && latest.humidity === null)) return null;
   const station = outdoor.station ? ` · nearest reporting station ${outdoor.station}` : "";
+  const particleSource = outdoor.particleLatest?.pm25 !== null && outdoor.particleLatest?.pm25 !== undefined ? " · outdoor PM₂.₅ context: CAMS via Open-Meteo" : "";
   return (
-    <div className="outdoor-weather" title={`${outdoor.source}${station}`}>
+    <div className="outdoor-weather" title={`${outdoor.source}${station}${particleSource}`}>
       <strong>OUTDOOR · OBERSCHNEIDING</strong>
       <span>{fmt(latest.temperature, 1)}°C · {fmt(latest.humidity)}% RH</span>
       <small>DWD · {berlinShortTime(latest.timestamp)}</small>
@@ -1486,6 +1494,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   const pmObservation = pmBalanceObservation(room.samples);
   const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
   const outdoorLatest = outdoor?.latest ?? null;
+  const outdoorParticles = outdoor?.particleLatest ?? null;
   const hepa = hepaAssessment(room.samples, latest);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
   const cycle = latestCycle(room.samples, "LAB");
@@ -1541,7 +1550,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
         <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="gas-pattern context" grade={tvocGrade(latest?.tvoc ?? null)} />
         <Metric label="PM₁" value={`${fmt(latest?.pm1, 1)} µg/m³`} note="measured fine-particle channel" grade={labPmGrade(latest?.pm1 ?? null)} />
-        <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} note="measured fine-particle channel" grade={labPmGrade(latest?.pm25 ?? null)} />
+        <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} comparison={outdoorParticles?.pm25 !== null && outdoorParticles?.pm25 !== undefined ? `≈${fmt(outdoorParticles.pm25, 1)}` : undefined} note="measured fine-particle channel; outdoor comparison is CAMS model context via Open-Meteo rather than a local outdoor sensor" grade={labPmGrade(latest?.pm25 ?? null)} />
         <Metric label="Oxygen" value={`${fmt(latest?.oxygen, 2)}%`} note="displacement proxy" grade={oxygenGrade(latest?.oxygen ?? null)} />
         <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} comparison={outdoorLatest?.temperature !== null && outdoorLatest?.temperature !== undefined ? `${fmt(outdoorLatest.temperature, 1)}°C` : undefined} note="LAB thermal band" grade={temperatureGrade(latest?.temperature ?? null, "LAB")} />
         <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} comparison={outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined ? `${fmt(outdoorLatest.humidity)}%` : undefined} note="LAB supply has no dehumidification; high indoor RH is shown as outdoor-linked when outdoor RH is also above 70%" grade={labHumidityGrade(latest?.humidity ?? null, outdoorLatest?.humidity)} />
