@@ -943,6 +943,11 @@ function LevelMark({ status }: { status: RoomData["status"] }) {
   return <span className={`level-mark level-${status}`} aria-hidden="true">{status === "normal" ? "✓" : status === "action" ? "!" : "•"}</span>;
 }
 
+function checkDisplayLabel(check: Check) {
+  const method = check.method.toLowerCase();
+  return check.label.toLowerCase().endsWith(method) ? check.label : `${check.label} · ${method}`;
+}
+
 function TrafficLight({ status }: { status: RoomData["status"] }) {
   const active = status === "normal" ? "green" : status === "action" ? "red" : "amber";
   return (
@@ -1325,7 +1330,7 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
         <div className="state-detail"><strong>{latest ? `Updated ${berlinClock(latest.timestamp)}` : "Update pending"}</strong><span>latest LAB sample · Europe/Berlin</span>{cycle?.begin ? <span className="cycle-begin-stamp">DAY BEGINS {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div>
       </div>
       <div className={`critical-grid ${room.checks.length === 7 ? "critical-grid-seven" : room.checks.length === 9 ? "critical-grid-nine" : room.checks.length === 10 ? "critical-grid-ten" : ""}`}>
-        {room.checks.map((check) => <article className={`critical-check check-${check.level}`} key={check.label}><span>{check.label} · {check.method.toLowerCase()}</span><strong>{check.status}</strong></article>)}
+        {room.checks.map((check) => <article className={`critical-check check-${check.level}`} key={check.label}><span>{checkDisplayLabel(check)}</span><strong>{check.status}</strong></article>)}
       </div>
       <div className="metric-grid">
         <Metric label="Health" value={fmt(latest?.health)} note="air-Q index + raw channels" grade={indexGrade(latest?.health ?? null)} />
