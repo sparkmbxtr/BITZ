@@ -1085,25 +1085,22 @@ export default function Home() {
   const [presentationMode, setPresentationMode] = useState(false);
 
   useEffect(() => {
-    const visualViewport = window.visualViewport;
     const syncViewportLayout = () => {
-      const availableWidth = Math.max(320, Math.floor(Math.min(window.innerWidth, visualViewport?.width ?? window.innerWidth)));
+      // Use the layout viewport here. Pinch zoom changes visualViewport width;
+      // treating that as a device resize made the dashboard reflow mid-gesture.
+      const availableWidth = Math.max(320, Math.floor(document.documentElement.clientWidth || window.innerWidth));
       const compact = availableWidth < 1700;
       setCompactViewport(compact);
       document.documentElement.dataset.dashboardLayout = compact ? "compact" : "wide";
-      document.documentElement.style.setProperty("--dashboard-visual-width", `${availableWidth}px`);
     };
 
     syncViewportLayout();
     window.addEventListener("resize", syncViewportLayout);
     window.addEventListener("orientationchange", syncViewportLayout);
-    visualViewport?.addEventListener("resize", syncViewportLayout);
     return () => {
       window.removeEventListener("resize", syncViewportLayout);
       window.removeEventListener("orientationchange", syncViewportLayout);
-      visualViewport?.removeEventListener("resize", syncViewportLayout);
       delete document.documentElement.dataset.dashboardLayout;
-      document.documentElement.style.removeProperty("--dashboard-visual-width");
     };
   }, []);
 
@@ -1118,10 +1115,11 @@ export default function Home() {
       return;
     }
 
-    const visualViewport = window.visualViewport;
     const syncFullscreenCanvas = () => {
-      const availableWidth = Math.max(320, Math.min(window.innerWidth, visualViewport?.width ?? window.innerWidth));
-      const availableHeight = Math.max(320, Math.min(window.innerHeight, visualViewport?.height ?? window.innerHeight));
+      // Full-screen fitting also follows the layout viewport so a zoom gesture
+      // does not repeatedly recalculate and cancel itself.
+      const availableWidth = Math.max(320, document.documentElement.clientWidth || window.innerWidth);
+      const availableHeight = Math.max(320, document.documentElement.clientHeight || window.innerHeight);
       const portrait = availableWidth < availableHeight;
       const minimumCanvasWidth = 1920;
       const minimumCanvasHeight = portrait ? 2400 : 1080;
@@ -1138,11 +1136,9 @@ export default function Home() {
     syncFullscreenCanvas();
     window.addEventListener("resize", syncFullscreenCanvas);
     window.addEventListener("orientationchange", syncFullscreenCanvas);
-    visualViewport?.addEventListener("resize", syncFullscreenCanvas);
     return () => {
       window.removeEventListener("resize", syncFullscreenCanvas);
       window.removeEventListener("orientationchange", syncFullscreenCanvas);
-      visualViewport?.removeEventListener("resize", syncFullscreenCanvas);
       delete root.dataset.dashboardFullscreen;
       delete root.dataset.dashboardFullscreenOrientation;
       root.style.removeProperty("--fullscreen-scale");
