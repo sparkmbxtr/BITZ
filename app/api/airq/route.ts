@@ -34,10 +34,30 @@ type Sample = {
   additionalEnvironmental?: Record<string, number>;
 };
 
+type OutdoorSample = {
+  timestamp: number;
+  temperature: number | null;
+  humidity: number | null;
+};
+
+type OutdoorData = {
+  location: "Oberschneiding";
+  source: "DWD via Bright Sky";
+  station: string | null;
+  samples: OutdoorSample[];
+  latest: OutdoorSample | null;
+};
+
 const API_ROOT = "https://air-q-cloud.de/open_api/v3";
 const HISTORY_HOURS = 24;
 const MAX_EXPORT_HOURS = 48;
 const ANALYSIS_MINUTES = 60;
+const BRIGHT_SKY_ROOT = "https://api.brightsky.dev";
+const OBERSCHNEIDING_LATITUDE = "48.7957";
+const OBERSCHNEIDING_LONGITUDE = "12.6420";
+const OUTDOOR_CACHE_MS = 10 * 60_000;
+
+let outdoorCache: { expiresAt: number; data: OutdoorData } | null = null;
 
 const BERLIN_CLOCK = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Berlin",
@@ -628,6 +648,95 @@ async function fetchRoom(
   return mergeSupplementalSample(history, supplemental);
 }
 
+function weatherTimestamp(record: RawRecord) {
+  const raw = record.timestamp;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw !== "string") return null;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function weatherRecords(payload: unknown): RawRecord[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const weather = (payload as RawRecord).weather;
+  if (Array.isArray(weather)) {
+    return weather.filter((item): item is RawRecord => Boolean(item) && typeof item === "object" && !Array.isArray(item));
+  }
+  return weather && typeof weather === "object" && !Array.isArray(weather) ? [weather as RawRecord] : [];
+}
+
+function weatherSources(payload: unknown): RawRecord[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const sources = (payload as RawRecord).sources;
+  return Array.isArray(sources)
+    ? sources.filter((item): item is RawRecord => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+}
+
+function normalizeWeather(record: RawRecord): OutdoorSample | null {
+  const timestamp = weatherTimestamp(record);
+  if (timestamp === null) return null;
+  return {
+    timestamp,
+    temperature: numberValue(record, "temperature"),
+    humidity: numberValue(record, "relative_humidity"),
+  };
+}
+
+function brightSkyTime(timestamp: number) {
+  return new Date(timestamp).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+async function weatherPayload(url: URL) {
+  const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" }).catch(() => null);
+  if (!response?.ok) return null;
+  return response.json().catch(() => null);
+}
+
+async function fetchOutdoor(range: TimeRange): Promise<OutdoorData | null> {
+  const now = Date.now();
+  if (!range.exact && outdoorCache && outdoorCache.expiresAt > now) return outdoorCache.data;
+
+  const historyUrl = new URL(`${BRIGHT_SKY_ROOT}/weather`);
+  historyUrl.searchParams.set("lat", OBERSCHNEIDING_LATITUDE);
+  historyUrl.searchParams.set("lon", OBERSCHNEIDING_LONGITUDE);
+  historyUrl.searchParams.set("date", brightSkyTime(range.from));
+  historyUrl.searchParams.set("last_date", brightSkyTime(range.to));
+  historyUrl.searchParams.set("tz", "Europe/Berlin");
+
+  const currentUrl = new URL(`${BRIGHT_SKY_ROOT}/current_weather`);
+  currentUrl.searchParams.set("lat", OBERSCHNEIDING_LATITUDE);
+  currentUrl.searchParams.set("lon", OBERSCHNEIDING_LONGITUDE);
+
+  const [historyPayload, currentPayload] = await Promise.all([
+    weatherPayload(historyUrl),
+    range.exact ? Promise.resolve(null) : weatherPayload(currentUrl),
+  ]);
+  const payloads = [historyPayload, currentPayload].filter((payload) => payload !== null);
+  const samples = payloads
+    .flatMap(weatherRecords)
+    .map(normalizeWeather)
+    .filter((sample): sample is OutdoorSample => sample !== null)
+    .filter((sample) => sample.timestamp >= range.from - 2 * 60 * 60_000 && sample.timestamp <= range.to + 2 * 60 * 60_000)
+    .sort((left, right) => left.timestamp - right.timestamp)
+    .filter((sample, index, list) => index === list.length - 1 || sample.timestamp !== list[index + 1].timestamp);
+  if (!samples.length) return null;
+
+  const source = payloads
+    .flatMap(weatherSources)
+    .sort((left, right) => (numberValue(left, "distance") ?? Infinity) - (numberValue(right, "distance") ?? Infinity))[0];
+  const station = source && typeof source.station_name === "string" ? source.station_name : null;
+  const data: OutdoorData = {
+    location: "Oberschneiding",
+    source: "DWD via Bright Sky",
+    station,
+    samples,
+    latest: samples.at(-1) ?? null,
+  };
+  if (!range.exact) outdoorCache = { expiresAt: now + OUTDOOR_CACHE_MS, data };
+  return data;
+}
+
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const exportRequested = requestUrl.searchParams.get("export") === "1";
@@ -653,9 +762,10 @@ export async function GET(request: Request) {
     return Response.json({ error: "Invalid export time range" }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
   try {
-    const [labHistory, officeHistory] = await Promise.all([
+    const [labHistory, officeHistory, outdoor] = await Promise.all([
       fetchRoom(labId, apiKey, range, exportRequested),
       fetchRoom(officeId, apiKey, range, exportRequested),
+      fetchOutdoor(range).catch(() => null),
     ]);
     if (!labHistory.length || !officeHistory.length) throw new Error("No recent records returned");
     const headers = new Headers({ "Cache-Control": "no-store, max-age=0" });
@@ -668,6 +778,7 @@ export async function GET(request: Request) {
       coverage: { from: range.from, to: range.to, exact: range.exact },
       historyHours: (range.to - range.from) / (60 * 60_000),
       analysisMinutes: ANALYSIS_MINUTES,
+      outdoor,
       rooms: {
         lab: analyseRoom("LAB", labHistory, positiveNumber(runtimeEnv.LAB_VOLUME_M3), positiveNumber(runtimeEnv.LAB_ACH)),
         office: analyseRoom("OFFICE", officeHistory, positiveNumber(runtimeEnv.OFFICE_VOLUME_M3), positiveNumber(runtimeEnv.OFFICE_ACH)),
