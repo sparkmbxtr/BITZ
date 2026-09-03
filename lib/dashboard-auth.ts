@@ -55,8 +55,19 @@ async function apiEncryptionKey(secret: string) {
   return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
+function passwordHashFromSecret(value: string) {
+  // Accept a valid SHA-256 verifier even if a control panel pasted harmless
+  // surrounding quotes, backticks, labels or Markdown formatting.
+  return value.match(/[a-f0-9]{64}/i)?.[0].toLowerCase() ?? null;
+}
+
+export function passwordVerifierReady(expectedHash: string) {
+  return passwordHashFromSecret(expectedHash) !== null;
+}
+
 export async function verifyPassword(password: string, expectedHash: string) {
-  return safeEqual(await sha256(password), expectedHash.toLowerCase());
+  const verifier = passwordHashFromSecret(expectedHash);
+  return verifier !== null && safeEqual(await sha256(password), verifier);
 }
 
 export async function isAuthorized(request: Request, sessionSecret: string) {
