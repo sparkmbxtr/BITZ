@@ -1004,6 +1004,7 @@ export default function Home() {
       delete root.dataset.dashboardFullscreen;
       delete root.dataset.dashboardFullscreenOrientation;
       root.style.removeProperty("--fullscreen-scale");
+      root.style.removeProperty("--fullscreen-canvas-width");
       root.style.removeProperty("--fullscreen-canvas-height");
       return;
     }
@@ -1012,12 +1013,17 @@ export default function Home() {
     const syncFullscreenCanvas = () => {
       const availableWidth = Math.max(320, Math.min(window.innerWidth, visualViewport?.width ?? window.innerWidth));
       const availableHeight = Math.max(320, Math.min(window.innerHeight, visualViewport?.height ?? window.innerHeight));
-      const canvasWidth = 1920;
-      const scale = availableWidth / canvasWidth;
+      const portrait = availableWidth < availableHeight;
+      const minimumCanvasWidth = 1920;
+      const minimumCanvasHeight = portrait ? 2400 : 1080;
+      const scale = Math.min(availableWidth / minimumCanvasWidth, availableHeight / minimumCanvasHeight);
+      const canvasWidth = availableWidth / scale;
+      const canvasHeight = availableHeight / scale;
       root.dataset.dashboardFullscreen = "true";
-      root.dataset.dashboardFullscreenOrientation = availableWidth >= availableHeight ? "landscape" : "portrait";
+      root.dataset.dashboardFullscreenOrientation = portrait ? "portrait" : "landscape";
       root.style.setProperty("--fullscreen-scale", scale.toFixed(6));
-      root.style.setProperty("--fullscreen-canvas-height", `${(availableHeight / scale).toFixed(2)}px`);
+      root.style.setProperty("--fullscreen-canvas-width", `${canvasWidth.toFixed(2)}px`);
+      root.style.setProperty("--fullscreen-canvas-height", `${canvasHeight.toFixed(2)}px`);
     };
 
     syncFullscreenCanvas();
@@ -1031,6 +1037,7 @@ export default function Home() {
       delete root.dataset.dashboardFullscreen;
       delete root.dataset.dashboardFullscreenOrientation;
       root.style.removeProperty("--fullscreen-scale");
+      root.style.removeProperty("--fullscreen-canvas-width");
       root.style.removeProperty("--fullscreen-canvas-height");
     };
   }, [presentationMode]);
