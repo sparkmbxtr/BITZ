@@ -46,6 +46,54 @@ const BERLIN_CLOCK = new Intl.DateTimeFormat("en-GB", {
   hourCycle: "h23",
 });
 
+const BERLIN_DATE_TIME = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Berlin",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+type LocalDate = { year: number; month: number; day: number };
+
+function berlinParts(timestamp: number) {
+  const values: Record<string, number> = {};
+  for (const part of BERLIN_DATE_TIME.formatToParts(timestamp)) {
+    if (["year", "month", "day", "hour", "minute", "second"].includes(part.type)) {
+      values[part.type] = Number(part.value);
+    }
+  }
+  return values;
+}
+
+function shiftLocalDate(date: LocalDate, days: number): LocalDate {
+  const shifted = new Date(Date.UTC(date.year, date.month - 1, date.day + days));
+  return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate() };
+}
+
+function berlinEpoch(date: LocalDate, hour: number) {
+  const targetAsUtc = Date.UTC(date.year, date.month - 1, date.day, hour, 0, 0);
+  let guess = targetAsUtc;
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    const parts = berlinParts(guess);
+    const representedAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    guess += targetAsUtc - representedAsUtc;
+  }
+  return guess;
+}
+
+function completedBerlinCycle(now = Date.now()): TimeRange {
+  const parts = berlinParts(now);
+  const today = { year: parts.year, month: parts.month, day: parts.day };
+  const todayAt1800 = berlinEpoch(today, 18);
+  const endDate = now >= todayAt1800 ? today : shiftLocalDate(today, -1);
+  const startDate = shiftLocalDate(endDate, -1);
+  return { from: berlinEpoch(startDate, 18), to: berlinEpoch(endDate, 18), exact: true };
+}
+
 function berlinMinuteOfDay(timestamp: number) {
   const values: Record<string, number> = {};
   for (const part of BERLIN_CLOCK.formatToParts(timestamp)) {
@@ -367,6 +415,11 @@ type TimeRange = { from: number; to: number; exact: boolean };
 function requestedRange(url: URL, exportRequested: boolean): TimeRange {
   const fromValue = url.searchParams.get("f");
   const toValue = url.searchParams.get("t");
+  const cycleRequested = url.searchParams.get("cycle") === "1";
+  if (cycleRequested) {
+    if (!exportRequested || fromValue !== null || toValue !== null) throw new RangeError("Invalid export range");
+    return completedBerlinCycle();
+  }
   if (fromValue === null && toValue === null) {
     const to = Date.now();
     return { from: to - HISTORY_HOURS * 60 * 60_000, to, exact: false };
