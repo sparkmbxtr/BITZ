@@ -973,6 +973,7 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [connectionChecking, setConnectionChecking] = useState(false);
   const [compactViewport, setCompactViewport] = useState(false);
+  const [presentationMode, setPresentationMode] = useState(false);
 
   useEffect(() => {
     const visualViewport = window.visualViewport;
@@ -995,6 +996,51 @@ export default function Home() {
       delete document.documentElement.dataset.dashboardLayout;
       document.documentElement.style.removeProperty("--dashboard-visual-width");
     };
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!presentationMode) {
+      delete root.dataset.dashboardFullscreen;
+      delete root.dataset.dashboardFullscreenOrientation;
+      root.style.removeProperty("--fullscreen-scale");
+      root.style.removeProperty("--fullscreen-canvas-height");
+      return;
+    }
+
+    const visualViewport = window.visualViewport;
+    const syncFullscreenCanvas = () => {
+      const availableWidth = Math.max(320, Math.min(window.innerWidth, visualViewport?.width ?? window.innerWidth));
+      const availableHeight = Math.max(320, Math.min(window.innerHeight, visualViewport?.height ?? window.innerHeight));
+      const canvasWidth = 1920;
+      const scale = availableWidth / canvasWidth;
+      root.dataset.dashboardFullscreen = "true";
+      root.dataset.dashboardFullscreenOrientation = availableWidth >= availableHeight ? "landscape" : "portrait";
+      root.style.setProperty("--fullscreen-scale", scale.toFixed(6));
+      root.style.setProperty("--fullscreen-canvas-height", `${(availableHeight / scale).toFixed(2)}px`);
+    };
+
+    syncFullscreenCanvas();
+    window.addEventListener("resize", syncFullscreenCanvas);
+    window.addEventListener("orientationchange", syncFullscreenCanvas);
+    visualViewport?.addEventListener("resize", syncFullscreenCanvas);
+    return () => {
+      window.removeEventListener("resize", syncFullscreenCanvas);
+      window.removeEventListener("orientationchange", syncFullscreenCanvas);
+      visualViewport?.removeEventListener("resize", syncFullscreenCanvas);
+      delete root.dataset.dashboardFullscreen;
+      delete root.dataset.dashboardFullscreenOrientation;
+      root.style.removeProperty("--fullscreen-scale");
+      root.style.removeProperty("--fullscreen-canvas-height");
+    };
+  }, [presentationMode]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) setPresentationMode(false);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -1125,11 +1171,20 @@ export default function Home() {
     bioengineeringClose !== null ? `CLOSE: ${berlinShortTime(bioengineeringClose)}` : null,
   ].filter((part): part is string => part !== null).join(" · ");
 
-  function requestFullscreen() {
-    document.documentElement.requestFullscreen?.().catch(() => undefined);
+  async function toggleFullscreen() {
+    if (presentationMode) {
+      setPresentationMode(false);
+      if (document.fullscreenElement) await document.exitFullscreen?.().catch(() => undefined);
+      return;
+    }
+
+    setPresentationMode(true);
+    if (!document.fullscreenElement) await document.documentElement.requestFullscreen?.().catch(() => undefined);
   }
 
   async function lockBoard() {
+    setPresentationMode(false);
+    if (document.fullscreenElement) await document.exitFullscreen?.().catch(() => undefined);
     await fetch("/api/auth", { method: "DELETE" }).catch(() => undefined);
     setAuthorized(false);
     setApiConnected(null);
@@ -1142,7 +1197,7 @@ export default function Home() {
   }
 
   return (
-    <main className={`wallboard ${compactViewport ? "wallboard-compact" : ""}`} data-password-verifier={passwordVerifierReady === false ? "invalid" : passwordVerifierReady === true ? "ready" : "checking"}>
+    <main className={`wallboard ${compactViewport && !presentationMode ? "wallboard-compact" : ""} ${presentationMode ? "wallboard-fullscreen" : ""}`} data-live={data.live ? "true" : "false"} data-password-verifier={passwordVerifierReady === false ? "invalid" : passwordVerifierReady === true ? "ready" : "checking"}>
       <header className="wallboard-header">
         <div className="identity"><strong>BITZ LAB AIR MONITORING</strong><span>LIVE READINGS · 24-HOUR HISTORY · LATEST 60-MINUTE ANALYSIS</span></div>
         <div className="header-state" aria-live="polite">
@@ -1157,7 +1212,7 @@ export default function Home() {
           <span>{data.live ? (ageMinutes === null ? "age unknown" : `${ageMinutes} min old`) : "recent hour highlighted"}</span>
           <a className="header-export" href="/api/airq?export=1&inline=1&cycle=1" target="_blank" rel="noreferrer" data-testid="data-export">Daily data</a>
           <button type="button" onClick={lockBoard}>Lock</button>
-          <button type="button" onClick={requestFullscreen}>Full screen</button>
+          <button type="button" onClick={toggleFullscreen}>{presentationMode ? "Exit full screen" : "Full screen"}</button>
         </div>
       </header>
       {!data.live ? <div className="preview-banner">{data.message ?? "Preview data — live connection pending"}</div> : null}
