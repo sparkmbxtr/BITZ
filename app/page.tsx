@@ -1245,6 +1245,7 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
   const hepa = hepaAssessment(room.samples, latest);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
   const cycle = latestCycle(room.samples, "LAB");
+  const routineClosed = Boolean(cycle?.close && latest && latest.timestamp >= cycle.close && room.status !== "action" && room.status !== "unknown");
   const evidenceOrder = ["CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
   const evidenceLabels: Record<string, string> = {
     "CO release": "CO SAFETY",
@@ -1263,7 +1264,9 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
     })
     .slice(0, 6);
   const oxygenEmergency = room.checks.some((check) => check.label === "O₂ displacement" && check.level === "action");
-  const criticalDisplay = oxygenEmergency
+  const criticalDisplay = routineClosed
+    ? { label: "CLOSED", level: "normal", note: "Routine action prompts are paused after CLOSE; sensor trends remain visible for the next active period." }
+    : oxygenEmergency
     ? { label: "EVACUATE", level: "evacuate", note: "Leave the LAB and follow the LAB emergency procedure." }
     : room.status === "action"
       ? { label: "ALERT", level: "action", note: "Critical warning active — follow the highlighted LAB procedure." }
@@ -1302,8 +1305,8 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
             ? <TrendRow label="PM / sound max" samples={room.samples} primary={labPmMeanValue} secondary={(s) => s.soundMax} gradeFor={pmGrade} analysisMinutes={analysisMinutes} reading={`PM ${fmt(pmObservation.value, 1)} µg/m³`} />
             : <TrendRow label="Sound max" samples={room.samples} primary={(s) => s.soundMax} gradeFor={soundMaxGrade} analysisMinutes={analysisMinutes} />}
         </section>
-        <aside className={`meaning-panel meaning-panel-${room.status} ${hepa ? "meaning-with-hepa" : ""}`} aria-labelledby="meaning-heading">
-          <h2 id="meaning-heading">Meaningful action</h2>
+        <aside className={`meaning-panel meaning-panel-${room.status} ${hepa ? "meaning-with-hepa" : ""} ${routineClosed ? "meaning-panel-closed" : ""}`} aria-labelledby="meaning-heading">
+          <h2 id="meaning-heading">{routineClosed ? "Closed-period monitoring" : "Meaningful action"}</h2>
           <div className="meaning-copy"><strong>RECENT PATTERN</strong><p>{room.summary}</p><span>COMPUTED · PAST HOUR</span></div>
           {hepa ? (
             <div className={`hepa-status hepa-${hepa.level}`}>
@@ -1313,7 +1316,9 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
           <div className="meaning-evidence" aria-label="Signals supporting the current interpretation">
             {evidenceChecks.map((check) => <div key={check.label}><span>{evidenceLabels[check.label] ?? check.label}</span><b className={`text-${check.level}`}>{check.status}</b></div>)}
           </div>
-          <div className={`action-copy action-${room.status}`}><strong>{room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK"}</strong><p>{room.action}</p></div>
+          {routineClosed
+            ? <div className="closed-period-copy"><strong>ROUTINE ACTIONS PAUSED</strong><p>No operational action step is displayed after CLOSE. The live channels and recent pattern remain visible for trend review.</p></div>
+            : <div className={`action-copy action-${room.status}`}><strong>{room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK"}</strong><p>{room.action}</p></div>}
           <div className={`critical-message critical-message-${criticalDisplay.level}`} role="status" aria-live="polite">
             <strong>{criticalDisplay.label}</strong><span>{criticalDisplay.note}</span>
           </div>
