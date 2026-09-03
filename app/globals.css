@@ -43,6 +43,13 @@ body {
   background: var(--background);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
+html[data-dashboard-layout="compact"],
+html[data-dashboard-layout="compact"] body {
+  height: auto !important;
+  min-height: 100%;
+  overflow-x: clip;
+  overflow-y: auto !important;
+}
 img, svg, canvas { max-width: 100%; }
 button, input { font: inherit; }
 
@@ -81,7 +88,7 @@ button, input { font: inherit; }
 .connection-auto-note { margin-top: 12px; color: var(--muted); font-size: .88rem; line-height: 1.35; text-align: center; }
 
 .wallboard {
-  width: 100%;
+  width: min(100%, var(--dashboard-visual-width, 100%));
   max-width: 100%;
   min-width: 0;
   min-height: 100dvh;
@@ -112,7 +119,7 @@ button, input { font: inherit; }
 .connection-dot.is-live { background: var(--green); box-shadow: 0 0 14px rgba(105, 221, 162, .65); }
 .preview-banner { padding: 7px 18px; color: #fff3cf; background: #5a3e0b; font-size: .9rem; text-align: center; }
 
-.room-layout { width: 100%; max-width: 100%; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 4fr) minmax(360px, 1fr); align-items: start; gap: 12px; padding: 10px 12px; overflow: visible; }
+.room-layout { width: 100%; max-width: 100%; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 4fr) minmax(420px, 1fr); align-items: start; gap: 12px; padding: 10px 12px; overflow: visible; }
 .lab-panel, .office-rail { min-width: 0; min-height: 0; }
 .lab-panel { display: grid; grid-template-rows: repeat(5, auto); gap: 7px; }
 .room-heading, .office-heading { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -316,6 +323,7 @@ line.activity-close { stroke: var(--amber); }
 .office-series-name small { color: inherit; font-size: .72em; font-weight: 620; letter-spacing: .035em; opacity: .78; }
 .office-trend-row > div > span { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
 .office-trend-row .trend-chart { width: 100%; min-width: 0; height: 100%; min-height: 66px; }
+.office-trend-row .trend-chart-with-left-axis { grid-template-columns: 42px minmax(0, 1fr) 54px; }
 .office-trend-row .trend-plot, .office-trend-row .trend-svg { height: 100%; min-height: 45px; }
 .office-trend-row .time-axis { font-size: clamp(.5rem, .47vw, .64rem); }
 .office-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 5px 7px; }
@@ -336,7 +344,7 @@ line.activity-close { stroke: var(--amber); }
 /* True wallboard mode is reserved for viewports with enough height. Shorter or
    squarer windows keep the two-room layout but grow vertically, so content is
    never clipped merely to satisfy a fixed screen height. */
-@media (min-width: 1500px) and (min-height: 960px) and (min-aspect-ratio: 3 / 2) {
+@media (min-width: 1800px) and (min-height: 960px) and (min-aspect-ratio: 3 / 2) {
   html, body { height: 100%; overflow: hidden; }
   .wallboard { height: 100dvh; min-height: 0; grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden; }
   .room-layout { align-items: stretch; overflow: hidden; }
@@ -350,7 +358,9 @@ line.activity-close { stroke: var(--amber); }
   .office-trends { min-height: 0; grid-template-rows: auto repeat(3, minmax(0, 1fr)); }
 }
 
-@media (max-width: 1199px), (orientation: portrait) {
+/* Android tablets can expose a 1280-1600px desktop-style viewport. Stack the
+   rooms throughout that range so the OFFICE rail never sits beyond the screen. */
+@media (max-width: 1699px), (orientation: portrait) {
   html, body { height: auto; min-height: 100%; overflow-y: auto; }
   .wallboard { height: auto; min-height: 100dvh; overflow-y: visible; }
   .wallboard-header,
@@ -399,6 +409,32 @@ line.activity-close { stroke: var(--amber); }
   .meaning-panel { min-height: 0; }
 }
 
+/* visualViewport catches Android desktop mode and page zoom when the layout
+   viewport remains deceptively wide. It mirrors the tablet media-query rules. */
+.wallboard-compact { height: auto !important; min-height: 100dvh; overflow-y: visible !important; }
+.wallboard-compact .wallboard-header { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
+.wallboard-compact .identity { width: 100%; flex-wrap: wrap; }
+.wallboard-compact .identity strong { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.wallboard-compact .header-state { width: 100%; min-width: 0; justify-content: flex-start; flex-wrap: wrap; white-space: normal; }
+.wallboard-compact .day-end-stamps { width: 100%; text-align: left; }
+.wallboard-compact .room-layout { grid-template-columns: minmax(0, 1fr); align-items: start; overflow: visible; }
+.wallboard-compact .lab-panel { grid-template-rows: repeat(5, auto); }
+.wallboard-compact .office-rail { padding: 14px 0 0; border-left: 0; border-top: 1px solid var(--border); }
+.wallboard-compact .office-rail { grid-template-rows: repeat(6, auto); }
+.wallboard-compact .header-state span:nth-of-type(n+3) { display: none; }
+.wallboard-compact .critical-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wallboard-compact .critical-grid-seven .critical-check { grid-column: auto; }
+.wallboard-compact .critical-grid-nine,
+.wallboard-compact .critical-grid-ten { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wallboard-compact .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.wallboard-compact .evidence-layout { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+.wallboard-compact .evidence-panel { min-height: 600px; grid-template-rows: auto repeat(4, minmax(138px, 1fr)); }
+.wallboard-compact .meaning-panel,
+.wallboard-compact .meaning-panel.meaning-with-hepa { grid-template-rows: repeat(5, auto); }
+.wallboard-compact .meaning-panel.meaning-with-hepa { grid-template-rows: repeat(6, auto); }
+.wallboard-compact .meaning-evidence { min-height: 210px; grid-template-rows: repeat(3, minmax(62px, 1fr)); }
+.wallboard-compact .office-trends { min-height: 480px; grid-template-rows: auto repeat(3, minmax(138px, 1fr)); }
+
 @media (max-width: 1450px), (max-height: 920px) {
   .wallboard-header { min-height: 60px; padding-block: 8px; }
   .identity { gap: 10px; }
@@ -413,7 +449,7 @@ line.activity-close { stroke: var(--amber); }
   .wallboard-footer { min-height: 34px; padding-block: 5px; }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .wallboard-header { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 9px; padding-inline: 10px; }
   .identity { width: 100%; flex-wrap: wrap; }
   .identity strong { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: clamp(1.1rem, 5vw, 1.45rem); }
@@ -444,6 +480,7 @@ line.activity-close { stroke: var(--amber); }
   .trend-reading { grid-column: 2; grid-row: 1; }
   .trend-chart { min-width: 0; overflow: hidden; }
   .trend-chart-with-left-axis { grid-template-columns: 35px minmax(0, 1fr); column-gap: 3px; }
+  .office-trend-row .trend-chart-with-left-axis { grid-template-columns: 35px minmax(0, 1fr) 46px; }
   .trend-chart-with-axes { grid-template-columns: 35px minmax(0, 1fr) 35px; column-gap: 3px; }
   .time-axis { font-size: clamp(.57rem, 2.3vw, .7rem); }
   .meaning-evidence { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
