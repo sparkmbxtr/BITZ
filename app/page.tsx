@@ -304,6 +304,42 @@ function officeCloseSignature(
   };
 }
 
+function officeCloseEventTime(
+  samples: Sample[],
+  candidateTimestamp: number,
+  scales: Map<ActivitySignal["key"], number>,
+) {
+  const byKey = new Map(ACTIVITY_SIGNALS.map((signal) => [signal.key, signal] as const));
+  const tvocSignal = byKey.get("tvoc")!;
+  const soundSignal = byKey.get("sound")!;
+  const tvocScale = Math.max(25, scales.get("tvoc") ?? 25);
+  const soundScale = Math.max(2.5, scales.get("sound") ?? 2.5);
+  const candidates = samples.filter((sample) => {
+    const minute = berlinCalendar(sample.timestamp).minuteOfDay;
+    return Math.abs(sample.timestamp - candidateTimestamp) <= 24 * 60_000 &&
+      minute >= 16 * 60 + 20 &&
+      minute <= 18 * 60;
+  });
+
+  let best = { timestamp: candidateTimestamp, score: Number.NEGATIVE_INFINITY };
+  for (const sample of candidates) {
+    const timestamp = sample.timestamp;
+    const tvocBefore = median(valuesBetween(samples, tvocSignal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
+    const tvocAfter = median(valuesBetween(samples, tvocSignal, timestamp, timestamp + 6 * 60_000));
+    if (tvocBefore === null || tvocAfter === null) continue;
+    const tvocRise = tvocAfter - tvocBefore;
+    if (tvocRise <= 0) continue;
+
+    const soundBefore = median(valuesBetween(samples, soundSignal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
+    const soundAfter = median(valuesBetween(samples, soundSignal, timestamp, timestamp + 6 * 60_000));
+    const soundDrop = soundBefore === null || soundAfter === null ? 0 : Math.max(0, soundBefore - soundAfter);
+    const score = tvocRise / tvocScale + (soundDrop / soundScale) * .7;
+
+    if (score > best.score) best = { timestamp, score };
+  }
+  return best.timestamp;
+}
+
 function departureScore(
   samples: Sample[],
   timestamp: number,
@@ -428,11 +464,12 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
       : eveningWindow.filter((candidate) => candidate.changed >= 2 && candidate.score >= 2.25);
     let close: number | null = null;
     if (officeCloseCandidates.length) {
-      close = officeCloseCandidates.reduce((best, candidate) => {
+      const closeCandidate = officeCloseCandidates.reduce((best, candidate) => {
         const bestWeighted = best.score + best.closeSignature.score - Math.abs(best.minuteOfDay - (16 * 60 + 50)) / 300;
         const candidateWeighted = candidate.score + candidate.closeSignature.score - Math.abs(candidate.minuteOfDay - (16 * 60 + 50)) / 300;
         return candidateWeighted > bestWeighted ? candidate : best;
-      }).timestamp;
+      });
+      close = officeCloseEventTime(day, closeCandidate.timestamp, scales);
     } else if (evening.length) {
       close = evening.reduce((best, candidate) => {
         const targetMinute = room === "OFFICE" ? 16 * 60 + 50 : 17 * 60;
