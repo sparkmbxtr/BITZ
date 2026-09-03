@@ -1064,6 +1064,7 @@ export default function Home() {
 
   return (
     <main className="wallboard" data-password-verifier={passwordVerifierReady === false ? "invalid" : passwordVerifierReady === true ? "ready" : "checking"}>
+      <a href="/api/airq?export=1" download="airq-dashboard-data.json" hidden aria-hidden="true" data-testid="data-export">Export current samples</a>
       <header className="wallboard-header">
         <div className="identity"><strong>BITZ LAB AIR MONITORING</strong><span>LIVE READINGS · 24-HOUR HISTORY · LATEST 60-MINUTE ANALYSIS</span></div>
         <div className="header-state" aria-live="polite">
