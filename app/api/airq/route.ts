@@ -40,12 +40,18 @@ type OutdoorSample = {
   humidity: number | null;
 };
 
+type OutdoorParticleSample = {
+  timestamp: number;
+  pm25: number | null;
+};
+
 type OutdoorData = {
   location: "Oberschneiding";
   source: "DWD via Bright Sky";
   station: string | null;
   samples: OutdoorSample[];
   latest: OutdoorSample | null;
+  particleLatest: OutdoorParticleSample | null;
 };
 
 const API_ROOT = "https://air-q-cloud.de/open_api/v3";
@@ -53,6 +59,7 @@ const HISTORY_HOURS = 24;
 const MAX_EXPORT_HOURS = 48;
 const ANALYSIS_MINUTES = 60;
 const BRIGHT_SKY_ROOT = "https://api.brightsky.dev";
+const OPEN_METEO_AIR_ROOT = "https://air-quality-api.open-meteo.com/v1/air-quality";
 const OBERSCHNEIDING_LATITUDE = "48.7957";
 const OBERSCHNEIDING_LONGITUDE = "12.6420";
 const OUTDOOR_CACHE_MS = 10 * 60_000;
@@ -693,6 +700,18 @@ async function weatherPayload(url: URL) {
   return response.json().catch(() => null);
 }
 
+function openMeteoParticle(payload: unknown): OutdoorParticleSample | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const current = (payload as RawRecord).current;
+  if (!current || typeof current !== "object" || Array.isArray(current)) return null;
+  const record = current as RawRecord;
+  const rawTime = record.time;
+  if (typeof rawTime !== "string") return null;
+  const timestamp = Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(rawTime) ? rawTime : `${rawTime}Z`);
+  if (!Number.isFinite(timestamp)) return null;
+  return { timestamp, pm25: numberValue(record, "pm2_5") };
+}
+
 async function fetchOutdoor(range: TimeRange): Promise<OutdoorData | null> {
   const now = Date.now();
   if (!range.exact && outdoorCache && outdoorCache.expiresAt > now) return outdoorCache.data;
@@ -708,9 +727,16 @@ async function fetchOutdoor(range: TimeRange): Promise<OutdoorData | null> {
   currentUrl.searchParams.set("lat", OBERSCHNEIDING_LATITUDE);
   currentUrl.searchParams.set("lon", OBERSCHNEIDING_LONGITUDE);
 
-  const [historyPayload, currentPayload] = await Promise.all([
+  const airQualityUrl = new URL(OPEN_METEO_AIR_ROOT);
+  airQualityUrl.searchParams.set("latitude", OBERSCHNEIDING_LATITUDE);
+  airQualityUrl.searchParams.set("longitude", OBERSCHNEIDING_LONGITUDE);
+  airQualityUrl.searchParams.set("current", "pm2_5");
+  airQualityUrl.searchParams.set("timezone", "UTC");
+
+  const [historyPayload, currentPayload, airQualityPayload] = await Promise.all([
     weatherPayload(historyUrl),
     range.exact ? Promise.resolve(null) : weatherPayload(currentUrl),
+    range.exact ? Promise.resolve(null) : weatherPayload(airQualityUrl),
   ]);
   const payloads = [historyPayload, currentPayload].filter((payload) => payload !== null);
   const samples = payloads
@@ -732,6 +758,7 @@ async function fetchOutdoor(range: TimeRange): Promise<OutdoorData | null> {
     station,
     samples,
     latest: samples.at(-1) ?? null,
+    particleLatest: openMeteoParticle(airQualityPayload),
   };
   if (!range.exact) outdoorCache = { expiresAt: now + OUTDOOR_CACHE_MS, data };
   return data;
