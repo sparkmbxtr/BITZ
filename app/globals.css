@@ -581,7 +581,7 @@ html[data-dashboard-fullscreen="true"] body {
 .wallboard-fullscreen .office-heading { min-height: 46px; align-items: center; }
 .wallboard-fullscreen .room-titleline { flex-wrap: nowrap; }
 .wallboard-fullscreen .room-heading h1 { max-width: none; white-space: nowrap; overflow-wrap: normal; font-size: 2.5rem; }
-.wallboard-fullscreen .office-heading h2 { max-width: none; white-space: nowrap; overflow-wrap: normal; font-size: 1.65rem; }
+.wallboard-fullscreen .office-heading h2 { max-width: none; white-space: nowrap; overflow-wrap: normal; font-size: 1.4rem; }
 .wallboard-fullscreen .traffic-light { height: 38px; padding: 7px 9px; }
 .wallboard-fullscreen .traffic-light span { width: 22px; height: 22px; }
 .wallboard-fullscreen .office-heading .traffic-light { height: 32px; padding: 6px 7px; }
