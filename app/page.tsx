@@ -136,6 +136,16 @@ function berlinClock(timestamp: number) {
   }).format(timestamp);
 }
 
+function berlinAxisLabel(timestamp: number) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(timestamp).replace(",", "");
+}
+
 function latestValue(samples: Sample[], selector: (sample: Sample) => number | null) {
   for (let index = samples.length - 1; index >= 0; index -= 1) {
     const value = selector(samples[index]);
@@ -315,33 +325,53 @@ function HistoryTrend({
       else result.push({ ...item });
       return result;
     }, []);
+    const ticks = Array.from({ length: 5 }, (_, index) => {
+      const ratio = index / 4;
+      const timestamp = start + (end - start) * ratio;
+      return { x: ratio * 100, label: berlinAxisLabel(timestamp) };
+    });
     return {
       primary: build(primary),
       secondary: build(secondary),
       zones,
+      ticks,
       recentBoundary: Math.max(0, ((recentStart - start) / timeRange) * 100),
     };
   }, [samples, primary, secondary, analysisMinutes, levelFor]);
 
   return (
     <div className="trend-chart">
-      <svg className="trend-svg" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={label}>
-        {geometry.zones.map((zone, index) => <rect key={`${zone.from}-${index}`} x={zone.from} y="2" width={Math.max(zone.to - zone.from, .1)} height="24" className={`trend-zone zone-${zone.level}`} />)}
-        <line x1="0" y1="25" x2="100" y2="25" className="trend-grid" />
-        <rect x={geometry.recentBoundary} y="3" width={100 - geometry.recentBoundary} height="23" className="recent-window" />
-        {geometry.secondary.all ? <path d={geometry.secondary.all} className="trend-secondary trend-history" /> : null}
-        {geometry.primary.all ? <path d={geometry.primary.all} className="trend-primary trend-history" /> : null}
-        {geometry.secondary.recent ? <path d={geometry.secondary.recent} className="trend-secondary trend-recent" /> : null}
-        {geometry.primary.recent ? <path d={geometry.primary.recent} className="trend-primary trend-recent" /> : null}
-      </svg>
-      {geometry.primary.current ? (
-        <span
-          className="current-point"
-          aria-hidden="true"
-          style={{ left: `${geometry.primary.current.x}%`, top: `${(geometry.primary.current.y / 30) * 100}%` }}
-        />
-      ) : null}
-      {geometry.primary.count < 2 && noSeriesLabel ? <div className="trend-last-valid">{noSeriesLabel}</div> : null}
+      <div className="trend-plot">
+        <svg className="trend-svg" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={`${label}; x axis is Europe/Berlin local time`}>
+          {geometry.zones.map((zone, index) => <rect key={`${zone.from}-${index}`} x={zone.from} y="2" width={Math.max(zone.to - zone.from, .1)} height="24" className={`trend-zone zone-${zone.level}`} />)}
+          {geometry.ticks.map((tick, index) => <line key={`tick-${index}`} x1={tick.x} y1="2" x2={tick.x} y2="26" className="trend-time-grid" />)}
+          <line x1="0" y1="25" x2="100" y2="25" className="trend-grid" />
+          <rect x={geometry.recentBoundary} y="3" width={100 - geometry.recentBoundary} height="23" className="recent-window" />
+          {geometry.secondary.all ? <path d={geometry.secondary.all} className="trend-secondary trend-history" /> : null}
+          {geometry.primary.all ? <path d={geometry.primary.all} className="trend-primary trend-history" /> : null}
+          {geometry.secondary.recent ? <path d={geometry.secondary.recent} className="trend-secondary trend-recent" /> : null}
+          {geometry.primary.recent ? <path d={geometry.primary.recent} className="trend-primary trend-recent" /> : null}
+        </svg>
+        {geometry.primary.current ? (
+          <span
+            className="current-point"
+            aria-hidden="true"
+            style={{ left: `${geometry.primary.current.x}%`, top: `${(geometry.primary.current.y / 30) * 100}%` }}
+          />
+        ) : null}
+        {geometry.primary.count < 2 && noSeriesLabel ? <div className="trend-last-valid">{noSeriesLabel}</div> : null}
+      </div>
+      <div className="time-axis" aria-label="Europe/Berlin local time">
+        {geometry.ticks.map((tick, index) => (
+          <span
+            key={`axis-${index}`}
+            className={index === 0 ? "axis-first" : index === geometry.ticks.length - 1 ? "axis-last" : ""}
+            style={{ left: `${tick.x}%` }}
+          >
+            {tick.label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
