@@ -56,8 +56,9 @@ type ActivityCycle = {
   begin: number | null;
   close: number | null;
   end: number | null;
+  peopleRange: string | null;
 };
-type ActivityEvent = { timestamp: number; label: "BEGIN" | "CLOSE"; x: number };
+type ActivityEvent = { timestamp: number; label: "BEGIN" | "CLOSE"; x: number; peopleRange: string | null };
 
 // Keep the server and first client render identical. Live timestamps replace this
 // deterministic preview anchor immediately after hydration when the feed is set.
@@ -260,6 +261,41 @@ function transitionScore(
   return { changed, score };
 }
 
+function approximatePeopleAfterBegin(
+  samples: Sample[],
+  begin: number,
+  baselineCentres: Map<ActivitySignal["key"], number>,
+) {
+  const end = begin + 60 * 60_000;
+  const hour = samples.filter((sample) => sample.timestamp >= begin && sample.timestamp <= end);
+  if (!hour.length || (hour.at(-1)?.timestamp ?? 0) < begin + 50 * 60_000) return null;
+
+  const co2Signal = ACTIVITY_SIGNALS.find((signal) => signal.key === "co2")!;
+  const humiditySignal = ACTIVITY_SIGNALS.find((signal) => signal.key === "humidityAbs")!;
+  const soundSignal = ACTIVITY_SIGNALS.find((signal) => signal.key === "sound")!;
+  const co2Start = median(valuesBetween(hour, co2Signal, begin, begin + 12 * 60_000));
+  const co2End = median(valuesBetween(hour, co2Signal, end - 12 * 60_000, end));
+  if (co2Start === null || co2End === null) return null;
+
+  const humidityStart = median(valuesBetween(hour, humiditySignal, begin, begin + 12 * 60_000));
+  const humidityEnd = median(valuesBetween(hour, humiditySignal, end - 12 * 60_000, end));
+  const soundHour = median(valuesBetween(hour, soundSignal, begin, end));
+  const soundBaseline = baselineCentres.get("sound");
+  const co2Rise = Math.max(0, co2End - co2Start);
+
+  // Initial exploratory range: CO₂ supplies the main signal; absolute humidity
+  // and occupied-period sound only widen/support the range. Room volume and
+  // measured air exchange can replace this coarse calibration later.
+  let centre = Math.max(0, (co2Rise - 10) / 45);
+  if (humidityStart !== null && humidityEnd !== null && humidityEnd - humidityStart > .12) centre += .55;
+  if (soundHour !== null && soundBaseline !== undefined && soundHour - soundBaseline > 2.5) centre += .75;
+
+  if (centre < .75) return "0–1";
+  const low = Math.max(1, Math.min(12, Math.floor(centre * .65)));
+  const high = Math.max(low + 1, Math.min(12, Math.ceil(centre * 1.55)));
+  return String(low) + "–" + String(high);
+}
+
 function activityCycles(samples: Sample[]) {
   const cached = activityCycleCache.get(samples);
   if (cached) return cached;
@@ -295,25 +331,29 @@ function activityCycles(samples: Sample[]) {
       ...transitionScore(day, sample.timestamp, scales),
     }));
 
-    const morning = candidates.filter((candidate) =>
+    const morningWindow = candidates.filter((candidate) =>
       candidate.minuteOfDay >= 6 * 60 + 30 &&
-      candidate.minuteOfDay <= 10 * 60 + 30 &&
-      candidate.changed >= 3 &&
-      candidate.score >= 3.4
+      candidate.minuteOfDay <= 10 * 60 + 30
     );
+    const strictMorning = morningWindow.filter((candidate) => candidate.changed >= 3 && candidate.score >= 3.4);
+    const morning = strictMorning.length
+      ? strictMorning
+      : morningWindow.filter((candidate) => candidate.changed >= 2 && candidate.score >= 2.25);
     let begin: number | null = null;
     if (morning.length) {
       const firstEpisode = morning.filter((candidate) => candidate.timestamp <= morning[0].timestamp + 20 * 60_000);
       begin = firstEpisode.reduce((best, candidate) => candidate.score > best.score ? candidate : best).timestamp;
     }
 
-    const evening = candidates.filter((candidate) =>
+    const eveningWindow = candidates.filter((candidate) =>
       candidate.minuteOfDay >= 15 * 60 + 30 &&
       candidate.minuteOfDay <= 19 * 60 + 30 &&
-      (!begin || candidate.timestamp >= begin + 4 * 60 * 60_000) &&
-      candidate.changed >= 3 &&
-      candidate.score >= 3.4
+      (!begin || candidate.timestamp >= begin + 4 * 60 * 60_000)
     );
+    const strictEvening = eveningWindow.filter((candidate) => candidate.changed >= 3 && candidate.score >= 3.4);
+    const evening = strictEvening.length
+      ? strictEvening
+      : eveningWindow.filter((candidate) => candidate.changed >= 2 && candidate.score >= 2.25);
     let close: number | null = null;
     if (evening.length) {
       close = evening.reduce((best, candidate) => {
@@ -359,7 +399,8 @@ function activityCycles(samples: Sample[]) {
       }
     }
 
-    if (begin || close || end) cycles.push({ dayKey, begin, close, end });
+    const peopleRange = begin ? approximatePeopleAfterBegin(day, begin, centres) : null;
+    if (begin || close || end) cycles.push({ dayKey, begin, close, end, peopleRange });
   }
 
   activityCycleCache.set(samples, cycles);
@@ -555,8 +596,8 @@ function HistoryTrend({
     }, []);
     const ticks = roundedTimeTicks(start, end);
     const events: ActivityEvent[] = activityCycles(samples).flatMap((cycle) => [
-      ...(cycle.begin ? [{ timestamp: cycle.begin, label: "BEGIN" as const }] : []),
-      ...(cycle.close ? [{ timestamp: cycle.close, label: "CLOSE" as const }] : []),
+      ...(cycle.begin ? [{ timestamp: cycle.begin, label: "BEGIN" as const, peopleRange: cycle.peopleRange }] : []),
+      ...(cycle.close ? [{ timestamp: cycle.close, label: "CLOSE" as const, peopleRange: null }] : []),
     ]).filter((event) => event.timestamp >= start && event.timestamp <= end)
       .map((event) => ({ ...event, x: ((event.timestamp - start) / timeRange) * 100 }));
     return {
@@ -589,7 +630,7 @@ function HistoryTrend({
             className={`activity-event-label activity-${event.label.toLowerCase()}`}
             style={{ left: `${Math.min(95, Math.max(5, event.x))}%` }}
             title={event.label === "BEGIN" ? `DAY BEGINS ${berlinShortTime(event.timestamp)}` : "Coordinated late-day transition"}
-          >{event.label}</span>
+          >{event.label}{event.label === "BEGIN" && event.peopleRange ? ` · ≈${event.peopleRange}` : ""}</span>
         ))}
         {geometry.primary.current ? (
           <span
