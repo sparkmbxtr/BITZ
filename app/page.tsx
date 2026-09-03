@@ -231,6 +231,11 @@ function berlinCalendar(timestamp: number) {
   };
 }
 
+function beganWording(beginTimestamp: number, latestTimestamp: number | null | undefined, currentDayWording: "TODAY BEGAN" | "DAY BEGAN") {
+  if (latestTimestamp && berlinCalendar(beginTimestamp).dayKey !== berlinCalendar(latestTimestamp).dayKey) return "YESTERDAY BEGAN";
+  return currentDayWording;
+}
+
 function berlinShortTime(timestamp: number) {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Berlin",
@@ -896,30 +901,24 @@ function HistoryTrend({
         scale: { min, max },
       };
     }
-    function differenceBands(
-      selector: (sample: Sample) => number | null,
+    function referenceArea(
       referenceSelector: ((sample: OutdoorSample) => number | null) | undefined,
       scale: { min: number; max: number } | null,
     ) {
-      if (!climateReference || !referenceSelector || !scale) return [];
+      if (!climateReference || !referenceSelector || !scale) return "";
       const valueRange = scale.max - scale.min || 1;
-      return samples.flatMap((sample, index) => {
-        const indoor = selector(sample);
+      const points = samples.flatMap((sample) => {
         const outdoor = outdoorValueAt(climateReference.samples, referenceSelector, sample.timestamp);
-        if (indoor === null || outdoor === null || !Number.isFinite(indoor) || !Number.isFinite(outdoor)) return [];
-        const x = ((sample.timestamp - start) / timeRange) * 100;
-        const previousX = index === 0 ? 0 : ((samples[index - 1].timestamp - start) / timeRange) * 100;
-        const nextX = index === samples.length - 1 ? 100 : ((samples[index + 1].timestamp - start) / timeRange) * 100;
-        const indoorY = 25 - ((indoor - scale.min) / valueRange) * 18;
-        const outdoorY = 25 - ((outdoor - scale.min) / valueRange) * 18;
+        if (outdoor === null || !Number.isFinite(outdoor)) return [];
         return [{
-          from: index === 0 ? 0 : (previousX + x) / 2,
-          to: index === samples.length - 1 ? 100 : (x + nextX) / 2,
-          y: Math.min(indoorY, outdoorY),
-          height: Math.max(Math.abs(indoorY - outdoorY), .12),
-          direction: indoor >= outdoor ? "above" as const : "below" as const,
+          x: ((sample.timestamp - start) / timeRange) * 100,
+          y: 25 - ((outdoor - scale.min) / valueRange) * 18,
         }];
       });
+      if (points.length < 2) return "";
+      const first = points[0];
+      const last = points.at(-1)!;
+      return `M${first.x.toFixed(2)},25 L${points.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" L")} L${last.x.toFixed(2)},25 Z`;
     }
     const timeRange = Math.max(end - start, 1);
     const graded = samples.map((sample, index) => {
@@ -949,8 +948,8 @@ function HistoryTrend({
     return {
       primary: primaryGeometry,
       secondary: secondaryGeometry,
-      primaryBands: differenceBands(primary, climateReference?.primary, primaryGeometry.scale),
-      secondaryBands: secondary ? differenceBands(secondary, climateReference?.secondary, secondaryGeometry.scale) : [],
+      primaryReferenceArea: referenceArea(climateReference?.primary, primaryGeometry.scale),
+      secondaryReferenceArea: secondary ? referenceArea(climateReference?.secondary, secondaryGeometry.scale) : "",
       zones,
       ticks,
       events,
@@ -963,13 +962,13 @@ function HistoryTrend({
   const axisLayout = showPrimaryAxis ? (showSecondaryAxis ? "trend-chart-with-axes" : "trend-chart-with-left-axis") : "";
 
   return (
-    <div className={`trend-chart ${axisLayout}`}>
+    <div className={`trend-chart ${axisLayout} ${climateReference ? "trend-chart-climate" : ""}`}>
       {showPrimaryAxis ? <TrendScale scale={geometry.primary.scale} unit={primaryUnit!} side="primary" /> : null}
       <div className="trend-plot">
         <svg className="trend-svg" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={`${label}; x axis is Europe/Berlin local time`}>
           {geometry.zones.map((zone, index) => <rect key={`${zone.from}-${index}`} x={zone.from} y="2" width={Math.max(zone.to - zone.from, .1)} height="24" className={`trend-zone zone-${zone.level}`} />)}
-          {geometry.primaryBands.map((band, index) => <rect key={`primary-band-${index}`} x={band.from} y={band.y} width={Math.max(band.to - band.from, .08)} height={band.height} className={`climate-difference climate-primary climate-${band.direction}`} />)}
-          {geometry.secondaryBands.map((band, index) => <rect key={`secondary-band-${index}`} x={band.from} y={band.y} width={Math.max(band.to - band.from, .08)} height={band.height} className={`climate-difference climate-secondary climate-${band.direction}`} />)}
+          {geometry.primaryReferenceArea ? <path d={geometry.primaryReferenceArea} className="outdoor-reference-area outdoor-primary" /> : null}
+          {geometry.secondaryReferenceArea ? <path d={geometry.secondaryReferenceArea} className="outdoor-reference-area outdoor-secondary" /> : null}
           {showPrimaryAxis ? [7, 16, 25].map((y) => <line key={`y-grid-${y}`} x1="0" y1={y} x2="100" y2={y} className="trend-y-grid" />) : null}
           {geometry.ticks.map((tick, index) => <line key={`tick-${index}`} x1={tick.x} y1="2" x2={tick.x} y2="26" className="trend-time-grid" />)}
           {geometry.events.map((event, index) => <line key={`event-${event.label}-${index}`} x1={event.x} y1="2" x2={event.x} y2="26" className={`activity-time-grid activity-${event.label.toLowerCase()}`} />)}
@@ -987,7 +986,7 @@ function HistoryTrend({
             style={{ left: `${event.label === "CLOSE" ? Math.min(98, Math.max(5, event.x)) : Math.min(95, Math.max(5, event.x))}%` }}
             title={
               event.label === "BEGIN"
-                ? `${room === "LAB" && labPmGrade(pmBalanceObservation(samples)?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN"} ${berlinShortTime(event.timestamp)}`
+                ? `${beganWording(event.timestamp, samples.at(-1)?.timestamp, room === "LAB" && labPmGrade(pmBalanceObservation(samples)?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")} ${berlinShortTime(event.timestamp)}`
                 : room === "OFFICE"
                   ? `CLOSE ${berlinShortTime(event.timestamp)} · sustained TVOC-rise onset with departure support`
                   : `CLOSE ${berlinShortTime(event.timestamp)} · coordinated late-day transition`
@@ -1483,11 +1482,13 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   const latest = room.latest;
   const pmObservation = pmBalanceObservation(room.samples);
   const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
-  const beginWording = currentParticleAvailable && labPmGrade(pmObservation?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN";
   const outdoorLatest = outdoor?.latest ?? null;
   const hepa = hepaAssessment(room.samples, latest);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
   const cycle = latestCycle(room.samples, "LAB");
+  const beginWording = cycle?.begin
+    ? beganWording(cycle.begin, latest?.timestamp, currentParticleAvailable && labPmGrade(pmObservation?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")
+    : "DAY BEGAN";
   const routineClosed = Boolean(cycle?.close && latest && latest.timestamp >= cycle.close && room.status !== "action" && room.status !== "unknown");
   const evidenceOrder = ["Propane-associated pattern", "Nitrogen (N₂) displacement pattern", "CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
   const evidenceLabels: Record<string, string> = {
@@ -1539,8 +1540,8 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
         <Metric label="PM₁" value={`${fmt(latest?.pm1, 1)} µg/m³`} note="measured fine-particle channel" grade={labPmGrade(latest?.pm1 ?? null)} />
         <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} note="measured fine-particle channel" grade={labPmGrade(latest?.pm25 ?? null)} />
         <Metric label="Oxygen" value={`${fmt(latest?.oxygen, 2)}%`} note="displacement proxy" grade={oxygenGrade(latest?.oxygen ?? null)} />
-        <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="LAB thermal band" grade={temperatureGrade(latest?.temperature ?? null, "LAB")} />
-        <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} note="humidity band" grade={humidityGrade(latest?.humidity ?? null)} />
+        <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} comparison={outdoorLatest?.temperature !== null && outdoorLatest?.temperature !== undefined ? `${fmt(outdoorLatest.temperature, 1)}°C` : undefined} note="LAB thermal band" grade={temperatureGrade(latest?.temperature ?? null, "LAB")} />
+        <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} comparison={outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined ? `${fmt(outdoorLatest.humidity)}%` : undefined} note="humidity band" grade={humidityGrade(latest?.humidity ?? null)} />
       </div>
       <div className="evidence-layout">
         <section className="evidence-panel" aria-labelledby="evidence-heading">
@@ -1587,14 +1588,14 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   );
 }
 
-function Metric({ label, value, note, grade }: { label: string; value: string; note: string; grade: Grade }) {
-  return <article className={`metric metric-${grade.level}`} title={`${label}: ${value} — ${grade.label}. ${note}`}><div className="metric-label"><span>{label}</span></div><strong>{value}</strong><div className="metric-foot"><b className={`grade-word grade-${grade.level}`}><i />{grade.label}</b></div></article>;
+function Metric({ label, value, comparison, note, grade }: { label: string; value: string; comparison?: string; note: string; grade: Grade }) {
+  return <article className={`metric metric-${grade.level}`} title={`${label}: ${value} — ${grade.label}. ${note}${comparison ? ` Outdoor: ${comparison}.` : ""}`}><div className="metric-label"><span>{label}</span></div><div className={`metric-value-line ${comparison ? "has-comparison" : ""}`}><strong>{value}</strong>{comparison ? <span className="metric-comparison"><small>OUT</small> {comparison}</span> : null}</div><div className="metric-foot"><b className={`grade-word grade-${grade.level}`}><i />{grade.label}</b></div></article>;
 }
 
 function TrendRow({ label, primaryUnit, secondaryUnit, samples, primary, secondary, gradeFor, climateReference, analysisMinutes, reading }: { label: string; primaryUnit: string; secondaryUnit?: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary?: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; climateReference?: ClimateReference; analysisMinutes: number; reading?: string }) {
   const grade = gradeFor(latestValue(samples, primary));
   const [primaryLabel, secondaryLabel] = label.split(" / ", 2);
-  return <div className={`trend-row trend-row-${grade.level}`}><strong className="trend-series-label"><span className="trend-series-key trend-label-primary"><span>{primaryLabel}</span><small>{primaryUnit}</small></span>{secondaryLabel ? <><span className="trend-label-separator" aria-hidden="true" /><span className="trend-series-key trend-label-secondary"><span>{secondaryLabel}</span><small>{secondaryUnit}</small></span></> : null}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} primaryUnit={primaryUnit} secondaryUnit={secondaryUnit} levelFor={gradeFor} climateReference={climateReference} label={climateReference ? `${label} across 24 hours; indoor lines with cyan/amber fill showing whether indoor conditions are below or above the outdoor reference` : `${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} room="LAB" /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}{climateReference ? <small className="climate-fill-key">CYAN BELOW · AMBER ABOVE</small> : null}</span></div>;
+  return <div className={`trend-row trend-row-${grade.level}`}><strong className="trend-series-label"><span className="trend-series-key trend-label-primary"><span>{primaryLabel}</span><small>{primaryUnit}</small></span>{secondaryLabel ? <><span className="trend-label-separator" aria-hidden="true" /><span className="trend-series-key trend-label-secondary"><span>{secondaryLabel}</span><small>{secondaryUnit}</small></span></> : null}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} primaryUnit={primaryUnit} secondaryUnit={secondaryUnit} levelFor={gradeFor} climateReference={climateReference} label={climateReference ? `${label} across 24 hours; strong lines are indoor measurements and faint area fills rise from the x axis to the outdoor references` : `${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} room="LAB" /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}{climateReference ? <small className="climate-fill-key">PALE FILL = OUTDOOR</small> : null}</span></div>;
 }
 
 function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoor: OutdoorData | null; analysisMinutes: number }) {
@@ -1605,11 +1606,13 @@ function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoo
   const pmAge = currentParticleAvailable && pmObservation ? ageLabel(pmObservation.timestamp, latest?.timestamp) : "";
   const actionLabel = room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK";
   const cycle = latestCycle(room.samples, "OFFICE");
+  const beginWording = cycle?.begin ? beganWording(cycle.begin, latest?.timestamp, "DAY BEGAN") : "DAY BEGAN";
+  const outdoorLatest = outdoor?.latest ?? null;
   const visibleChecks = room.checks.filter((check) => ["CO release", "O₂ displacement", "Volatile-gas pattern", "Sound peak >90 dB"].includes(check.label));
   return (
     <aside className="office-rail" aria-labelledby="office-heading">
       <div className="office-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h2 id="office-heading">OFFICE</h2></div></div>
-      <div className={`office-state overall-${room.status}`}><LevelMark status={room.status} /><div><strong>{room.statusLabel}</strong><span>{room.checks.filter((check) => check.level === "normal").length}/{room.checks.length} checks clear</span>{cycle?.begin ? <span className="cycle-begin-stamp">DAY BEGAN {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div></div>
+      <div className={`office-state overall-${room.status}`}><LevelMark status={room.status} /><div><strong>{room.statusLabel}</strong><span>{room.checks.filter((check) => check.level === "normal").length}/{room.checks.length} checks clear</span>{cycle?.begin ? <span className="cycle-begin-stamp">{beginWording} {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div></div>
       <div className="office-metrics">
         <Metric label="Health" value={fmt(latest?.health)} note="air-Q index" grade={indexGrade(latest?.health ?? null)} />
         <Metric label="Performance" value={fmt(latest?.performance)} note="air-Q index" grade={indexGrade(latest?.performance ?? null)} />
@@ -1617,8 +1620,8 @@ function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoo
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="vapour pattern" grade={tvocGrade(latest?.tvoc ?? null)} />
         {currentParticleAvailable && pmObservation
           ? <Metric label="PM balance" value={`${fmt(pmValue, 1)} µg/m³`} note={`COMPUTED · 4 CHANNELS · ${pmAge}`} grade={officePmGrade(pmValue)} />
-          : <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} note="OFFICE humidity band" grade={humidityGrade(latest?.humidity ?? null)} />}
-        <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="OFFICE thermal band" grade={temperatureGrade(latest?.temperature ?? null, "OFFICE")} />
+          : <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} comparison={outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined ? `${fmt(outdoorLatest.humidity)}%` : undefined} note="OFFICE humidity band" grade={humidityGrade(latest?.humidity ?? null)} />}
+        <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} comparison={outdoorLatest?.temperature !== null && outdoorLatest?.temperature !== undefined ? `${fmt(outdoorLatest.temperature, 1)}°C` : undefined} note="OFFICE thermal band" grade={temperatureGrade(latest?.temperature ?? null, "OFFICE")} />
       </div>
       <section className="office-trends" aria-label="OFFICE 24-hour compact trends">
         <div className="office-trend-title"><strong>24-hour colour history</strong></div>
@@ -1653,7 +1656,7 @@ function OfficeClimateTrend({ room, outdoor, analysisMinutes }: { room: RoomData
       <div className="office-climate-heading">
         <strong className="office-series-name office-series-pair"><span className="trend-label-primary">Temperature<small>°C</small></span><i aria-hidden="true" /><span className="trend-label-secondary">rel. humidity<small>% RH</small></span></strong>
         <span><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b> {fmt(latest?.temperature, 1)}°C · {fmt(latest?.humidity)}%</span>
-        {outdoorLatest ? <small className="climate-outdoor-reading">OUTDOOR {fmt(outdoorLatest.temperature, 1)}°C · {fmt(outdoorLatest.humidity)}% RH · CYAN BELOW / AMBER ABOVE</small> : null}
+        {outdoorLatest ? <small className="climate-outdoor-reading">OUTDOOR {fmt(outdoorLatest.temperature, 1)}°C · {fmt(outdoorLatest.humidity)}% RH · PALE FILL</small> : null}
       </div>
       <HistoryTrend
         samples={room.samples}
@@ -1663,7 +1666,7 @@ function OfficeClimateTrend({ room, outdoor, analysisMinutes }: { room: RoomData
         secondaryUnit="% RH"
         levelFor={(value) => temperatureGrade(value, "OFFICE")}
         climateReference={outdoor ? { samples: outdoor.samples, primary: (sample) => sample.temperature, secondary: (sample) => sample.humidity } : undefined}
-        label="OFFICE temperature and relative humidity across 24 hours; indoor lines with cyan/amber fill showing whether indoor conditions are below or above the outdoor reference"
+        label="OFFICE temperature and relative humidity across 24 hours; strong lines are indoor measurements and faint area fills rise from the x axis to the outdoor references"
         analysisMinutes={analysisMinutes}
         room="OFFICE"
       />
