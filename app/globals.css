@@ -213,7 +213,7 @@ button, input { font: inherit; }
 line.activity-begin { stroke: var(--teal); }
 line.activity-close { stroke: var(--amber); }
 .activity-event-label { position: absolute; top: 3px; z-index: 3; transform: translateX(-50%); padding: 2px 5px; border: 1px solid currentColor; border-radius: 3px; color: var(--teal); background: rgba(4, 20, 23, .92); font-size: clamp(.5rem, min(.48vw, .9vh), .66rem); font-weight: 880; line-height: 1; letter-spacing: .045em; pointer-events: none; }
-.activity-event-label.activity-close { color: var(--amber); transform: translateX(-100%); }
+.activity-event-label.activity-close { color: var(--amber); transform: translateX(-50%); }
 .recent-window { fill: rgba(81, 210, 202, .09); }
 .trend-primary, .trend-secondary { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
 .trend-primary { stroke: var(--cyan); stroke-width: 1.5; }
