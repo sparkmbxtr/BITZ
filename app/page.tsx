@@ -95,10 +95,10 @@ function demoRoom(name: "LAB" | "OFFICE"): RoomData {
     latest: samples.at(-1) ?? null,
     occupancy: { label: lab ? "2–4 likely" : "1–3 likely", confidence: "medium confidence" },
     summary: lab
-      ? "Routine occupancy is plausible. An earlier vapour response is returning toward the LAB reference without a particle plume."
+      ? "An earlier vapour response is returning toward the LAB reference without a particle rise."
       : "A gentle CO₂ rise with stable PM is consistent with light occupancy; no unusual outdoor-air pattern is visible.",
     action: lab
-      ? "None now. Verify hood or process state only if TVOC reverses upward or remains elevated for another 30 minutes."
+      ? "Keep monitoring. Check the hood or process only if TVOC reverses or remains elevated for 30 minutes."
       : "None now. Reassess if CO₂ and VOC rise together or PM enters with a ventilation change.",
     checks: [
       { label: "CO release", method: "DIRECT", status: "NO ELEVATION", level: "normal" },
@@ -135,8 +135,35 @@ function latestValue(samples: Sample[], selector: (sample: Sample) => number | n
   return null;
 }
 
+function latestObservation(samples: Sample[], selector: (sample: Sample) => number | null) {
+  for (let index = samples.length - 1; index >= 0; index -= 1) {
+    const value = selector(samples[index]);
+    if (value !== null && Number.isFinite(value)) return { value, timestamp: samples[index].timestamp };
+  }
+  return null;
+}
+
 function particleValue(sample: Sample) {
   return sample.pm25 ?? sample.pm10 ?? sample.pm1;
+}
+
+function particleObservation(samples: Sample[]) {
+  for (let index = samples.length - 1; index >= 0; index -= 1) {
+    const sample = samples[index];
+    if (sample.pm25 !== null) return { value: sample.pm25, timestamp: sample.timestamp, channel: "PM₂.₅" };
+    if (sample.pm10 !== null) return { value: sample.pm10, timestamp: sample.timestamp, channel: "PM₁₀" };
+    if (sample.pm1 !== null) return { value: sample.pm1, timestamp: sample.timestamp, channel: "PM₁" };
+  }
+  return null;
+}
+
+function ageLabel(timestamp: number, newestTimestamp: number | null | undefined) {
+  if (!newestTimestamp) return "LAST VALID";
+  const minutes = Math.max(0, Math.round((newestTimestamp - timestamp) / 60_000));
+  if (minutes <= 5) return "CURRENT SAMPLE";
+  if (minutes < 60) return `LAST VALID · ${minutes} MIN EARLIER`;
+  const hours = Math.round(minutes / 60);
+  return `LAST VALID · ${hours} H EARLIER`;
 }
 
 function indexGrade(value: number | null): Grade {
@@ -223,6 +250,7 @@ function HistoryTrend({
   label,
   levelFor,
   analysisMinutes = 60,
+  noSeriesLabel,
 }: {
   samples: Sample[];
   primary: (sample: Sample) => number | null;
@@ -230,15 +258,20 @@ function HistoryTrend({
   label: string;
   levelFor: (value: number | null) => Grade;
   analysisMinutes?: number;
+  noSeriesLabel?: string;
 }) {
   const geometry = useMemo(() => {
     const start = samples[0]?.timestamp ?? 0;
     const end = samples.at(-1)?.timestamp ?? start + 1;
     const recentStart = end - analysisMinutes * 60_000;
     function build(selector?: (sample: Sample) => number | null) {
-      if (!selector) return { all: "", recent: "", current: null as { x: number; y: number } | null };
+      if (!selector) return { all: "", recent: "", current: null as { x: number; y: number } | null, count: 0 };
       const values = samples.map(selector).filter((value): value is number => value !== null && Number.isFinite(value));
-      if (values.length < 2) return { all: "", recent: "", current: null };
+      if (values.length < 2) {
+        const observation = latestObservation(samples, selector);
+        const x = observation ? ((observation.timestamp - start) / Math.max(end - start, 1)) * 100 : 0;
+        return { all: "", recent: "", current: observation ? { x, y: 15 } : null, count: values.length };
+      }
       const min = Math.min(...values);
       const max = Math.max(...values);
       const allPoints = pointsFor(samples, selector, start, end, min, max);
@@ -247,6 +280,7 @@ function HistoryTrend({
         all: allPoints.map((point) => `${point.command}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "),
         recent: recentPoints.map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "),
         current: allPoints.at(-1) ?? null,
+        count: values.length,
       };
     }
     const timeRange = Math.max(end - start, 1);
@@ -275,17 +309,19 @@ function HistoryTrend({
   }, [samples, primary, secondary, analysisMinutes, levelFor]);
 
   return (
-    <svg className="trend-svg" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={label}>
-      {geometry.zones.map((zone, index) => <rect key={`${zone.from}-${index}`} x={zone.from} y="2" width={Math.max(zone.to - zone.from, .1)} height="24" className={`trend-zone zone-${zone.level}`} />)}
-      <line x1="0" y1="25" x2="100" y2="25" className="trend-grid" />
-      <line x1="0" y1="16" x2="100" y2="16" className="trend-reference" />
-      <rect x={geometry.recentBoundary} y="3" width={100 - geometry.recentBoundary} height="23" className="recent-window" />
-      {geometry.secondary.all ? <path d={geometry.secondary.all} className="trend-secondary trend-history" /> : null}
-      {geometry.primary.all ? <path d={geometry.primary.all} className="trend-primary trend-history" /> : null}
-      {geometry.secondary.recent ? <path d={geometry.secondary.recent} className="trend-secondary trend-recent" /> : null}
-      {geometry.primary.recent ? <path d={geometry.primary.recent} className="trend-primary trend-recent" /> : null}
-      {geometry.primary.current ? <circle cx={geometry.primary.current.x} cy={geometry.primary.current.y} r="2.2" className="current-point" /> : null}
-    </svg>
+    <div className="trend-chart">
+      <svg className="trend-svg" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={label}>
+        {geometry.zones.map((zone, index) => <rect key={`${zone.from}-${index}`} x={zone.from} y="2" width={Math.max(zone.to - zone.from, .1)} height="24" className={`trend-zone zone-${zone.level}`} />)}
+        <line x1="0" y1="25" x2="100" y2="25" className="trend-grid" />
+        <rect x={geometry.recentBoundary} y="3" width={100 - geometry.recentBoundary} height="23" className="recent-window" />
+        {geometry.secondary.all ? <path d={geometry.secondary.all} className="trend-secondary trend-history" /> : null}
+        {geometry.primary.all ? <path d={geometry.primary.all} className="trend-primary trend-history" /> : null}
+        {geometry.secondary.recent ? <path d={geometry.secondary.recent} className="trend-secondary trend-recent" /> : null}
+        {geometry.primary.recent ? <path d={geometry.primary.recent} className="trend-primary trend-recent" /> : null}
+        {geometry.primary.current ? <circle cx={geometry.primary.current.x} cy={geometry.primary.current.y} r="2.2" className="current-point" /> : null}
+      </svg>
+      {geometry.primary.count < 2 && noSeriesLabel ? <div className="trend-last-valid">{noSeriesLabel}</div> : null}
+    </div>
   );
 }
 
@@ -535,6 +571,12 @@ function ApiKeySetup({ checking, onConnected }: { checking: boolean; onConnected
 function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refreshing: boolean; analysisMinutes: number }) {
   const latest = room.latest;
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
+  const evidenceChecks = [...room.checks]
+    .sort((left, right) => {
+      const priority = { action: 0, watch: 1, unknown: 2, normal: 3 };
+      return priority[left.level] - priority[right.level];
+    })
+    .slice(0, 2);
   return (
     <section className="lab-panel" aria-labelledby="lab-heading">
       <div className="room-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h1 id="lab-heading">BIOENGINEERING S1 LAB</h1></div>{refreshing ? <span className="refresh-label">UPDATING</span> : null}</div>
@@ -565,7 +607,10 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
         </section>
         <aside className={`meaning-panel meaning-panel-${room.status}`} aria-labelledby="meaning-heading">
           <h2 id="meaning-heading">Meaningful action</h2>
-          <div className="meaning-copy"><strong>WHAT IT MEANS NOW</strong><p>{room.summary}</p><span>COMPUTED · MULTI-SENSOR · PAST HOUR</span></div>
+          <div className="meaning-copy"><strong>WHAT IT MEANS NOW</strong><p>{room.summary}</p><span>COMPUTED · PAST HOUR</span></div>
+          <div className="meaning-evidence" aria-label="Signals supporting the current interpretation">
+            {evidenceChecks.map((check) => <div key={check.label}><span>{check.label}</span><b className={`text-${check.level}`}>{check.status}</b></div>)}
+          </div>
           <div className={`action-copy action-${room.status}`}><strong>{room.status === "normal" ? "KEEP MONITORING" : room.status === "watch" ? "CHECK THIS NOW" : room.status === "action" ? "ACT NOW" : "CHECK DATA"}</strong><p>{room.action}</p></div>
         </aside>
       </div>
@@ -584,14 +629,13 @@ function TrendRow({ label, samples, primary, secondary, gradeFor, analysisMinute
 
 function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes: number }) {
   const latest = room.latest;
-  const pmValue = latestValue(room.samples, particleValue);
-  const officeAction = room.status === "normal"
-    ? "No action now."
-    : room.status === "watch"
-      ? "Check the highlighted source and the next trend."
-      : room.status === "action"
-        ? "Follow the room procedure now."
-        : "Check the live data connection.";
+  const pmObservation = particleObservation(room.samples);
+  const pmValue = pmObservation?.value ?? null;
+  const pmAge = pmObservation ? ageLabel(pmObservation.timestamp, latest?.timestamp) : "PM VALUE NOT RETURNED";
+  const pmDisplayGrade = pmObservation && latest && latest.timestamp - pmObservation.timestamp > 10 * 60_000
+    ? { label: "LAST VALID", level: "unknown" as const }
+    : pmGrade(pmValue);
+  const actionLabel = room.status === "normal" ? "KEEP MONITORING" : room.status === "watch" ? "CHECK THIS NOW" : room.status === "action" ? "ACT NOW" : "CHECK DATA";
   const visibleChecks = room.checks.filter((check) => ["CO release", "O₂ displacement", "Volatile-gas pattern", "Sound peak >90 dB"].includes(check.label));
   return (
     <aside className="office-rail" aria-labelledby="office-heading">
@@ -602,22 +646,26 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
         <Metric label="Performance" value={fmt(latest?.performance)} note="air-Q index" grade={indexGrade(latest?.performance ?? null)} />
         <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="vapour pattern" grade={tvocGrade(latest?.tvoc ?? null)} />
-        <Metric label="PM" value={`${fmt(pmValue, 1)} µg/m³`} note="latest PM channel" grade={pmGrade(pmValue)} />
+        <Metric label="PM" value={`${fmt(pmValue, 1)} µg/m³`} note={pmObservation ? `${pmObservation.channel} · ${pmAge}` : pmAge} grade={pmDisplayGrade} />
         <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="OFFICE thermal band" grade={temperatureGrade(latest?.temperature ?? null, "OFFICE")} />
       </div>
       <section className="office-trends" aria-label="OFFICE 24-hour compact trends">
         <div className="office-trend-title"><strong>24-hour colour history</strong></div>
         <OfficeTrend label="CO₂" value={`${fmt(latest?.co2)} ppm`} samples={room.samples} selector={(s) => s.co2} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
         <OfficeTrend label="VOC" value={`${fmt(latest?.tvoc)} ppb`} samples={room.samples} selector={(s) => s.tvoc} gradeFor={tvocGrade} analysisMinutes={analysisMinutes} />
-        <OfficeTrend label="PM" value={`${fmt(pmValue, 1)} µg/m³`} samples={room.samples} selector={particleValue} gradeFor={pmGrade} analysisMinutes={analysisMinutes} />
+        <OfficeTrend label="PM" value={`${fmt(pmValue, 1)} µg/m³`} samples={room.samples} selector={particleValue} gradeFor={pmGrade} displayGrade={pmDisplayGrade} noSeriesLabel={pmObservation ? `${pmObservation.channel} ${fmt(pmValue, 1)} µg/m³ · ${pmAge}` : pmAge} analysisMinutes={analysisMinutes} />
       </section>
       <div className="office-checks">{visibleChecks.map((check) => <div key={check.label}><span>{check.label}</span><strong className={`text-${check.level}`}>{check.status}</strong></div>)}</div>
-      <div className={`office-summary office-meaning action-${room.status}`}><strong>MEANINGFUL ACTION · {room.status === "normal" ? "KEEP MONITORING" : room.status === "watch" ? "CHECK THIS NOW" : room.status === "action" ? "ACT NOW" : "CHECK DATA"}</strong><p>{room.summary} {officeAction}</p></div>
+      <div className={`office-summary office-meaning action-${room.status}`}>
+        <strong>MEANINGFUL ACTION · {actionLabel}</strong>
+        <p className="office-action-text">{room.action}</p>
+        <small>{room.summary}</small>
+      </div>
     </aside>
   );
 }
 
-function OfficeTrend({ label, value, samples, selector, gradeFor, analysisMinutes }: { label: string; value: string; samples: Sample[]; selector: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; analysisMinutes: number }) {
-  const grade = gradeFor(latestValue(samples, selector));
-  return <div className={`office-trend-row trend-row-${grade.level}`}><div><strong>{label}</strong><span><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b> {value}</span></div><HistoryTrend samples={samples} primary={selector} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the reading`} analysisMinutes={analysisMinutes} /></div>;
+function OfficeTrend({ label, value, samples, selector, gradeFor, displayGrade, noSeriesLabel, analysisMinutes }: { label: string; value: string; samples: Sample[]; selector: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; displayGrade?: Grade; noSeriesLabel?: string; analysisMinutes: number }) {
+  const grade = displayGrade ?? gradeFor(latestValue(samples, selector));
+  return <div className={`office-trend-row trend-row-${grade.level}`}><div><strong>{label}</strong><span><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b> {value}</span></div><HistoryTrend samples={samples} primary={selector} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the reading`} noSeriesLabel={noSeriesLabel} analysisMinutes={analysisMinutes} /></div>;
 }

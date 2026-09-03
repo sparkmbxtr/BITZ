@@ -106,6 +106,23 @@ function particleValue(sample: Sample) {
   return sample.pm25 ?? sample.pm10 ?? sample.pm1;
 }
 
+function mergeSupplementalSample(history: Sample[], supplemental: Sample | null) {
+  if (!supplemental) return history;
+  const existingIndex = history.findIndex((sample) => sample.timestamp === supplemental.timestamp);
+  if (existingIndex >= 0) {
+    const existing = history[existingIndex];
+    history[existingIndex] = {
+      ...existing,
+      pm1: existing.pm1 ?? supplemental.pm1,
+      pm25: existing.pm25 ?? supplemental.pm25,
+      pm10: existing.pm10 ?? supplemental.pm10,
+    };
+    return history;
+  }
+  if (!history.length || supplemental.timestamp > history.at(-1)!.timestamp) history.push(supplemental);
+  return history;
+}
+
 function check(label: string, method: "DIRECT" | "PROXY" | "PATTERN" | "RAW" | "SYSTEM", status: string, level: Level) {
   return { label, method, status, level };
 }
@@ -207,16 +224,28 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const ventilationPattern = name === "OFFICE" && (co2Delta ?? 0) < -80 && ((pmDelta ?? 0) > 3 || (tvocDelta ?? 0) > 100);
 
   let summary = "The recent pattern is stable across the available channels.";
-  if (gasDominant && name === "LAB") summary = "A gas-dominant change without a matching particle rise supports an internal vapour, process or airflow explanation; compound identity remains unresolved.";
+  if (freshness.level !== "normal") {
+    const ageMinutes = Number.isFinite(dataAge) ? Math.max(1, Math.round(dataAge / 60_000)) : null;
+    summary = ageMinutes === null
+      ? "Current interpretation is paused because a recent validated sample is unavailable; displayed values are last known."
+      : `The newest validated sample is ${ageMinutes} minutes old; displayed values are last known, not current.`;
+  }
+  else if (gasDominant && name === "LAB") summary = "Gas channels changed without matching particles, supporting a vapour, process or airflow event; identity remains unresolved.";
   else if (ventilationPattern) summary = "Falling CO₂ with rising PM or VOC supports recent outdoor-air exchange; window state would strengthen the attribution.";
   else if (occupancyPattern) summary = "CO₂ and absolute humidity rose together, supporting an occupancy-related change rather than a single chemical event.";
   else if ((co2Delta ?? 0) > 80) summary = "CO₂ rose gradually while critical gas and particle channels stayed comparatively stable; routine occupancy is plausible.";
 
-  const action = status === "action"
-    ? "Follow the room procedure and verify the indicated source with an appropriate dedicated instrument."
-    : status === "watch"
-      ? "Check the indicated condition; persistence in the next 10–30 minutes would strengthen the need for intervention."
-      : "None now. Reassess only if the pattern reverses, persists or gains an independent corroborating channel.";
+  const flaggedLabels = checks
+    .filter((item) => item.level === "watch" || item.level === "action")
+    .map((item) => item.label.toLowerCase());
+  const flaggedText = flaggedLabels.length ? flaggedLabels.join(" and ") : "the highlighted condition";
+  const action = freshness.level !== "normal"
+    ? "Check the live connection. Treat displayed readings as last known, not current."
+    : status === "action"
+      ? `Follow the room procedure now; verify ${flaggedText} with a dedicated instrument.`
+      : status === "watch"
+        ? `Check ${flaggedText} now. Escalate if it persists 10–30 minutes or gains a second signal.`
+        : "No immediate action. Continue monitoring; reassess if a change persists or gains a second signal.";
 
   return {
     name,
@@ -237,15 +266,22 @@ async function fetchRoom(deviceId: string, apiKey: string) {
   const url = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/timerange`);
   url.searchParams.set("f", String(from));
   url.searchParams.set("t", String(to));
-  const response = await fetch(url, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" });
+  const latestUrl = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/latest`);
+  const [response, latestResponse] = await Promise.all([
+    fetch(url, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" }),
+    fetch(latestUrl, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" }).catch(() => null),
+  ]);
   if (!response.ok) throw new Error("air-Q request failed");
   const payload = await response.json();
   if (!Array.isArray(payload)) throw new Error("Unexpected air-Q response");
-  return payload
+  const history = payload
     .map((record) => normalize(record as RawRecord))
     .filter((sample): sample is Sample => sample !== null)
     .sort((a, b) => a.timestamp - b.timestamp)
     .filter((sample, index, list) => index === 0 || sample.timestamp !== list[index - 1].timestamp);
+  const latestPayload = latestResponse?.ok ? await latestResponse.json().catch(() => null) : null;
+  const supplemental = latestPayload && !Array.isArray(latestPayload) ? normalize(latestPayload as RawRecord) : null;
+  return mergeSupplementalSample(history, supplemental);
 }
 
 export async function GET(request: Request) {
