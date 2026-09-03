@@ -503,3 +503,174 @@ line.activity-close { stroke: var(--amber); }
   .metric-grid, .office-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .colour-key { width: 100%; flex-wrap: wrap; }
 }
+
+/* The Full screen control uses a fixed 1920px presentation canvas and scales
+   that canvas to the browser's actual visual viewport. This remains useful on
+   Android displays whose browser ignores the native Fullscreen API. */
+html[data-dashboard-fullscreen="true"],
+html[data-dashboard-fullscreen="true"] body {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
+.wallboard-fullscreen {
+  position: fixed;
+  z-index: 1000;
+  inset: 0 auto auto 0;
+  width: 1920px !important;
+  max-width: none !important;
+  height: var(--fullscreen-canvas-height, 1080px) !important;
+  min-height: 0 !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+  overflow: hidden !important;
+  transform: scale(var(--fullscreen-scale, 1));
+  transform-origin: top left;
+  background: radial-gradient(circle at 70% 12%, rgba(31, 110, 108, .16), transparent 28%), var(--background);
+}
+.wallboard-fullscreen[data-live="false"] { grid-template-rows: auto auto minmax(0, 1fr) auto !important; }
+.wallboard-fullscreen > * { width: 100%; max-width: 100%; min-width: 0; }
+
+.wallboard-fullscreen .wallboard-header {
+  min-height: 70px;
+  padding: 11px 18px;
+  display: flex !important;
+  grid-template-columns: none !important;
+  align-items: center !important;
+  justify-content: space-between;
+  gap: 20px !important;
+}
+.wallboard-fullscreen .identity { width: auto; flex-wrap: nowrap; gap: 16px; }
+.wallboard-fullscreen .identity strong { max-width: none; white-space: nowrap; overflow-wrap: normal; font-size: 2rem; }
+.wallboard-fullscreen .identity span { display: inline; font-size: .95rem; }
+.wallboard-fullscreen .header-state { width: auto; justify-content: flex-end; flex-wrap: nowrap; gap: 13px; white-space: nowrap; font-size: .95rem; }
+.wallboard-fullscreen .header-state > span { display: inline; }
+.wallboard-fullscreen .header-state > .connection-dot { display: block; }
+.wallboard-fullscreen .day-end-stamps { width: auto; text-align: right; }
+.wallboard-fullscreen .day-end-stamps span { display: block; }
+.wallboard-fullscreen .header-state button,
+.wallboard-fullscreen .header-state .header-export { min-height: 38px; padding: 7px 12px; }
+
+.wallboard-fullscreen .room-layout {
+  height: 100%;
+  grid-template-columns: minmax(0, 4fr) minmax(420px, 1fr) !important;
+  align-items: stretch !important;
+  gap: 12px;
+  padding: 10px 12px;
+  overflow: hidden !important;
+}
+.wallboard-fullscreen .lab-panel {
+  height: 100%;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) !important;
+  gap: 7px;
+}
+.wallboard-fullscreen .office-rail {
+  height: 100%;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto minmax(112px, auto) !important;
+  align-content: stretch;
+  gap: 7px;
+  padding: 0 0 0 12px !important;
+  border-top: 0 !important;
+  border-left: 1px solid var(--border) !important;
+}
+.wallboard-fullscreen .room-heading,
+.wallboard-fullscreen .office-heading { min-height: 46px; align-items: center; }
+.wallboard-fullscreen .room-titleline { flex-wrap: nowrap; }
+.wallboard-fullscreen .room-heading h1 { max-width: none; white-space: nowrap; overflow-wrap: normal; font-size: 2.5rem; }
+.wallboard-fullscreen .office-heading h2 { max-width: none; white-space: nowrap; overflow-wrap: normal; font-size: 1.65rem; }
+.wallboard-fullscreen .traffic-light { height: 38px; padding: 7px 9px; }
+.wallboard-fullscreen .traffic-light span { width: 22px; height: 22px; }
+.wallboard-fullscreen .office-heading .traffic-light { height: 32px; padding: 6px 7px; }
+.wallboard-fullscreen .office-heading .traffic-light span { width: 17px; height: 17px; }
+
+.wallboard-fullscreen .overall-state { min-height: 84px; grid-template-columns: auto 1fr auto; padding: 12px 16px; }
+.wallboard-fullscreen .state-detail { grid-column: auto; text-align: right; }
+.wallboard-fullscreen .office-state { min-height: 80px; }
+.wallboard-fullscreen .critical-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.wallboard-fullscreen .critical-grid-seven { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.wallboard-fullscreen .critical-grid-seven .critical-check:nth-child(-n+4) { grid-column: span 3; }
+.wallboard-fullscreen .critical-grid-seven .critical-check:nth-child(n+5) { grid-column: span 4; }
+.wallboard-fullscreen .critical-grid-nine { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.wallboard-fullscreen .critical-grid-ten { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.wallboard-fullscreen .critical-check { min-height: 62px; padding: 9px 11px; }
+.wallboard-fullscreen .metric-grid { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+.wallboard-fullscreen .metric,
+.wallboard-fullscreen .office-metrics .metric { min-height: 80px; }
+.wallboard-fullscreen .office-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.wallboard-fullscreen .evidence-layout {
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1.5fr) minmax(360px, .9fr);
+  align-items: stretch;
+}
+.wallboard-fullscreen .evidence-panel {
+  min-height: 0;
+  grid-template-rows: auto repeat(4, minmax(0, 1fr));
+  padding: 12px 14px;
+}
+.wallboard-fullscreen .panel-heading { align-items: baseline; flex-wrap: nowrap; }
+.wallboard-fullscreen .trend-row {
+  min-height: 0;
+  grid-template-columns: 145px minmax(0, 1fr) 112px;
+  grid-template-rows: minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  padding-block: 0;
+}
+.wallboard-fullscreen .trend-row > strong,
+.wallboard-fullscreen .trend-row > .trend-chart,
+.wallboard-fullscreen .trend-row > .trend-reading { grid-column: auto; grid-row: auto; }
+.wallboard-fullscreen .trend-chart { min-width: 0; min-height: 78px; overflow: visible; }
+.wallboard-fullscreen .trend-chart-with-left-axis { grid-template-columns: 42px minmax(0, 1fr); column-gap: 5px; }
+.wallboard-fullscreen .trend-chart-with-axes { grid-template-columns: 42px minmax(0, 1fr) 42px; column-gap: 5px; }
+.wallboard-fullscreen .time-axis { font-size: .76rem; }
+
+.wallboard-fullscreen .meaning-panel {
+  min-height: 0;
+  grid-template-rows: auto minmax(92px, .95fr) minmax(136px, 1.3fr) minmax(88px, .9fr) minmax(66px, auto) !important;
+}
+.wallboard-fullscreen .meaning-panel.meaning-with-hepa {
+  grid-template-rows: auto minmax(82px, .8fr) minmax(62px, .55fr) minmax(122px, 1.1fr) minmax(78px, .75fr) minmax(58px, auto) !important;
+}
+.wallboard-fullscreen .meaning-evidence {
+  min-height: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(44px, 1fr));
+}
+.wallboard-fullscreen .critical-message { grid-template-columns: minmax(120px, auto) 1fr; gap: 15px; }
+
+.wallboard-fullscreen .office-trends {
+  min-height: 0;
+  grid-template-rows: auto repeat(3, minmax(0, 1fr));
+  padding: 10px 11px;
+}
+.wallboard-fullscreen .office-trend-title,
+.wallboard-fullscreen .office-trend-row > div:first-child { flex-wrap: nowrap; }
+.wallboard-fullscreen .office-trend-row > div > span { white-space: nowrap; }
+.wallboard-fullscreen .office-trend-row .trend-chart-with-left-axis { grid-template-columns: 42px minmax(0, 1fr) 54px; }
+.wallboard-fullscreen .office-summary { min-height: 112px; }
+
+.wallboard-fullscreen .wallboard-footer {
+  min-height: 40px;
+  justify-content: space-between;
+  padding: 7px 18px;
+}
+.wallboard-fullscreen .wallboard-footer span { display: inline; }
+
+/* In portrait presentation mode the same fixed canvas gains extra logical
+   height, allowing both complete room panels to share one screen vertically. */
+html[data-dashboard-fullscreen-orientation="portrait"] .wallboard-fullscreen .room-layout {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1.15fr) minmax(0, .85fr) !important;
+  align-items: stretch !important;
+}
+html[data-dashboard-fullscreen-orientation="portrait"] .wallboard-fullscreen .office-rail {
+  padding: 12px 0 0 !important;
+  border-top: 1px solid var(--border) !important;
+  border-left: 0 !important;
+}
