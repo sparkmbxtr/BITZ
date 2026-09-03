@@ -94,10 +94,12 @@ button, input { font: inherit; }
   min-height: 100dvh;
   height: auto;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto auto auto;
   overflow-x: hidden;
   background: radial-gradient(circle at 70% 12%, rgba(31, 110, 108, .16), transparent 28%), var(--background);
 }
+.wallboard > * { min-width: 0; max-width: 100%; }
 .wallboard-header {
   min-height: 70px;
   padding: 11px 18px;
