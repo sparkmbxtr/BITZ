@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 type Sample = {
   timestamp: number;
@@ -197,6 +197,7 @@ function LevelMark({ status }: { status: RoomData["status"] }) {
 }
 
 export default function Home() {
+  const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [data, setData] = useState<DashboardData>(DEMO_DATA);
   const [clock, setClock] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -205,6 +206,10 @@ export default function Home() {
     setRefreshing(true);
     try {
       const response = await fetch("/api/airq", { cache: "no-store" });
+      if (response.status === 401) {
+        setAuthorized(false);
+        return;
+      }
       if (!response.ok) throw new Error("Live feed unavailable");
       const payload = (await response.json()) as DashboardData;
       if (payload.rooms?.lab && payload.rooms?.office) setData(payload);
@@ -216,12 +221,22 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    fetch("/api/auth", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { authorized?: boolean }) => { if (active) setAuthorized(payload.authorized === true); })
+      .catch(() => { if (active) setAuthorized(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!authorized) return;
     setClock(Date.now());
     loadData();
     const refreshTimer = window.setInterval(loadData, 120_000);
     const clockTimer = window.setInterval(() => setClock(Date.now()), 15_000);
     return () => { window.clearInterval(refreshTimer); window.clearInterval(clockTimer); };
-  }, [loadData]);
+  }, [authorized, loadData]);
 
   const newestTimestamp = Math.max(data.rooms.lab.latest?.timestamp ?? 0, data.rooms.office.latest?.timestamp ?? 0);
   const ageMinutes = newestTimestamp ? Math.max(0, Math.floor((clock - newestTimestamp) / 60_000)) : null;
@@ -233,6 +248,13 @@ export default function Home() {
     document.documentElement.requestFullscreen?.().catch(() => undefined);
   }
 
+  async function lockBoard() {
+    await fetch("/api/auth", { method: "DELETE" }).catch(() => undefined);
+    setAuthorized(false);
+  }
+
+  if (authorized !== true) return <AccessGate checking={authorized === null} onGranted={() => setAuthorized(true)} />;
+
   return (
     <main className="wallboard">
       <header className="wallboard-header">
@@ -242,6 +264,7 @@ export default function Home() {
           <span>{data.live ? "LIVE" : "PREVIEW"}</span>
           <span>{data.live ? `Source ${sourceTime} Europe/Berlin` : "24-hour sample history"}</span>
           <span>{data.live ? (ageMinutes === null ? "age unknown" : `${ageMinutes} min old`) : "recent hour highlighted"}</span>
+          <button type="button" onClick={lockBoard}>Lock</button>
           <button type="button" onClick={requestFullscreen}>Full screen</button>
         </div>
       </header>
@@ -254,6 +277,59 @@ export default function Home() {
         <span>LAB and OFFICE are evaluated independently. Older history is subdued; the latest hour and current point are emphasized.</span>
         <strong>SPARK RICHARD BIOENGINEERING</strong>
       </footer>
+    </main>
+  );
+}
+
+function AccessGate({ checking, onGranted }: { checking: boolean; onGranted: () => void }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!password || submitting) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (!response.ok) throw new Error("Incorrect password");
+      setPassword("");
+      onGranted();
+    } catch {
+      setPassword("");
+      setError("Password not accepted");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="access-shell">
+      <form className="access-card" onSubmit={submit}>
+        <div className="access-kicker">SPARK RICHARD BIOENGINEERING</div>
+        <h1>Environmental monitor</h1>
+        <p>Protected display access for the LAB and OFFICE wallboard.</p>
+        {checking ? <div className="access-checking">Checking saved display session…</div> : (
+          <>
+            <label htmlFor="dashboard-password">Display password</label>
+            <input
+              id="dashboard-password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              autoFocus
+            />
+            {error ? <div className="access-error" role="alert">{error}</div> : null}
+            <button type="submit" disabled={!password || submitting}>{submitting ? "Opening…" : "Open monitor"}</button>
+          </>
+        )}
+      </form>
     </main>
   );
 }

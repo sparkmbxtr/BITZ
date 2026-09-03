@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { isAuthorized } from "@/lib/dashboard-auth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -223,8 +224,12 @@ async function fetchRoom(deviceId: string, apiKey: string) {
     .filter((sample, index, list) => index === 0 || sample.timestamp !== list[index - 1].timestamp);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const runtimeEnv = env as unknown as Record<string, unknown>;
+  const sessionSecret = runtimeEnv.DASHBOARD_SESSION_SECRET;
+  if (typeof sessionSecret !== "string" || !await isAuthorized(request, sessionSecret)) {
+    return Response.json({ error: "Authorization required" }, { status: 401, headers: { "Cache-Control": "no-store" } });
+  }
   const apiKey = runtimeEnv.AIRQ_API_KEY;
   const labId = runtimeEnv.AIRQ_LAB_DEVICE_ID;
   const officeId = runtimeEnv.AIRQ_OFFICE_DEVICE_ID;
