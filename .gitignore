@@ -40,5 +40,5 @@ next-env.d.ts
 /.sites-runtime/
 /outputs/
 /work/
-/.openai/hosting.json
-/site.tar.gz
+/.openai/
+site.tar.gz
