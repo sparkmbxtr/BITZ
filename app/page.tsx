@@ -592,14 +592,33 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
   const pmObservation = particleObservation(room.samples);
   const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
+  const evidenceOrder = ["CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
+  const evidenceLabels: Record<string, string> = {
+    "CO release": "CO SAFETY",
+    "Volatile-gas pattern": "GAS / VAPOUR SAFETY",
+    "O₂ displacement": "OXYGEN SAFETY",
+    "Formaldehyde elevation": "FORMALDEHYDE",
+    "CO₂ accumulation": "CO₂ / VENTILATION",
+    "Sound peak >90 dB": "ACOUSTIC PEAK",
+    "Sensor/data integrity": "LIVE SENSOR FEED",
+  };
   const evidenceChecks = room.checks
-    .filter((check) => !["CO release", "Particle signal", "Particle pattern"].includes(check.label))
-    .map((check) => check)
+    .filter((check) => !["Particle signal", "Particle pattern"].includes(check.label))
     .sort((left, right) => {
       const priority = { action: 0, watch: 1, unknown: 2, normal: 3 };
-      return priority[left.level] - priority[right.level];
+      return priority[left.level] - priority[right.level] || evidenceOrder.indexOf(left.label) - evidenceOrder.indexOf(right.label);
     })
-    .slice(0, 4);
+    .slice(0, 6);
+  const oxygenEmergency = room.checks.some((check) => check.label === "O₂ displacement" && check.level === "action");
+  const criticalDisplay = oxygenEmergency
+    ? { label: "EVACUATE", level: "evacuate", note: "Leave the LAB and follow the LAB emergency procedure." }
+    : room.status === "action"
+      ? { label: "ALERT", level: "action", note: "Critical warning active — follow the highlighted LAB procedure." }
+      : room.status === "watch"
+        ? { label: "CHECK", level: "watch", note: "A check condition is active; ALERT or EVACUATE will replace this status if triggered." }
+        : room.status === "unknown"
+          ? { label: "STATUS CHECK", level: "unknown", note: "Current status is being verified." }
+          : { label: "SAFE", level: "normal", note: "Critical warnings such as ALERT or EVACUATE will be displayed here." };
   return (
     <section className="lab-panel" aria-labelledby="lab-heading">
       <div className="room-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h1 id="lab-heading">BIOENGINEERING S1 LAB</h1></div>{refreshing ? <span className="refresh-label">UPDATING</span> : null}</div>
@@ -634,9 +653,12 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
           <h2 id="meaning-heading">Meaningful action</h2>
           <div className="meaning-copy"><strong>RECENT PATTERN</strong><p>{room.summary}</p><span>COMPUTED · PAST HOUR</span></div>
           <div className="meaning-evidence" aria-label="Signals supporting the current interpretation">
-            {evidenceChecks.map((check) => <div key={check.label}><span>{check.label}</span><b className={`text-${check.level}`}>{check.status}</b></div>)}
+            {evidenceChecks.map((check) => <div key={check.label}><span>{evidenceLabels[check.label] ?? check.label}</span><b className={`text-${check.level}`}>{check.status}</b></div>)}
           </div>
           <div className={`action-copy action-${room.status}`}><strong>{room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK"}</strong><p>{room.action}</p></div>
+          <div className={`critical-message critical-message-${criticalDisplay.level}`} role="status" aria-live="polite">
+            <strong>{criticalDisplay.label}</strong><span>{criticalDisplay.note}</span>
+          </div>
         </aside>
       </div>
     </section>
