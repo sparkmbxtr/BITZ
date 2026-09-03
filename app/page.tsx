@@ -261,6 +261,25 @@ function transitionScore(
   return { changed, score };
 }
 
+function departureScore(
+  samples: Sample[],
+  timestamp: number,
+  centres: Map<ActivitySignal["key"], number>,
+  scales: Map<ActivitySignal["key"], number>,
+) {
+  let changed = 0;
+  let score = 0;
+  for (const signal of ACTIVITY_SIGNALS) {
+    const centre = centres.get(signal.key);
+    const after = median(valuesBetween(samples, signal, timestamp, timestamp + 15 * 60_000));
+    if (centre === undefined || after === null) continue;
+    const ratio = Math.abs(after - centre) / (scales.get(signal.key) ?? signal.changeFloor);
+    if (ratio >= 1) changed += 1;
+    score += Math.min(ratio, 2.5);
+  }
+  return { changed, score };
+}
+
 function approximatePeopleAfterBegin(
   samples: Sample[],
   begin: number,
@@ -325,13 +344,18 @@ function activityCycles(samples: Sample[]) {
       scales.set(signal.key, Math.max(signal.changeFloor, deviation * 5));
     }
 
-    const candidates = day.map((sample) => ({
+    const transitionCandidates = day.map((sample) => ({
       timestamp: sample.timestamp,
       minuteOfDay: berlinCalendar(sample.timestamp).minuteOfDay,
       ...transitionScore(day, sample.timestamp, scales),
     }));
+    const morningCandidates = day.map((sample) => ({
+      timestamp: sample.timestamp,
+      minuteOfDay: berlinCalendar(sample.timestamp).minuteOfDay,
+      ...departureScore(day, sample.timestamp, centres, scales),
+    }));
 
-    const morningWindow = candidates.filter((candidate) =>
+    const morningWindow = morningCandidates.filter((candidate) =>
       candidate.minuteOfDay >= 6 * 60 + 45 &&
       candidate.minuteOfDay <= 10 * 60 + 30
     );
@@ -345,7 +369,7 @@ function activityCycles(samples: Sample[]) {
       begin = firstEpisode.reduce((best, candidate) => candidate.score > best.score ? candidate : best).timestamp;
     }
 
-    const eveningWindow = candidates.filter((candidate) =>
+    const eveningWindow = transitionCandidates.filter((candidate) =>
       candidate.minuteOfDay >= 15 * 60 + 30 &&
       candidate.minuteOfDay <= 19 * 60 + 30 &&
       (!begin || candidate.timestamp >= begin + 4 * 60 * 60_000)
