@@ -1057,8 +1057,8 @@ export default function Home() {
   const bioengineeringBegin = beginTimes.length ? Math.min(...beginTimes) : null;
   const bioengineeringClose = closeTimes.length ? Math.min(...closeTimes) : null;
   const bioengineeringDayStatus = [
-    bioengineeringBegin !== null ? `BIOENGINEERING DAY BEGINS ${berlinShortTime(bioengineeringBegin)}` : null,
-    bioengineeringClose !== null ? `CLOSE ${berlinShortTime(bioengineeringClose)}` : null,
+    bioengineeringBegin !== null ? `BEGIN: ${berlinShortTime(bioengineeringBegin)}` : null,
+    bioengineeringClose !== null ? `CLOSE: ${berlinShortTime(bioengineeringClose)}` : null,
   ].filter((part): part is string => part !== null).join(" · ");
 
   function requestFullscreen() {
