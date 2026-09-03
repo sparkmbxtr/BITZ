@@ -318,8 +318,14 @@ function HistoryTrend({
         {geometry.primary.all ? <path d={geometry.primary.all} className="trend-primary trend-history" /> : null}
         {geometry.secondary.recent ? <path d={geometry.secondary.recent} className="trend-secondary trend-recent" /> : null}
         {geometry.primary.recent ? <path d={geometry.primary.recent} className="trend-primary trend-recent" /> : null}
-        {geometry.primary.current ? <circle cx={geometry.primary.current.x} cy={geometry.primary.current.y} r="2.2" className="current-point" /> : null}
       </svg>
+      {geometry.primary.current ? (
+        <span
+          className="current-point"
+          aria-hidden="true"
+          style={{ left: `${geometry.primary.current.x}%`, top: `${(geometry.primary.current.y / 30) * 100}%` }}
+        />
+      ) : null}
       {geometry.primary.count < 2 && noSeriesLabel ? <div className="trend-last-valid">{noSeriesLabel}</div> : null}
     </div>
   );

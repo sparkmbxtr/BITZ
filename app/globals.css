@@ -179,7 +179,7 @@ button, input { font: inherit; }
 .trend-secondary { stroke: var(--amber); stroke-width: 1.3; }
 .trend-history { opacity: .38; }
 .trend-recent { opacity: 1; stroke-width: 2.8; }
-.current-point { fill: var(--foreground); stroke: var(--cyan); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.current-point { position: absolute; width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--cyan); border-radius: 50%; background: var(--foreground); transform: translate(-50%, -50%); pointer-events: none; }
 .trend-last-valid { position: absolute; inset: 8px 8px auto; padding: 6px 9px; color: #e8f0f1; background: rgba(37, 48, 51, .9); border-left: 4px solid var(--unknown); font-size: clamp(.68rem, .62vw, .82rem); font-weight: 760; letter-spacing: .025em; text-align: center; }
 
 .meaning-panel { display: grid; grid-template-rows: auto auto auto auto; gap: 8px; border: 1px solid rgba(88, 222, 212, .24); border-top: 7px solid var(--teal); }
