@@ -42,12 +42,18 @@ function numericScalar(value: unknown): number | null {
   }
   if (value && typeof value === "object") {
     const candidate = value as Record<string, unknown>;
-    for (const key of ["value", "reading", "mean"]) {
-      const scalar = numericScalar(candidate[key]);
+    const scalarKeys = new Set(["value", "reading", "mean", "average", "avg", "median", "current"]);
+    for (const [key, nestedValue] of Object.entries(candidate)) {
+      if (!scalarKeys.has(key.toLowerCase().replace(/[^a-z0-9]/g, ""))) continue;
+      const scalar = numericScalar(nestedValue);
       if (scalar !== null) return scalar;
     }
   }
   return null;
+}
+
+function normalizedFieldName(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function numberValue(record: RawRecord, ...keys: string[]) {
@@ -55,7 +61,28 @@ function numberValue(record: RawRecord, ...keys: string[]) {
     const value = numericScalar(record[key]);
     if (value !== null) return value;
   }
+  const aliases = new Set(keys.map(normalizedFieldName));
+  for (const [recordKey, rawValue] of Object.entries(record)) {
+    if (!aliases.has(normalizedFieldName(recordKey))) continue;
+    const value = numericScalar(rawValue);
+    if (value !== null) return value;
+  }
   return null;
+}
+
+function sensorRecords(payload: unknown): RawRecord[] {
+  if (Array.isArray(payload)) {
+    return payload.filter((item): item is RawRecord => Boolean(item) && typeof item === "object" && !Array.isArray(item));
+  }
+  if (!payload || typeof payload !== "object") return [];
+  const record = payload as RawRecord;
+  if (numberValue(record, "timestamp") !== null) return [record];
+  for (const key of ["data", "result", "records", "sensordata", "sensor_data", "values"]) {
+    const nested = record[key];
+    const records = sensorRecords(nested);
+    if (records.length) return records;
+  }
+  return [];
 }
 
 function normalize(record: RawRecord): Sample | null {
@@ -119,8 +146,8 @@ function mergeSupplementalSample(history: Sample[], supplemental: Sample | null)
     };
     return history;
   }
-  if (!history.length || supplemental.timestamp > history.at(-1)!.timestamp) history.push(supplemental);
-  return history;
+  history.push(supplemental);
+  return history.sort((a, b) => a.timestamp - b.timestamp);
 }
 
 function check(label: string, method: "DIRECT" | "PROXY" | "PATTERN" | "RAW" | "SYSTEM", status: string, level: Level) {
@@ -240,12 +267,12 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
     .map((item) => item.label.toLowerCase());
   const flaggedText = flaggedLabels.length ? flaggedLabels.join(" and ") : "the highlighted condition";
   const action = freshness.level !== "normal"
-    ? "Check the live connection. Treat displayed readings as last known, not current."
+    ? "Latest readings are last known; connection status merits review."
     : status === "action"
-      ? `Follow the room procedure now; verify ${flaggedText} with a dedicated instrument.`
+      ? `Room procedure and dedicated verification are appropriate for ${flaggedText}.`
       : status === "watch"
-        ? `Check ${flaggedText} now. Escalate if it persists 10–30 minutes or gains a second signal.`
-        : "No immediate action. Continue monitoring; reassess if a change persists or gains a second signal.";
+        ? `A source check becomes useful if ${flaggedText} persists for 10–30 minutes or gains a second signal.`
+        : "No immediate change is suggested; review again if the pattern persists or gains a second signal.";
 
   return {
     name,
@@ -273,14 +300,19 @@ async function fetchRoom(deviceId: string, apiKey: string) {
   ]);
   if (!response.ok) throw new Error("air-Q request failed");
   const payload = await response.json();
-  if (!Array.isArray(payload)) throw new Error("Unexpected air-Q response");
-  const history = payload
+  const records = sensorRecords(payload);
+  if (!records.length) throw new Error("Unexpected air-Q response");
+  const history = records
     .map((record) => normalize(record as RawRecord))
     .filter((sample): sample is Sample => sample !== null)
     .sort((a, b) => a.timestamp - b.timestamp)
     .filter((sample, index, list) => index === 0 || sample.timestamp !== list[index - 1].timestamp);
   const latestPayload = latestResponse?.ok ? await latestResponse.json().catch(() => null) : null;
-  const supplemental = latestPayload && !Array.isArray(latestPayload) ? normalize(latestPayload as RawRecord) : null;
+  const supplemental = sensorRecords(latestPayload)
+    .map((record) => normalize(record))
+    .filter((sample): sample is Sample => sample !== null)
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .at(-1) ?? null;
   return mergeSupplementalSample(history, supplemental);
 }
 

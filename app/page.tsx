@@ -98,8 +98,8 @@ function demoRoom(name: "LAB" | "OFFICE"): RoomData {
       ? "An earlier vapour response is returning toward the LAB reference without a particle rise."
       : "A gentle CO₂ rise with stable PM is consistent with light occupancy; no unusual outdoor-air pattern is visible.",
     action: lab
-      ? "Keep monitoring. Check the hood or process only if TVOC reverses or remains elevated for 30 minutes."
-      : "None now. Reassess if CO₂ and VOC rise together or PM enters with a ventilation change.",
+      ? "No immediate change is suggested; revisit the hood or process only if TVOC reverses or remains elevated for 30 minutes."
+      : "No immediate change is suggested; revisit if CO₂ and VOC rise together or PM enters with a ventilation change.",
     checks: [
       { label: "CO release", method: "DIRECT", status: "NO ELEVATION", level: "normal" },
       { label: "O₂ displacement", method: "PROXY", status: "NOT INDICATED", level: "normal" },
@@ -607,11 +607,11 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
         </section>
         <aside className={`meaning-panel meaning-panel-${room.status}`} aria-labelledby="meaning-heading">
           <h2 id="meaning-heading">Meaningful action</h2>
-          <div className="meaning-copy"><strong>WHAT IT MEANS NOW</strong><p>{room.summary}</p><span>COMPUTED · PAST HOUR</span></div>
+          <div className="meaning-copy"><strong>RECENT PATTERN</strong><p>{room.summary}</p><span>COMPUTED · PAST HOUR</span></div>
           <div className="meaning-evidence" aria-label="Signals supporting the current interpretation">
             {evidenceChecks.map((check) => <div key={check.label}><span>{check.label}</span><b className={`text-${check.level}`}>{check.status}</b></div>)}
           </div>
-          <div className={`action-copy action-${room.status}`}><strong>{room.status === "normal" ? "KEEP MONITORING" : room.status === "watch" ? "CHECK THIS NOW" : room.status === "action" ? "ACT NOW" : "CHECK DATA"}</strong><p>{room.action}</p></div>
+          <div className={`action-copy action-${room.status}`}><strong>{room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK"}</strong><p>{room.action}</p></div>
         </aside>
       </div>
     </section>
@@ -635,7 +635,7 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
   const pmDisplayGrade = pmObservation && latest && latest.timestamp - pmObservation.timestamp > 10 * 60_000
     ? { label: "LAST VALID", level: "unknown" as const }
     : pmGrade(pmValue);
-  const actionLabel = room.status === "normal" ? "KEEP MONITORING" : room.status === "watch" ? "CHECK THIS NOW" : room.status === "action" ? "ACT NOW" : "CHECK DATA";
+  const actionLabel = room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK";
   const visibleChecks = room.checks.filter((check) => ["CO release", "O₂ displacement", "Volatile-gas pattern", "Sound peak >90 dB"].includes(check.label));
   return (
     <aside className="office-rail" aria-labelledby="office-heading">
