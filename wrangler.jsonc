@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "spark",
+  "name": "bioengineering",
   "compatibility_date": "2026-09-03",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./worker/index.ts",
