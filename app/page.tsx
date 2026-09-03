@@ -565,7 +565,7 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
         </section>
         <aside className={`meaning-panel meaning-panel-${room.status}`} aria-labelledby="meaning-heading">
           <h2 id="meaning-heading">Meaningful action</h2>
-          <div className="meaning-copy"><strong>WHAT IT MEANS NOW</strong><p>{room.summary}</p><span>PAST HOUR · MULTI-SENSOR</span></div>
+          <div className="meaning-copy"><strong>WHAT IT MEANS NOW</strong><p>{room.summary}</p><span>COMPUTED · MULTI-SENSOR · PAST HOUR</span></div>
           <div className={`action-copy action-${room.status}`}><strong>{room.status === "normal" ? "KEEP MONITORING" : room.status === "watch" ? "CHECK THIS NOW" : room.status === "action" ? "ACT NOW" : "CHECK DATA"}</strong><p>{room.action}</p></div>
         </aside>
       </div>
