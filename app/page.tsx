@@ -1343,7 +1343,8 @@ function Metric({ label, value, note, grade }: { label: string; value: string; n
 
 function TrendRow({ label, samples, primary, secondary, gradeFor, analysisMinutes, reading }: { label: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary?: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; analysisMinutes: number; reading?: string }) {
   const grade = gradeFor(latestValue(samples, primary));
-  return <div className={`trend-row trend-row-${grade.level}`}><strong>{label}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} room="LAB" /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}</span></div>;
+  const [primaryLabel, secondaryLabel] = label.split(" / ", 2);
+  return <div className={`trend-row trend-row-${grade.level}`}><strong className="trend-series-label"><span className="trend-label-primary">{primaryLabel}</span>{secondaryLabel ? <><span className="trend-label-separator">/</span><span className="trend-label-secondary">{secondaryLabel}</span></> : null}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} room="LAB" /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}</span></div>;
 }
 
 function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes: number }) {
