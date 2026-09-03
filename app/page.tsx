@@ -1043,8 +1043,23 @@ export default function Home() {
   const newestTimestamp = Math.max(data.rooms.lab.latest?.timestamp ?? 0, data.rooms.office.latest?.timestamp ?? 0);
   const ageMinutes = newestTimestamp ? Math.max(0, Math.floor((clock - newestTimestamp) / 60_000)) : null;
   const sourceTime = newestTimestamp ? berlinClock(newestTimestamp) : "—";
-  const labDayEnd = latestDayEnd(data.rooms.lab.samples, "LAB");
-  const officeDayEnd = latestDayEnd(data.rooms.office.samples, "OFFICE");
+  const newestDayKey = newestTimestamp ? berlinCalendar(newestTimestamp).dayKey : null;
+  const labCycle = newestDayKey
+    ? activityCycles(data.rooms.lab.samples, "LAB").find((cycle) => cycle.dayKey === newestDayKey) ?? null
+    : null;
+  const officeCycle = newestDayKey
+    ? activityCycles(data.rooms.office.samples, "OFFICE").find((cycle) => cycle.dayKey === newestDayKey) ?? null
+    : null;
+  const beginTimes = [labCycle?.begin, officeCycle?.begin]
+    .filter((timestamp): timestamp is number => timestamp !== null && timestamp !== undefined);
+  const closeTimes = [labCycle?.close, officeCycle?.close]
+    .filter((timestamp): timestamp is number => timestamp !== null && timestamp !== undefined);
+  const bioengineeringBegin = beginTimes.length ? Math.min(...beginTimes) : null;
+  const bioengineeringClose = closeTimes.length ? Math.min(...closeTimes) : null;
+  const bioengineeringDayStatus = [
+    bioengineeringBegin !== null ? `BIOENGINEERING DAY BEGINS ${berlinShortTime(bioengineeringBegin)}` : null,
+    bioengineeringClose !== null ? `CLOSE ${berlinShortTime(bioengineeringClose)}` : null,
+  ].filter((part): part is string => part !== null).join(" · ");
 
   function requestFullscreen() {
     document.documentElement.requestFullscreen?.().catch(() => undefined);
@@ -1068,10 +1083,9 @@ export default function Home() {
       <header className="wallboard-header">
         <div className="identity"><strong>BITZ LAB AIR MONITORING</strong><span>LIVE READINGS · 24-HOUR HISTORY · LATEST 60-MINUTE ANALYSIS</span></div>
         <div className="header-state" aria-live="polite">
-          {labDayEnd || officeDayEnd ? (
-            <div className="day-end-stamps" aria-label="Latest computed return to the room-specific night baseline">
-              {labDayEnd ? <span>LAB · DAY ENDS {berlinShortTime(labDayEnd)}</span> : null}
-              {officeDayEnd ? <span>OFFICE · DAY ENDS {berlinShortTime(officeDayEnd)}</span> : null}
+          {bioengineeringDayStatus ? (
+            <div className="day-end-stamps" aria-label="Earliest computed LAB or OFFICE workday transitions">
+              <span>{bioengineeringDayStatus}</span>
             </div>
           ) : null}
           <span className={`connection-dot ${data.live ? "is-live" : "is-preview"}`} />
