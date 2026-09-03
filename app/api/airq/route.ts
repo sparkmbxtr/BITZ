@@ -20,7 +20,13 @@ type Sample = {
   hcho: number | null;
   pm1: number | null;
   pm25: number | null;
+  pm4: number | null;
   pm10: number | null;
+  pressure: number | null;
+  pressureRel: number | null;
+  dewpt: number | null;
+  dco2dt: number | null;
+  dhdt: number | null;
   sound: number | null;
   soundMax: number | null;
   health: number | null;
@@ -115,9 +121,15 @@ function normalize(record: RawRecord): Sample | null {
     oxygen: numberValue(record, "oxygen"),
     tvoc: numberValue(record, "tvoc"),
     hcho: numberValue(record, "ch2o_m10", "hcho"),
-    pm1: numberValue(record, "pm1", "pm_1", "pm1_m10"),
-    pm25: numberValue(record, "pm2_5", "pm25", "pm_2_5", "pm2_5_m10"),
-    pm10: numberValue(record, "pm10", "pm_10", "pm10_m10"),
+    pm1: numberValue(record, "pm1", "pm_1", "pm1_m10", "pm1_sps30"),
+    pm25: numberValue(record, "pm2_5", "pm25", "pm_2_5", "pm2_5_m10", "pm2_5_sps30"),
+    pm4: numberValue(record, "pm4", "pm_4", "pm4_m10", "pm4_sps30"),
+    pm10: numberValue(record, "pm10", "pm_10", "pm10_m10", "pm10_sps30"),
+    pressure: numberValue(record, "pressure"),
+    pressureRel: numberValue(record, "pressure_rel"),
+    dewpt: numberValue(record, "dewpt", "dew_point"),
+    dco2dt: numberValue(record, "dco2dt"),
+    dhdt: numberValue(record, "dhdt"),
     sound: numberValue(record, "sound"),
     soundMax: numberValue(record, "sound_max"),
     health: healthRaw === null ? null : healthRaw / 10,
@@ -352,6 +364,7 @@ async function fetchRoom(deviceId: string, apiKey: string) {
 }
 
 export async function GET(request: Request) {
+  const exportRequested = new URL(request.url).searchParams.get("export") === "1";
   const runtimeEnv = env as unknown as Record<string, unknown>;
   const sessionSecret = runtimeEnv.DASHBOARD_SESSION_SECRET;
   if (typeof sessionSecret !== "string" || !await isAuthorized(request, sessionSecret)) {
@@ -369,6 +382,10 @@ export async function GET(request: Request) {
   try {
     const [labHistory, officeHistory] = await Promise.all([fetchRoom(labId, apiKey), fetchRoom(officeId, apiKey)]);
     if (!labHistory.length || !officeHistory.length) throw new Error("No recent records returned");
+    const headers = new Headers({ "Cache-Control": "no-store, max-age=0" });
+    if (exportRequested) {
+      headers.set("Content-Disposition", 'attachment; filename="airq-dashboard-data.json"');
+    }
     return Response.json({
       live: true,
       fetchedAt: Date.now(),
@@ -378,7 +395,7 @@ export async function GET(request: Request) {
         lab: analyseRoom("LAB", labHistory, positiveNumber(runtimeEnv.LAB_VOLUME_M3), positiveNumber(runtimeEnv.LAB_ACH)),
         office: analyseRoom("OFFICE", officeHistory, positiveNumber(runtimeEnv.OFFICE_VOLUME_M3), positiveNumber(runtimeEnv.OFFICE_ACH)),
       },
-    }, { headers: { "Cache-Control": "no-store, max-age=0" } });
+    }, { headers });
   } catch {
     return Response.json({ error: "Recent air-Q readings are temporarily unavailable" }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
