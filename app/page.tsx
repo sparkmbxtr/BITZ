@@ -708,7 +708,8 @@ function co2Grade(value: number | null): Grade {
 
 function tvocGrade(value: number | null): Grade {
   if (value === null) return { label: "NO DATA", level: "unknown" };
-  if (value < 250) return { label: "PRISTINE", level: "great" };
+  if (value <= 50) return { label: "PRISTINE", level: "great" };
+  if (value < 250) return { label: "CLEAR", level: "great" };
   if (value < 500) return { label: "GOOD", level: "good" };
   if (value < 1_000) return { label: "CHECK", level: "watch" };
   return { label: "SOURCE", level: "action" };
@@ -739,9 +740,18 @@ function humidityGrade(value: number | null): Grade {
   return { label: "ACT", level: "action" };
 }
 
-function pmGrade(value: number | null): Grade {
+function labPmGrade(value: number | null): Grade {
   if (value === null) return { label: "NO DATA", level: "unknown" };
-  if (value <= 5) return { label: "LOW", level: "great" };
+  if (value <= 1) return { label: "PRISTINE", level: "great" };
+  if (value <= 5) return { label: "CLEAN", level: "great" };
+  if (value <= 15) return { label: "GOOD", level: "good" };
+  if (value <= 35) return { label: "CHECK", level: "watch" };
+  return { label: "HIGH", level: "action" };
+}
+
+function officePmGrade(value: number | null): Grade {
+  if (value === null) return { label: "NO DATA", level: "unknown" };
+  if (value < 10) return { label: "PRISTINE", level: "great" };
   if (value <= 15) return { label: "GOOD", level: "good" };
   if (value <= 35) return { label: "CHECK", level: "watch" };
   return { label: "HIGH", level: "action" };
@@ -1302,7 +1312,7 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
           <TrendRow label="CO₂ / humidity" samples={room.samples} primary={(s) => s.co2} secondary={(s) => s.humidityAbs} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
           <TrendRow label="O₂ / CO" samples={room.samples} primary={(s) => s.oxygen} secondary={(s) => s.co} gradeFor={oxygenGrade} analysisMinutes={analysisMinutes} />
           {currentParticleAvailable && pmObservation
-            ? <TrendRow label="PM / sound max" samples={room.samples} primary={labPmMeanValue} secondary={(s) => s.soundMax} gradeFor={pmGrade} analysisMinutes={analysisMinutes} reading={`PM ${fmt(pmObservation.value, 1)} µg/m³`} />
+            ? <TrendRow label="PM / sound max" samples={room.samples} primary={labPmMeanValue} secondary={(s) => s.soundMax} gradeFor={labPmGrade} analysisMinutes={analysisMinutes} reading={`PM ${fmt(pmObservation.value, 1)} µg/m³`} />
             : <TrendRow label="Sound max" samples={room.samples} primary={(s) => s.soundMax} gradeFor={soundMaxGrade} analysisMinutes={analysisMinutes} />}
         </section>
         <aside className={`meaning-panel meaning-panel-${room.status} ${hepa ? "meaning-with-hepa" : ""} ${routineClosed ? "meaning-panel-closed" : ""}`} aria-labelledby="meaning-heading">
@@ -1356,7 +1366,7 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
         <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="vapour pattern" grade={tvocGrade(latest?.tvoc ?? null)} />
         {currentParticleAvailable && pmObservation
-          ? <Metric label="PM" value={`${fmt(pmValue, 1)} µg/m³`} note={`${pmObservation.channel} · ${pmAge}`} grade={pmGrade(pmValue)} />
+          ? <Metric label="PM" value={`${fmt(pmValue, 1)} µg/m³`} note={`${pmObservation.channel} · ${pmAge}`} grade={officePmGrade(pmValue)} />
           : <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} note="OFFICE humidity band" grade={humidityGrade(latest?.humidity ?? null)} />}
         <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="OFFICE thermal band" grade={temperatureGrade(latest?.temperature ?? null, "OFFICE")} />
       </div>
@@ -1365,7 +1375,7 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
         <OfficeTrend label="CO₂" value={`${fmt(latest?.co2)} ppm`} samples={room.samples} selector={(s) => s.co2} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
         <OfficeTrend label="VOC" value={`${fmt(latest?.tvoc)} ppb`} samples={room.samples} selector={(s) => s.tvoc} gradeFor={tvocGrade} analysisMinutes={analysisMinutes} />
         {currentParticleAvailable
-          ? <OfficeTrend label="PM" value={`${fmt(pmValue, 1)} µg/m³`} samples={room.samples} selector={particleValue} gradeFor={pmGrade} analysisMinutes={analysisMinutes} />
+          ? <OfficeTrend label="PM" value={`${fmt(pmValue, 1)} µg/m³`} samples={room.samples} selector={particleValue} gradeFor={officePmGrade} analysisMinutes={analysisMinutes} />
           : <OfficeTrend label="Humidity" value={`${fmt(latest?.humidity)}%`} samples={room.samples} selector={(s) => s.humidity} gradeFor={humidityGrade} analysisMinutes={analysisMinutes} />}
       </section>
       <div className="office-checks">{visibleChecks.map((check) => <div key={check.label}><span>{check.label}</span><strong className={`text-${check.level}`}>{check.status}</strong></div>)}</div>
