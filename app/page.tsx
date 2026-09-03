@@ -568,10 +568,6 @@ function latestCycle(samples: Sample[], room: "LAB" | "OFFICE") {
   return [...activityCycles(samples, room)].reverse().find((cycle) => cycle.begin || cycle.close || cycle.end) ?? null;
 }
 
-function latestDayEnd(samples: Sample[], room: "LAB" | "OFFICE") {
-  return [...activityCycles(samples, room)].reverse().find((cycle) => cycle.end)?.end ?? null;
-}
-
 function latestValue(samples: Sample[], selector: (sample: Sample) => number | null) {
   for (let index = samples.length - 1; index >= 0; index -= 1) {
     const value = selector(samples[index]);
