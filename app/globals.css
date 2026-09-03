@@ -160,7 +160,7 @@ button, input { font: inherit; }
 .check-unknown strong, .text-unknown { color: var(--unknown) !important; }
 .text-normal { color: var(--green) !important; }
 
-.metric-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.metric-grid { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 6px; }
 .metric { min-width: 0; min-height: 84px; padding: 7px 10px; border: 1px solid rgba(112, 216, 237, .14); border-bottom-width: 4px; background: var(--panel-strong); }
 .metric-great { border-color: rgba(98, 228, 160, .35); border-bottom-color: var(--green); background: linear-gradient(135deg, rgba(24, 86, 59, .72), var(--panel-strong) 76%); }
 .metric-good { border-color: rgba(88, 222, 212, .34); border-bottom-color: var(--teal); background: linear-gradient(135deg, rgba(19, 70, 72, .72), var(--panel-strong) 76%); }
