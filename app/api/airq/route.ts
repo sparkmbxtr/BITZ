@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { apiKeyFromRequest, isAuthorized } from "@/lib/dashboard-auth";
+import { readStoredApiKey } from "@/lib/airq-key-store";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -100,7 +101,7 @@ function positiveNumber(value: unknown) {
 
 function occupancyEstimate(samples: Sample[], volumeM3: number | null, airChangesPerHour: number | null) {
   if (!volumeM3 || !airChangesPerHour || samples.length < 4) {
-    return { label: "calibration pending", confidence: "needs room volume/ACH" };
+    return { label: "CO₂ activity trend", confidence: "occupancy estimate not displayed" };
   }
   const first = samples[0];
   const last = samples.at(-1)!;
@@ -177,7 +178,8 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
       : check("Sound peak >90 dB", "RAW", "NONE", "normal");
 
   const checks = [carbonMonoxide, oxygen, vapour, formaldehyde, particles, carbonDioxide, acoustics, freshness];
-  const status = worst(checks.map((item) => item.level));
+  const rawStatus = worst(checks.map((item) => item.level));
+  const status = rawStatus === "unknown" && freshness.level === "normal" ? "normal" : rawStatus;
   const gasDominant = (tvocDelta ?? 0) > 150 && (pmDelta ?? 0) < 5;
   const occupancyPattern = (co2Delta ?? 0) > 80 && (humidityDelta ?? 0) > 0.15;
   const ventilationPattern = name === "OFFICE" && (co2Delta ?? 0) < -80 && ((pmDelta ?? 0) > 3 || (tvocDelta ?? 0) > 100);
@@ -197,7 +199,7 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   return {
     name,
     status,
-    statusLabel: status === "normal" ? "SAFE WITHIN MONITORED SCOPE" : status === "watch" ? "NOTABLE PATTERN — CHECK" : status === "action" ? "ACTIONABLE CONDITION" : "MONITORED STATUS INCOMPLETE",
+    statusLabel: status === "normal" ? "AVAILABLE CHANNELS NORMAL" : status === "watch" ? "NOTABLE PATTERN — CHECK" : status === "action" ? "ACTIONABLE CONDITION" : "DATA DELAY — CHECK CONNECTION",
     samples: history,
     latest,
     checks,
@@ -231,7 +233,9 @@ export async function GET(request: Request) {
     return Response.json({ error: "Authorization required" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
   const environmentKey = runtimeEnv.AIRQ_API_KEY;
-  const apiKey = typeof environmentKey === "string" ? environmentKey : await apiKeyFromRequest(request, sessionSecret);
+  const apiKey = typeof environmentKey === "string"
+    ? environmentKey
+    : await readStoredApiKey(sessionSecret).catch(() => null) ?? await apiKeyFromRequest(request, sessionSecret);
   const labId = runtimeEnv.AIRQ_LAB_DEVICE_ID;
   const officeId = runtimeEnv.AIRQ_OFFICE_DEVICE_ID;
   if (typeof apiKey !== "string" || typeof labId !== "string" || typeof officeId !== "string") {

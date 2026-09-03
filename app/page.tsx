@@ -196,11 +196,27 @@ function LevelMark({ status }: { status: RoomData["status"] }) {
   return <span className={`level-mark level-${status}`} aria-hidden="true">{status === "normal" ? "✓" : status === "action" ? "!" : "•"}</span>;
 }
 
+function TrafficLight({ status }: { status: RoomData["status"] }) {
+  const active = status === "normal" ? "green" : status === "action" ? "red" : "amber";
+  return (
+    <div className="traffic-light" role="img" aria-label={`${status} room status`}>
+      <span className={active === "red" ? "light-red is-active" : "light-red"} />
+      <span className={active === "amber" ? "light-amber is-active" : "light-amber"} />
+      <span className={active === "green" ? "light-green is-active" : "light-green"} />
+    </div>
+  );
+}
+
+function occupancyText(room: RoomData) {
+  return room.occupancy.label.includes("likely") ? `${room.occupancy.label} · estimate` : "occupancy / ventilation signal";
+}
+
 export default function Home() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [apiConnected, setApiConnected] = useState<boolean | null>(null);
+  const [ownerSetup] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("setup") === "owner");
   const [data, setData] = useState<DashboardData>(DEMO_DATA);
-  const [clock, setClock] = useState(0);
+  const [clock, setClock] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -233,25 +249,23 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!authorized) {
-      setApiConnected(null);
-      return;
-    }
+    if (!authorized) return;
     let active = true;
-    fetch("/api/key", { cache: "no-store" })
+    const checkConnection = () => fetch("/api/key", { cache: "no-store" })
       .then((response) => response.json())
       .then((payload: { configured?: boolean }) => { if (active) setApiConnected(payload.configured === true); })
       .catch(() => { if (active) setApiConnected(false); });
-    return () => { active = false; };
+    checkConnection();
+    const timer = window.setInterval(checkConnection, 30_000);
+    return () => { active = false; window.clearInterval(timer); };
   }, [authorized]);
 
   useEffect(() => {
     if (!authorized || !apiConnected) return;
-    setClock(Date.now());
-    loadData();
+    const kickoffTimer = window.setTimeout(loadData, 0);
     const refreshTimer = window.setInterval(loadData, 120_000);
     const clockTimer = window.setInterval(() => setClock(Date.now()), 15_000);
-    return () => { window.clearInterval(refreshTimer); window.clearInterval(clockTimer); };
+    return () => { window.clearTimeout(kickoffTimer); window.clearInterval(refreshTimer); window.clearInterval(clockTimer); };
   }, [authorized, apiConnected, loadData]);
 
   const newestTimestamp = Math.max(data.rooms.lab.latest?.timestamp ?? 0, data.rooms.office.latest?.timestamp ?? 0);
@@ -271,12 +285,15 @@ export default function Home() {
   }
 
   if (authorized !== true) return <AccessGate checking={authorized === null} onGranted={() => setAuthorized(true)} />;
-  if (apiConnected !== true) return <ApiKeySetup checking={apiConnected === null} onConnected={() => setApiConnected(true)} />;
+  if (apiConnected !== true) {
+    if (ownerSetup && apiConnected === false) return <ApiKeySetup checking={false} onConnected={() => setApiConnected(true)} />;
+    return <ConnectionPending checking={apiConnected === null} />;
+  }
 
   return (
     <main className="wallboard">
       <header className="wallboard-header">
-        <div className="identity"><strong>ENVIRONMENTAL STATUS</strong><span>Recent 60-minute analysis · 24-hour visual context</span></div>
+        <div className="identity"><strong>BITZ LAB AIR MONITORING</strong><span>LIVE READINGS · 24-HOUR HISTORY · LATEST 60-MINUTE ANALYSIS</span></div>
         <div className="header-state" aria-live="polite">
           <span className={`connection-dot ${data.live ? "is-live" : "is-preview"}`} />
           <span>{data.live ? "LIVE" : "PREVIEW"}</span>
@@ -292,7 +309,7 @@ export default function Home() {
         <OfficeRail room={data.rooms.office} analysisMinutes={data.analysisMinutes} />
       </div>
       <footer className="wallboard-footer">
-        <span>LAB and OFFICE are evaluated independently. Older history is subdued; the latest hour and current point are emphasized.</span>
+        <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently</span>
         <strong>SPARK RICHARD BIOENGINEERING</strong>
       </footer>
     </main>
@@ -330,7 +347,7 @@ function AccessGate({ checking, onGranted }: { checking: boolean; onGranted: () 
     <main className="access-shell">
       <form className="access-card" onSubmit={submit}>
         <div className="access-kicker">SPARK RICHARD BIOENGINEERING</div>
-        <h1>Environmental monitor</h1>
+        <h1>BITZ LAB AIR MONITORING</h1>
         <p>Protected display access for the LAB and OFFICE wallboard.</p>
         {checking ? <div className="access-checking">Checking saved display session…</div> : (
           <>
@@ -348,6 +365,18 @@ function AccessGate({ checking, onGranted }: { checking: boolean; onGranted: () 
           </>
         )}
       </form>
+    </main>
+  );
+}
+
+function ConnectionPending({ checking }: { checking: boolean }) {
+  return (
+    <main className="access-shell">
+      <section className="access-card connection-pending" aria-live="polite">
+        <div className="access-kicker">BITZ LAB AIR MONITORING</div>
+        <div className="pending-state"><span className="connection-dot" /><strong>{checking ? "Checking live sensor feed" : "Live sensor feed is being initialized"}</strong></div>
+        <p>No visitor input is required. This display will open automatically when the secure data connection is ready.</p>
+      </section>
     </main>
   );
 }
@@ -383,9 +412,9 @@ function ApiKeySetup({ checking, onConnected }: { checking: boolean; onConnected
   return (
     <main className="access-shell">
       <form className="access-card api-setup-card" onSubmit={submit}>
-        <div className="access-kicker">ONE-TIME LIVE CONNECTION</div>
-        <h1>Connect air-Q</h1>
-        <p>The key is validated against both rooms, encrypted, and retained only as an HTTP-only display credential.</p>
+        <div className="access-kicker">ONE-TIME OWNER SETUP</div>
+        <h1>Connect air-Q once</h1>
+        <p>After this key is validated, it is encrypted in shared server storage. Future visitors will only enter the display password.</p>
         {checking ? <div className="access-checking">Checking saved air-Q connection…</div> : (
           <>
             <label htmlFor="airq-api-key">air-Q API key</label>
@@ -411,13 +440,16 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
   const recentCutoff = (latest?.timestamp ?? 0) - analysisMinutes * 60_000;
   const maxSound = Math.max(...room.samples.filter((sample) => sample.timestamp >= recentCutoff).map((sample) => sample.soundMax ?? -Infinity));
+  const prioritySignals = [...room.checks]
+    .sort((left, right) => ({ action: 0, watch: 1, unknown: 2, normal: 3 }[left.level] - { action: 0, watch: 1, unknown: 2, normal: 3 }[right.level]))
+    .slice(0, 4);
   return (
     <section className="lab-panel" aria-labelledby="lab-heading">
-      <div className="room-heading"><div><h1 id="lab-heading">LAB</h1><span>Primary analytical environment · LAB-specific reference</span></div><span>{refreshing ? "Refreshing…" : "80% screen priority"}</span></div>
+      <div className="room-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h1 id="lab-heading">BIOENGINEERING S1 LAB</h1></div>{refreshing ? <span className="refresh-label">UPDATING</span> : null}</div>
       <div className={`overall-state overall-${room.status}`}>
         <LevelMark status={room.status} />
-        <div><strong>{room.statusLabel}</strong><span>{normalCount}/{room.checks.length} critical checks currently clear</span></div>
-        <div className="state-detail"><strong>{room.occupancy.label}</strong><span>occupancy · {room.occupancy.confidence}</span></div>
+        <div><strong>{room.statusLabel}</strong><span>{normalCount}/{room.checks.length} monitored conditions currently clear</span></div>
+        <div className="state-detail"><strong>{room.samples.length} readings</strong><span>rolling 24-hour trace</span></div>
       </div>
       <div className="critical-grid">
         {room.checks.map((check) => <article className={`critical-check check-${check.level}`} key={check.label}><span>{check.label} · {check.method.toLowerCase()}</span><strong>{check.status}</strong></article>)}
@@ -425,7 +457,7 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
       <div className="metric-grid">
         <Metric label="Health" value={fmt(latest?.health)} note="index + raw channels" />
         <Metric label="Performance" value={fmt(latest?.performance)} note="workday watch" />
-        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={room.occupancy.label} />
+        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="gas-pattern context" />
         <Metric label="Oxygen" value={`${fmt(latest?.oxygen, 2)}%`} note="displacement proxy" />
         <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="thermal context" />
@@ -435,13 +467,16 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
         <section className="evidence-panel" aria-labelledby="evidence-heading">
           <div className="panel-heading"><h2 id="evidence-heading">24-hour evidence tail</h2><span>latest 60 min shaded · current point enlarged</span></div>
           <TrendRow label="TVOC / HCHO" status="vapour pattern" samples={room.samples} primary={(s) => s.tvoc} secondary={(s) => s.hcho} analysisMinutes={analysisMinutes} />
-          <TrendRow label="CO₂ / humidity" status={room.occupancy.label} samples={room.samples} primary={(s) => s.co2} secondary={(s) => s.humidityAbs} analysisMinutes={analysisMinutes} />
+          <TrendRow label="CO₂ / humidity" status={occupancyText(room)} samples={room.samples} primary={(s) => s.co2} secondary={(s) => s.humidityAbs} analysisMinutes={analysisMinutes} />
           <TrendRow label="O₂ / CO" status="displacement/CO" samples={room.samples} primary={(s) => s.oxygen} secondary={(s) => s.co} analysisMinutes={analysisMinutes} />
           <TrendRow label="PM / sound max" status={`recent max ${Number.isFinite(maxSound) ? fmt(maxSound) : "—"} dB`} samples={room.samples} primary={(s) => s.pm25} secondary={(s) => s.soundMax} analysisMinutes={analysisMinutes} />
         </section>
         <aside className="meaning-panel" aria-labelledby="meaning-heading">
           <h2 id="meaning-heading">Meaning and next action</h2>
           <div className="meaning-copy"><strong>Past-hour interpretation</strong><p>{room.summary}</p><span>INFERRED · MULTI-SENSOR</span></div>
+          <div className="decision-signals">
+            {prioritySignals.map((check) => <div key={check.label}><span>{check.label}</span><strong className={`text-${check.level}`}>{check.status}</strong></div>)}
+          </div>
           <div className={`action-copy action-${room.status}`}><strong>{room.status === "normal" ? "NO ACTION" : room.status === "watch" ? "WATCH" : "ACTION"}</strong><p>{room.action}</p></div>
         </aside>
       </div>
@@ -462,12 +497,12 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
   const visibleChecks = room.checks.filter((check) => ["CO release", "O₂ displacement", "Volatile-gas pattern", "Sound peak >90 dB"].includes(check.label));
   return (
     <aside className="office-rail" aria-labelledby="office-heading">
-      <div className="office-heading"><div><h2 id="office-heading">OFFICE</h2><span>Secondary context</span></div><span>20%</span></div>
+      <div className="office-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h2 id="office-heading">BIOENGINEERING OFFICE</h2></div></div>
       <div className={`office-state overall-${room.status}`}><LevelMark status={room.status} /><div><strong>{room.statusLabel}</strong><span>{room.checks.filter((check) => check.level === "normal").length}/{room.checks.length} checks clear</span></div></div>
       <div className="office-metrics">
         <Metric label="Health" value={fmt(latest?.health)} note="index" />
         <Metric label="Performance" value={fmt(latest?.performance)} note="index" />
-        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={room.occupancy.label} />
+        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="vapour pattern" />
         <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} note="particle context" />
         <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="comfort" />

@@ -79,21 +79,17 @@ export function expiredSessionCookie() {
   return `${COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
 }
 
-export async function encryptedApiKeyCookie(apiKey: string, sessionSecret: string) {
+export async function encryptApiKey(apiKey: string, sessionSecret: string) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     await apiEncryptionKey(sessionSecret),
     new TextEncoder().encode(apiKey),
   );
-  const value = `${base64UrlEncode(iv)}.${base64UrlEncode(new Uint8Array(encrypted))}`;
-  const maxAge = API_KEY_DAYS * 24 * 60 * 60;
-  return `${API_COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
+  return `${base64UrlEncode(iv)}.${base64UrlEncode(new Uint8Array(encrypted))}`;
 }
 
-export async function apiKeyFromRequest(request: Request, sessionSecret: string) {
-  const value = cookieValue(request, API_COOKIE_NAME);
-  if (!value) return null;
+export async function decryptApiKey(value: string, sessionSecret: string) {
   const [ivValue, cipherValue, extra] = value.split(".");
   if (!ivValue || !cipherValue || extra) return null;
   try {
@@ -107,6 +103,18 @@ export async function apiKeyFromRequest(request: Request, sessionSecret: string)
   } catch {
     return null;
   }
+}
+
+export async function encryptedApiKeyCookie(apiKey: string, sessionSecret: string) {
+  const value = await encryptApiKey(apiKey, sessionSecret);
+  const maxAge = API_KEY_DAYS * 24 * 60 * 60;
+  return `${API_COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
+}
+
+export async function apiKeyFromRequest(request: Request, sessionSecret: string) {
+  const value = cookieValue(request, API_COOKIE_NAME);
+  if (!value) return null;
+  return decryptApiKey(value, sessionSecret);
 }
 
 export function expiredApiKeyCookie() {

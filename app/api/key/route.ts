@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
-import { apiKeyFromRequest, encryptedApiKeyCookie, expiredApiKeyCookie, isAuthorized } from "@/lib/dashboard-auth";
+import { apiKeyFromRequest, expiredApiKeyCookie, isAuthorized } from "@/lib/dashboard-auth";
+import { readStoredApiKey, storeApiKey } from "@/lib/airq-key-store";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -18,14 +19,28 @@ function configuration() {
 
 async function validKeyForRoom(apiKey: string, deviceId: string) {
   const to = Date.now();
-  const from = to - 60 * 60_000;
+  const from = to - 24 * 60 * 60_000;
   const url = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/timerange`);
   url.searchParams.set("f", String(from));
   url.searchParams.set("t", String(to));
   const response = await fetch(url, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" });
   if (!response.ok) return false;
   const payload = await response.json().catch(() => null);
-  return Array.isArray(payload) && payload.length > 0;
+  return Array.isArray(payload);
+}
+
+async function configuredApiKey(request: Request, configured: NonNullable<ReturnType<typeof configuration>>) {
+  if (configured.environmentKey) return configured.environmentKey;
+  const sharedKey = await readStoredApiKey(configured.sessionSecret).catch(() => null);
+  if (sharedKey) return sharedKey;
+
+  // Promote the previous device-local setup automatically when it exists.
+  const legacyKey = await apiKeyFromRequest(request, configured.sessionSecret);
+  if (legacyKey) {
+    await storeApiKey(legacyKey, configured.sessionSecret);
+    return legacyKey;
+  }
+  return null;
 }
 
 export async function GET(request: Request) {
@@ -33,7 +48,7 @@ export async function GET(request: Request) {
   if (!configured || !await isAuthorized(request, configured.sessionSecret)) {
     return Response.json({ error: "Authorization required" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
-  const storedKey = configured.environmentKey ?? await apiKeyFromRequest(request, configured.sessionSecret);
+  const storedKey = await configuredApiKey(request, configured);
   return Response.json({ configured: Boolean(storedKey) }, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -41,6 +56,9 @@ export async function POST(request: Request) {
   const configured = configuration();
   if (!configured || !await isAuthorized(request, configured.sessionSecret)) {
     return Response.json({ error: "Authorization required" }, { status: 401, headers: { "Cache-Control": "no-store" } });
+  }
+  if (await configuredApiKey(request, configured)) {
+    return Response.json({ configured: true }, { status: 409, headers: { "Cache-Control": "no-store" } });
   }
   let apiKey = "";
   try {
@@ -58,9 +76,10 @@ export async function POST(request: Request) {
   if (!labValid || !officeValid) {
     return Response.json({ error: "The key could not read both rooms" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
+  await storeApiKey(apiKey, configured.sessionSecret);
   return Response.json(
     { configured: true },
-    { headers: { "Cache-Control": "no-store", "Set-Cookie": await encryptedApiKeyCookie(apiKey, configured.sessionSecret) } },
+    { headers: { "Cache-Control": "no-store", "Set-Cookie": expiredApiKeyCookie() } },
   );
 }
 
@@ -70,7 +89,7 @@ export async function DELETE(request: Request) {
     return Response.json({ error: "Authorization required" }, { status: 401 });
   }
   return Response.json(
-    { configured: Boolean(configured.environmentKey) },
+    { configured: Boolean(await configuredApiKey(request, configured)) },
     { headers: { "Cache-Control": "no-store", "Set-Cookie": expiredApiKeyCookie() } },
   );
 }
