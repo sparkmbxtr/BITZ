@@ -31,11 +31,29 @@ const API_ROOT = "https://air-q-cloud.de/open_api/v3";
 const HISTORY_HOURS = 24;
 const ANALYSIS_MINUTES = 60;
 
+function numericScalar(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const scalar = numericScalar(item);
+      if (scalar !== null) return scalar;
+    }
+  }
+  if (value && typeof value === "object") {
+    const candidate = value as Record<string, unknown>;
+    for (const key of ["value", "reading", "mean"]) {
+      const scalar = numericScalar(candidate[key]);
+      if (scalar !== null) return scalar;
+    }
+  }
+  return null;
+}
+
 function numberValue(record: RawRecord, ...keys: string[]) {
   for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+    const value = numericScalar(record[key]);
+    if (value !== null) return value;
   }
   return null;
 }
@@ -55,9 +73,9 @@ function normalize(record: RawRecord): Sample | null {
     oxygen: numberValue(record, "oxygen"),
     tvoc: numberValue(record, "tvoc"),
     hcho: numberValue(record, "ch2o_m10", "hcho"),
-    pm1: numberValue(record, "pm1"),
-    pm25: numberValue(record, "pm2_5", "pm25"),
-    pm10: numberValue(record, "pm10"),
+    pm1: numberValue(record, "pm1", "pm_1", "pm1_m10"),
+    pm25: numberValue(record, "pm2_5", "pm25", "pm_2_5", "pm2_5_m10"),
+    pm10: numberValue(record, "pm10", "pm_10", "pm10_m10"),
     sound: numberValue(record, "sound"),
     soundMax: numberValue(record, "sound_max"),
     health: healthRaw === null ? null : healthRaw / 10,
@@ -82,6 +100,10 @@ function minValue(samples: Sample[], selector: (sample: Sample) => number | null
 function delta(samples: Sample[], selector: (sample: Sample) => number | null) {
   const list = values(samples, selector);
   return list.length > 1 ? list.at(-1)! - list[0] : null;
+}
+
+function particleValue(sample: Sample) {
+  return sample.pm25 ?? sample.pm10 ?? sample.pm1;
 }
 
 function check(label: string, method: "DIRECT" | "PROXY" | "PATTERN" | "RAW" | "SYSTEM", status: string, level: Level) {
@@ -126,12 +148,12 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const coMax = maxValue(recent, (sample) => sample.co);
   const tvocMax = maxValue(recent, (sample) => sample.tvoc);
   const hchoMax = maxValue(recent, (sample) => sample.hcho);
-  const pm25Max = maxValue(recent, (sample) => sample.pm25);
+  const particleMax = maxValue(recent, particleValue);
   const soundMax = maxValue(recent, (sample) => sample.soundMax);
   const co2Max = maxValue(recent, (sample) => sample.co2);
   const tvocDelta = delta(recent, (sample) => sample.tvoc);
   const co2Delta = delta(recent, (sample) => sample.co2);
-  const pmDelta = delta(recent, (sample) => sample.pm25);
+  const pmDelta = delta(recent, particleValue);
   const humidityDelta = delta(recent, (sample) => sample.humidityAbs);
 
   const freshness = dataAge <= 8 * 60_000
@@ -161,11 +183,11 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
     : hchoMax > 100
       ? check("Formaldehyde elevation", "DIRECT", "ELEVATED", "watch")
       : check("Formaldehyde elevation", "DIRECT", "NOT DETECTED", "normal");
-  const particles = pm25Max === null
-    ? check("Particle plume", "DIRECT", "UNAVAILABLE", "unknown")
-    : pm25Max > 35 || (pmDelta ?? 0) > 15
-      ? check("Particle plume", "DIRECT", "PLUME PATTERN", "watch")
-      : check("Particle plume", "DIRECT", "NONE", "normal");
+  const particles = particleMax === null
+    ? check("Particle signal", "RAW", "NO RECENT PM VALUE", "unknown")
+    : particleMax > 35 || (pmDelta ?? 0) > 15
+      ? check("Particle pattern", "RAW", "RISE — CHECK", "watch")
+      : check("Particle pattern", "RAW", "NO RISE", "normal");
   const carbonDioxide = co2Max === null
     ? check("CO₂ accumulation", "PATTERN", "UNAVAILABLE", "unknown")
     : co2Max > 1_400 || (co2Delta ?? 0) > 450

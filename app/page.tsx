@@ -49,6 +49,9 @@ type DashboardData = {
   rooms: { lab: RoomData; office: RoomData };
 };
 
+type GradeLevel = "great" | "good" | "watch" | "action" | "unknown";
+type Grade = { label: string; level: GradeLevel };
+
 // Keep the server and first client render identical. Live timestamps replace this
 // deterministic preview anchor immediately after hydration when the feed is set.
 const createdAt = Date.UTC(2026, 8, 3, 14, 0, 0);
@@ -87,7 +90,7 @@ function demoRoom(name: "LAB" | "OFFICE"): RoomData {
   return {
     name,
     status: "normal",
-    statusLabel: lab ? "SAFE WITHIN MONITORED SCOPE" : "MONITORED STATE NORMAL",
+    statusLabel: lab ? "MONITORED CONDITIONS NORMAL" : "MONITORED STATE NORMAL",
     samples,
     latest: samples.at(-1) ?? null,
     occupancy: { label: lab ? "2–4 likely" : "1–3 likely", confidence: "medium confidence" },
@@ -102,7 +105,7 @@ function demoRoom(name: "LAB" | "OFFICE"): RoomData {
       { label: "O₂ displacement", method: "PROXY", status: "NOT INDICATED", level: "normal" },
       { label: "Volatile-gas pattern", method: "PATTERN", status: "NORMAL", level: "normal" },
       { label: "Formaldehyde elevation", method: "DIRECT", status: "NOT DETECTED", level: "normal" },
-      { label: "Particle plume", method: "DIRECT", status: "NONE", level: "normal" },
+      { label: "Particle pattern", method: "RAW", status: "NO RISE", level: "normal" },
       { label: "CO₂ accumulation", method: "PATTERN", status: "STABLE", level: "normal" },
       { label: "Sound peak >90 dB", method: "RAW", status: "NONE", level: "normal" },
       { label: "Sensor/data integrity", method: "SYSTEM", status: "CURRENT", level: "normal" },
@@ -122,6 +125,75 @@ const DEMO_DATA: DashboardData = {
 function fmt(value: number | null | undefined, digits = 0) {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   return value.toLocaleString("en-GB", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+function latestValue(samples: Sample[], selector: (sample: Sample) => number | null) {
+  for (let index = samples.length - 1; index >= 0; index -= 1) {
+    const value = selector(samples[index]);
+    if (value !== null && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function particleValue(sample: Sample) {
+  return sample.pm25 ?? sample.pm10 ?? sample.pm1;
+}
+
+function indexGrade(value: number | null): Grade {
+  if (value === null) return { label: "NO DATA", level: "unknown" };
+  if (value >= 90) return { label: "GREAT", level: "great" };
+  if (value >= 75) return { label: "GOOD", level: "good" };
+  if (value >= 50) return { label: "WATCH", level: "watch" };
+  return { label: "ACT", level: "action" };
+}
+
+function co2Grade(value: number | null): Grade {
+  if (value === null) return { label: "NO DATA", level: "unknown" };
+  if (value < 800) return { label: "GREAT", level: "great" };
+  if (value < 1_000) return { label: "GOOD", level: "good" };
+  if (value < 1_400) return { label: "CHECK", level: "watch" };
+  return { label: "VENTILATE", level: "action" };
+}
+
+function tvocGrade(value: number | null): Grade {
+  if (value === null) return { label: "NO DATA", level: "unknown" };
+  if (value < 250) return { label: "LOW", level: "great" };
+  if (value < 500) return { label: "GOOD", level: "good" };
+  if (value < 1_000) return { label: "CHECK", level: "watch" };
+  return { label: "SOURCE", level: "action" };
+}
+
+function oxygenGrade(value: number | null): Grade {
+  if (value === null) return { label: "NO DATA", level: "unknown" };
+  if (value >= 20.3) return { label: "GREAT", level: "great" };
+  if (value >= 20.0) return { label: "GOOD", level: "good" };
+  if (value >= 19.5) return { label: "CHECK", level: "watch" };
+  return { label: "ACT", level: "action" };
+}
+
+function temperatureGrade(value: number | null, room: "LAB" | "OFFICE"): Grade {
+  if (value === null) return { label: "NO DATA", level: "unknown" };
+  const ideal = room === "LAB" ? value >= 18 && value <= 22 : value >= 20 && value <= 24;
+  if (ideal) return { label: "GREAT", level: "great" };
+  if (value >= 16 && value <= 26) return { label: "GOOD", level: "good" };
+  if (value >= 14 && value <= 28) return { label: "CHECK", level: "watch" };
+  return { label: "ACT", level: "action" };
+}
+
+function humidityGrade(value: number | null): Grade {
+  if (value === null) return { label: "NO DATA", level: "unknown" };
+  if (value >= 40 && value <= 60) return { label: "GREAT", level: "great" };
+  if (value >= 30 && value <= 65) return { label: "GOOD", level: "good" };
+  if (value >= 25 && value <= 70) return { label: "CHECK", level: "watch" };
+  return { label: "ACT", level: "action" };
+}
+
+function pmGrade(value: number | null): Grade {
+  if (value === null) return { label: "NO DATA", level: "unknown" };
+  if (value <= 5) return { label: "LOW", level: "great" };
+  if (value <= 15) return { label: "GOOD", level: "good" };
+  if (value <= 35) return { label: "CHECK", level: "watch" };
+  return { label: "HIGH", level: "action" };
 }
 
 function pointsFor(
@@ -149,12 +221,14 @@ function HistoryTrend({
   primary,
   secondary,
   label,
+  levelFor,
   analysisMinutes = 60,
 }: {
   samples: Sample[];
   primary: (sample: Sample) => number | null;
   secondary?: (sample: Sample) => number | null;
   label: string;
+  levelFor: (value: number | null) => Grade;
   analysisMinutes?: number;
 }) {
   const geometry = useMemo(() => {
@@ -175,11 +249,34 @@ function HistoryTrend({
         current: allPoints.at(-1) ?? null,
       };
     }
-    return { primary: build(primary), secondary: build(secondary), recentBoundary: Math.max(0, ((recentStart - start) / Math.max(end - start, 1)) * 100) };
-  }, [samples, primary, secondary, analysisMinutes]);
+    const timeRange = Math.max(end - start, 1);
+    const graded = samples.map((sample, index) => {
+      const x = ((sample.timestamp - start) / timeRange) * 100;
+      const previousX = index === 0 ? 0 : ((samples[index - 1].timestamp - start) / timeRange) * 100;
+      const nextX = index === samples.length - 1 ? 100 : ((samples[index + 1].timestamp - start) / timeRange) * 100;
+      return {
+        from: index === 0 ? 0 : (previousX + x) / 2,
+        to: index === samples.length - 1 ? 100 : (x + nextX) / 2,
+        level: levelFor(primary(sample)).level,
+      };
+    });
+    const zones = graded.reduce<Array<{ from: number; to: number; level: GradeLevel }>>((result, item) => {
+      const previous = result.at(-1);
+      if (previous?.level === item.level) previous.to = item.to;
+      else result.push({ ...item });
+      return result;
+    }, []);
+    return {
+      primary: build(primary),
+      secondary: build(secondary),
+      zones,
+      recentBoundary: Math.max(0, ((recentStart - start) / timeRange) * 100),
+    };
+  }, [samples, primary, secondary, analysisMinutes, levelFor]);
 
   return (
     <svg className="trend-svg" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={label}>
+      {geometry.zones.map((zone, index) => <rect key={`${zone.from}-${index}`} x={zone.from} y="2" width={Math.max(zone.to - zone.from, .1)} height="24" className={`trend-zone zone-${zone.level}`} />)}
       <line x1="0" y1="25" x2="100" y2="25" className="trend-grid" />
       <line x1="0" y1="16" x2="100" y2="16" className="trend-reference" />
       <rect x={geometry.recentBoundary} y="3" width={100 - geometry.recentBoundary} height="23" className="recent-window" />
@@ -438,11 +535,6 @@ function ApiKeySetup({ checking, onConnected }: { checking: boolean; onConnected
 function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refreshing: boolean; analysisMinutes: number }) {
   const latest = room.latest;
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
-  const recentCutoff = (latest?.timestamp ?? 0) - analysisMinutes * 60_000;
-  const maxSound = Math.max(...room.samples.filter((sample) => sample.timestamp >= recentCutoff).map((sample) => sample.soundMax ?? -Infinity));
-  const prioritySignals = [...room.checks]
-    .sort((left, right) => ({ action: 0, watch: 1, unknown: 2, normal: 3 }[left.level] - { action: 0, watch: 1, unknown: 2, normal: 3 }[right.level]))
-    .slice(0, 4);
   return (
     <section className="lab-panel" aria-labelledby="lab-heading">
       <div className="room-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h1 id="lab-heading">BIOENGINEERING S1 LAB</h1></div>{refreshing ? <span className="refresh-label">UPDATING</span> : null}</div>
@@ -455,71 +547,77 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
         {room.checks.map((check) => <article className={`critical-check check-${check.level}`} key={check.label}><span>{check.label} · {check.method.toLowerCase()}</span><strong>{check.status}</strong></article>)}
       </div>
       <div className="metric-grid">
-        <Metric label="Health" value={fmt(latest?.health)} note="index + raw channels" />
-        <Metric label="Performance" value={fmt(latest?.performance)} note="workday watch" />
-        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} />
-        <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="gas-pattern context" />
-        <Metric label="Oxygen" value={`${fmt(latest?.oxygen, 2)}%`} note="displacement proxy" />
-        <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="thermal context" />
-        <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} note="sensor context" />
+        <Metric label="Health" value={fmt(latest?.health)} note="air-Q index + raw channels" grade={indexGrade(latest?.health ?? null)} />
+        <Metric label="Performance" value={fmt(latest?.performance)} note="air-Q workday index" grade={indexGrade(latest?.performance ?? null)} />
+        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
+        <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="gas-pattern context" grade={tvocGrade(latest?.tvoc ?? null)} />
+        <Metric label="Oxygen" value={`${fmt(latest?.oxygen, 2)}%`} note="displacement proxy" grade={oxygenGrade(latest?.oxygen ?? null)} />
+        <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="LAB thermal band" grade={temperatureGrade(latest?.temperature ?? null, "LAB")} />
+        <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} note="humidity band" grade={humidityGrade(latest?.humidity ?? null)} />
       </div>
       <div className="evidence-layout">
         <section className="evidence-panel" aria-labelledby="evidence-heading">
-          <div className="panel-heading"><h2 id="evidence-heading">24-hour evidence tail</h2><span>latest 60 min shaded · current point enlarged</span></div>
-          <TrendRow label="TVOC / HCHO" status="vapour pattern" samples={room.samples} primary={(s) => s.tvoc} secondary={(s) => s.hcho} analysisMinutes={analysisMinutes} />
-          <TrendRow label="CO₂ / humidity" status={occupancyText(room)} samples={room.samples} primary={(s) => s.co2} secondary={(s) => s.humidityAbs} analysisMinutes={analysisMinutes} />
-          <TrendRow label="O₂ / CO" status="displacement/CO" samples={room.samples} primary={(s) => s.oxygen} secondary={(s) => s.co} analysisMinutes={analysisMinutes} />
-          <TrendRow label="PM / sound max" status={`recent max ${Number.isFinite(maxSound) ? fmt(maxSound) : "—"} dB`} samples={room.samples} primary={(s) => s.pm25} secondary={(s) => s.soundMax} analysisMinutes={analysisMinutes} />
+          <div className="panel-heading"><h2 id="evidence-heading">24-hour evidence tail</h2><div className="colour-key"><span className="key-great">GOOD</span><span className="key-watch">CHECK</span><span className="key-action">ACT</span></div></div>
+          <TrendRow label="TVOC / HCHO" samples={room.samples} primary={(s) => s.tvoc} secondary={(s) => s.hcho} gradeFor={tvocGrade} analysisMinutes={analysisMinutes} />
+          <TrendRow label="CO₂ / humidity" samples={room.samples} primary={(s) => s.co2} secondary={(s) => s.humidityAbs} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
+          <TrendRow label="O₂ / CO" samples={room.samples} primary={(s) => s.oxygen} secondary={(s) => s.co} gradeFor={oxygenGrade} analysisMinutes={analysisMinutes} />
+          <TrendRow label="PM / sound max" samples={room.samples} primary={particleValue} secondary={(s) => s.soundMax} gradeFor={pmGrade} analysisMinutes={analysisMinutes} />
         </section>
-        <aside className="meaning-panel" aria-labelledby="meaning-heading">
-          <h2 id="meaning-heading">Meaning and next action</h2>
-          <div className="meaning-copy"><strong>Past-hour interpretation</strong><p>{room.summary}</p><span>INFERRED · MULTI-SENSOR</span></div>
-          <div className="decision-signals">
-            {prioritySignals.map((check) => <div key={check.label}><span>{check.label}</span><strong className={`text-${check.level}`}>{check.status}</strong></div>)}
-          </div>
-          <div className={`action-copy action-${room.status}`}><strong>{room.status === "normal" ? "NO ACTION" : room.status === "watch" ? "WATCH" : "ACTION"}</strong><p>{room.action}</p></div>
+        <aside className={`meaning-panel meaning-panel-${room.status}`} aria-labelledby="meaning-heading">
+          <h2 id="meaning-heading">Meaningful action</h2>
+          <div className="meaning-copy"><strong>WHAT IT MEANS NOW</strong><p>{room.summary}</p><span>PAST HOUR · MULTI-SENSOR</span></div>
+          <div className={`action-copy action-${room.status}`}><strong>{room.status === "normal" ? "KEEP MONITORING" : room.status === "watch" ? "CHECK THIS NOW" : room.status === "action" ? "ACT NOW" : "CHECK DATA"}</strong><p>{room.action}</p></div>
         </aside>
       </div>
     </section>
   );
 }
 
-function Metric({ label, value, note }: { label: string; value: string; note: string }) {
-  return <article className="metric"><span>{label}</span><strong>{value}</strong><small>{note}</small></article>;
+function Metric({ label, value, note, grade }: { label: string; value: string; note: string; grade: Grade }) {
+  return <article className={`metric metric-${grade.level}`} title={`${label}: ${value} — ${grade.label}. ${note}`}><div className="metric-label"><span>{label}</span></div><strong>{value}</strong><div className="metric-foot"><b className={`grade-word grade-${grade.level}`}><i />{grade.label}</b></div></article>;
 }
 
-function TrendRow({ label, status, samples, primary, secondary, analysisMinutes }: { label: string; status: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary?: (sample: Sample) => number | null; analysisMinutes: number }) {
-  return <div className="trend-row"><strong>{label}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} label={`${label} across 24 hours with the latest hour emphasized`} analysisMinutes={analysisMinutes} /><span>{status}</span></div>;
+function TrendRow({ label, samples, primary, secondary, gradeFor, analysisMinutes }: { label: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary?: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; analysisMinutes: number }) {
+  const grade = gradeFor(latestValue(samples, primary));
+  return <div className={`trend-row trend-row-${grade.level}`}><strong>{label}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b></span></div>;
 }
 
 function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes: number }) {
   const latest = room.latest;
+  const pmValue = latestValue(room.samples, particleValue);
+  const officeAction = room.status === "normal"
+    ? "No action now."
+    : room.status === "watch"
+      ? "Check the highlighted source and the next trend."
+      : room.status === "action"
+        ? "Follow the room procedure now."
+        : "Check the live data connection.";
   const visibleChecks = room.checks.filter((check) => ["CO release", "O₂ displacement", "Volatile-gas pattern", "Sound peak >90 dB"].includes(check.label));
   return (
     <aside className="office-rail" aria-labelledby="office-heading">
       <div className="office-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h2 id="office-heading">BIOENGINEERING OFFICE</h2></div></div>
       <div className={`office-state overall-${room.status}`}><LevelMark status={room.status} /><div><strong>{room.statusLabel}</strong><span>{room.checks.filter((check) => check.level === "normal").length}/{room.checks.length} checks clear</span></div></div>
       <div className="office-metrics">
-        <Metric label="Health" value={fmt(latest?.health)} note="index" />
-        <Metric label="Performance" value={fmt(latest?.performance)} note="index" />
-        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} />
-        <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="vapour pattern" />
-        <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} note="particle context" />
-        <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="comfort" />
+        <Metric label="Health" value={fmt(latest?.health)} note="air-Q index" grade={indexGrade(latest?.health ?? null)} />
+        <Metric label="Performance" value={fmt(latest?.performance)} note="air-Q index" grade={indexGrade(latest?.performance ?? null)} />
+        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
+        <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="vapour pattern" grade={tvocGrade(latest?.tvoc ?? null)} />
+        <Metric label="PM" value={`${fmt(pmValue, 1)} µg/m³`} note="latest PM channel" grade={pmGrade(pmValue)} />
+        <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="OFFICE thermal band" grade={temperatureGrade(latest?.temperature ?? null, "OFFICE")} />
       </div>
       <section className="office-trends" aria-label="OFFICE 24-hour compact trends">
-        <div className="office-trend-title"><strong>24-hour context</strong><span>latest hour bright</span></div>
-        <OfficeTrend label="CO₂" value={`${fmt(latest?.co2)} ppm`} samples={room.samples} selector={(s) => s.co2} analysisMinutes={analysisMinutes} />
-        <OfficeTrend label="VOC" value={`${fmt(latest?.tvoc)} ppb`} samples={room.samples} selector={(s) => s.tvoc} analysisMinutes={analysisMinutes} />
-        <OfficeTrend label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} samples={room.samples} selector={(s) => s.pm25} analysisMinutes={analysisMinutes} />
+        <div className="office-trend-title"><strong>24-hour colour history</strong></div>
+        <OfficeTrend label="CO₂" value={`${fmt(latest?.co2)} ppm`} samples={room.samples} selector={(s) => s.co2} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
+        <OfficeTrend label="VOC" value={`${fmt(latest?.tvoc)} ppb`} samples={room.samples} selector={(s) => s.tvoc} gradeFor={tvocGrade} analysisMinutes={analysisMinutes} />
+        <OfficeTrend label="PM" value={`${fmt(pmValue, 1)} µg/m³`} samples={room.samples} selector={particleValue} gradeFor={pmGrade} analysisMinutes={analysisMinutes} />
       </section>
       <div className="office-checks">{visibleChecks.map((check) => <div key={check.label}><span>{check.label}</span><strong className={`text-${check.level}`}>{check.status}</strong></div>)}</div>
-      <div className="office-summary"><strong>Past-hour interpretation</strong><p>{room.summary}</p></div>
-      <div className={`office-action action-${room.status}`}><strong>{room.status === "normal" ? "NO OFFICE ACTION" : "OFFICE WATCH"}</strong><p>{room.action}</p></div>
+      <div className={`office-summary office-meaning action-${room.status}`}><strong>MEANINGFUL ACTION · {room.status === "normal" ? "KEEP MONITORING" : room.status === "watch" ? "CHECK THIS NOW" : room.status === "action" ? "ACT NOW" : "CHECK DATA"}</strong><p>{room.summary} {officeAction}</p></div>
     </aside>
   );
 }
 
-function OfficeTrend({ label, value, samples, selector, analysisMinutes }: { label: string; value: string; samples: Sample[]; selector: (sample: Sample) => number | null; analysisMinutes: number }) {
-  return <div className="office-trend-row"><div><strong>{label}</strong><span>{value}</span></div><HistoryTrend samples={samples} primary={selector} label={`${label} across 24 hours with the latest hour emphasized`} analysisMinutes={analysisMinutes} /></div>;
+function OfficeTrend({ label, value, samples, selector, gradeFor, analysisMinutes }: { label: string; value: string; samples: Sample[]; selector: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; analysisMinutes: number }) {
+  const grade = gradeFor(latestValue(samples, selector));
+  return <div className={`office-trend-row trend-row-${grade.level}`}><div><strong>{label}</strong><span><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b> {value}</span></div><HistoryTrend samples={samples} primary={selector} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the reading`} analysisMinutes={analysisMinutes} /></div>;
 }
