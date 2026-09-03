@@ -214,6 +214,11 @@ function berlinShortTime(timestamp: number) {
   }).format(timestamp);
 }
 
+function berlinCompactDate(timestamp: number) {
+  const [year, month, day] = berlinCalendar(timestamp).dayKey.split("-");
+  return `${month}${day}${year.slice(-2)}`;
+}
+
 function median(values: number[]) {
   if (!values.length) return null;
   const sorted = [...values].sort((left, right) => left - right);
@@ -1133,7 +1138,7 @@ export default function Home() {
       </div>
       <footer className="wallboard-footer">
         <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently</span>
-        <strong>SPARK RICHARD BIOENGINEERING</strong>
+        <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
       </footer>
     </main>
   );
