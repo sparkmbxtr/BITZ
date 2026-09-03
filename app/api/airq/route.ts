@@ -262,7 +262,8 @@ function shareMatching(
 }
 
 function particleValue(sample: Sample) {
-  return sample.pm25 ?? sample.pm10 ?? sample.pm1;
+  if (sample.pm1 === null || sample.pm25 === null || sample.pm4 === null || sample.pm10 === null) return null;
+  return (sample.pm1 + sample.pm25 + sample.pm4 + sample.pm10) / 4;
 }
 
 function mergeSupplementalSample(history: Sample[], supplemental: Sample | null) {
@@ -274,6 +275,7 @@ function mergeSupplementalSample(history: Sample[], supplemental: Sample | null)
       ...existing,
       pm1: existing.pm1 ?? supplemental.pm1,
       pm25: existing.pm25 ?? supplemental.pm25,
+      pm4: existing.pm4 ?? supplemental.pm4,
       pm10: existing.pm10 ?? supplemental.pm10,
     };
     return history;
