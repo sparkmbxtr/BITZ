@@ -23,7 +23,7 @@ type Sample = {
 
 type Check = {
   label: string;
-  method: "DIRECT" | "PROXY" | "PATTERN" | "RAW" | "SYSTEM";
+  method: "DIRECT" | "PROXY" | "PATTERN" | "RAW" | "SYSTEM" | "COMPUTED UNTIL PROPANE SENSOR IS INSTALLED" | "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED";
   status: string;
   level: "normal" | "watch" | "action" | "unknown";
 };
@@ -1256,8 +1256,10 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
   const cycle = latestCycle(room.samples, "LAB");
   const routineClosed = Boolean(cycle?.close && latest && latest.timestamp >= cycle.close && room.status !== "action" && room.status !== "unknown");
-  const evidenceOrder = ["CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
+  const evidenceOrder = ["Propane-associated pattern", "Nitrogen (N₂) displacement pattern", "CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
   const evidenceLabels: Record<string, string> = {
+    "Propane-associated pattern": "PROPANE EARLY WARNING",
+    "Nitrogen (N₂) displacement pattern": "NITROGEN EARLY WARNING",
     "CO release": "CO SAFETY",
     "Volatile-gas pattern": "GAS / VAPOUR SAFETY",
     "O₂ displacement": "OXYGEN SAFETY",
@@ -1293,7 +1295,7 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
         <div><strong>{room.statusLabel}</strong><span>{normalCount}/{room.checks.length} monitored conditions currently clear</span></div>
         <div className="state-detail"><strong>{latest ? `Updated ${berlinClock(latest.timestamp)}` : "Update pending"}</strong><span>latest LAB sample · Europe/Berlin</span>{cycle?.begin ? <span className="cycle-begin-stamp">DAY BEGINS {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div>
       </div>
-      <div className={`critical-grid ${room.checks.length === 7 ? "critical-grid-seven" : ""}`}>
+      <div className={`critical-grid ${room.checks.length === 7 ? "critical-grid-seven" : room.checks.length === 9 ? "critical-grid-nine" : room.checks.length === 10 ? "critical-grid-ten" : ""}`}>
         {room.checks.map((check) => <article className={`critical-check check-${check.level}`} key={check.label}><span>{check.label} · {check.method.toLowerCase()}</span><strong>{check.status}</strong></article>)}
       </div>
       <div className="metric-grid">
