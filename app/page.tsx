@@ -708,7 +708,7 @@ function co2Grade(value: number | null): Grade {
 
 function tvocGrade(value: number | null): Grade {
   if (value === null) return { label: "NO DATA", level: "unknown" };
-  if (value < 250) return { label: "LOW", level: "great" };
+  if (value < 250) return { label: "PRISTINE", level: "great" };
   if (value < 500) return { label: "GOOD", level: "good" };
   if (value < 1_000) return { label: "CHECK", level: "watch" };
   return { label: "SOURCE", level: "action" };
