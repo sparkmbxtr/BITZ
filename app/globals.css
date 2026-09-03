@@ -116,6 +116,10 @@ button, input { font: inherit; }
 .header-state { display: flex; align-items: center; justify-content: flex-end; gap: 13px; color: var(--muted); font-size: clamp(.78rem, min(.72vw, 1.35vh), .95rem); white-space: nowrap; }
 .day-end-stamps { min-width: 0; display: grid; gap: 2px; padding-right: 4px; text-align: right; }
 .day-end-stamps span { margin: 0; color: var(--teal); font-size: clamp(.62rem, min(.6vw, 1.08vh), .78rem); font-weight: 780; line-height: 1.1; letter-spacing: .025em; }
+.outdoor-weather { min-width: 176px; display: grid; gap: 1px; padding: 5px 9px; border: 1px solid rgba(112, 216, 237, .28); border-left: 4px solid var(--cyan); background: rgba(17, 50, 55, .72); line-height: 1.05; }
+.outdoor-weather strong { color: var(--cyan); font-size: clamp(.58rem, min(.56vw, 1vh), .72rem); letter-spacing: .045em; }
+.outdoor-weather span { color: var(--foreground); font-size: clamp(.78rem, min(.74vw, 1.28vh), .96rem); font-weight: 760; font-variant-numeric: tabular-nums; }
+.outdoor-weather small { color: var(--muted); font-size: clamp(.54rem, min(.51vw, .9vh), .66rem); }
 .header-state button, .header-state .header-export { min-height: 38px; padding: 7px 12px; display: inline-flex; align-items: center; color: var(--foreground); background: var(--panel-strong); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; text-decoration: none; }
 .connection-dot { width: 12px; height: 12px; flex: 0 0 auto; border-radius: 50%; background: var(--amber); }
 .connection-dot.is-live { background: var(--green); box-shadow: 0 0 14px rgba(105, 221, 162, .65); }
@@ -193,7 +197,7 @@ button, input { font: inherit; }
 
 .evidence-layout { min-height: 640px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(360px, .9fr); align-items: stretch; gap: 8px; }
 .evidence-panel, .meaning-panel, .office-trends, .office-checks, .office-summary { min-width: 0; min-height: 0; padding: 12px 14px; background: var(--panel); }
-.evidence-panel { display: grid; grid-template-rows: auto repeat(4, minmax(138px, 1fr)); }
+.evidence-panel { display: grid; grid-template-rows: auto repeat(5, minmax(118px, 1fr)); }
 .panel-heading { min-height: 30px; display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
 .panel-heading h2, .meaning-panel h2 { margin: 0; font-size: clamp(.9rem, .85vw, 1.08rem); letter-spacing: .055em; text-transform: uppercase; font-weight: 750; }
 .panel-heading > span { color: var(--muted); font-size: clamp(.72rem, .63vw, .84rem); }
@@ -213,6 +217,7 @@ button, input { font: inherit; }
 .trend-label-separator { align-self: stretch; width: 2px; min-height: 2.35em; margin-inline: .16em; border-radius: 2px; background: var(--muted); opacity: .72; }
 .trend-reading { min-width: 0; display: grid; justify-items: end; gap: 6px; text-align: right; }
 .trend-reading small { color: #d7e7e9; font-size: clamp(.61rem, min(.57vw, 1.02vh), .76rem); font-weight: 720; line-height: 1.15; white-space: nowrap; }
+.trend-reading .climate-fill-key { max-width: 112px; color: var(--muted); font-size: clamp(.5rem, min(.46vw, .82vh), .61rem); line-height: 1.15; white-space: normal; }
 .trend-chart { position: relative; width: 100%; height: 100%; min-height: 78px; display: grid; grid-template-rows: minmax(0, 1fr) 20px; }
 .trend-chart-with-left-axis { grid-template-columns: 42px minmax(0, 1fr); column-gap: 5px; }
 .trend-chart-with-left-axis .trend-plot { grid-column: 2; grid-row: 1; }
@@ -234,6 +239,10 @@ button, input { font: inherit; }
 .zone-watch { fill: rgba(209, 137, 18, .27); }
 .zone-action { fill: rgba(225, 96, 21, .3); }
 .zone-unknown { fill: rgba(148, 158, 161, .08); }
+.climate-difference { stroke: none; pointer-events: none; }
+.climate-difference.climate-above { fill: rgba(255, 196, 87, .34); }
+.climate-difference.climate-below { fill: rgba(112, 216, 237, .3); }
+.climate-difference.climate-secondary { opacity: .48; }
 .trend-grid { stroke: rgba(96, 128, 134, .4); stroke-width: .7; }
 .trend-y-grid { stroke: rgba(181, 211, 216, .2); stroke-width: .32; stroke-dasharray: 1.2 1.6; vector-effect: non-scaling-stroke; }
 .trend-time-grid { stroke: rgba(181, 211, 216, .27); stroke-width: .38; stroke-dasharray: 1.4 1.4; vector-effect: non-scaling-stroke; }
@@ -315,7 +324,7 @@ line.activity-close { stroke: var(--amber); }
 .office-metrics .metric-foot { gap: 4px; }
 .office-metrics .grade-word { font-size: clamp(.61rem, .55vw, .71rem); }
 .office-metrics .metric-foot small { font-size: .61rem; }
-.office-trends { min-height: 480px; display: grid; grid-template-rows: auto repeat(3, minmax(138px, 1fr)); padding: 10px 11px; }
+.office-trends { min-height: 610px; display: grid; grid-template-rows: auto repeat(4, minmax(128px, 1fr)); padding: 10px 11px; }
 .office-trend-title, .office-trend-row > div:first-child { display: flex; justify-content: space-between; gap: 8px; }
 .office-trend-title { min-height: 24px; font-size: clamp(.82rem, .76vw, .98rem); }
 .office-trend-title span, .office-trend-row span { color: var(--muted); }
@@ -323,6 +332,13 @@ line.activity-close { stroke: var(--amber); }
 .office-trend-row > div { font-size: clamp(.76rem, .68vw, .9rem); }
 .office-series-name { display: grid; gap: 1px; color: var(--cyan); line-height: 1.1; }
 .office-series-name small { color: inherit; font-size: .72em; font-weight: 620; letter-spacing: .035em; opacity: .78; }
+.office-climate-heading { align-items: flex-start; flex-wrap: wrap; }
+.office-series-pair { display: flex; align-items: center; gap: 5px; }
+.office-series-pair > span { display: grid; gap: 1px; }
+.office-series-pair > i { width: 2px; height: 2.2em; flex: 0 0 auto; border-radius: 2px; background: var(--muted); opacity: .7; }
+.office-series-pair .trend-label-primary { color: var(--cyan); }
+.office-series-pair .trend-label-secondary { color: var(--amber); }
+.office-climate-heading .climate-outdoor-reading { width: 100%; flex: 1 0 100%; color: #d6e5e7; font-size: clamp(.54rem, .5vw, .66rem); line-height: 1.15; text-align: right; }
 .office-trend-row > div > span { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
 .office-trend-row .trend-chart { width: 100%; min-width: 0; height: 100%; min-height: 66px; }
 .office-trend-row .trend-chart-with-left-axis { grid-template-columns: 42px minmax(0, 1fr) 54px; }
@@ -352,12 +368,12 @@ line.activity-close { stroke: var(--amber); }
   .room-layout { align-items: stretch; overflow: hidden; }
   .lab-panel { grid-template-rows: auto auto auto auto minmax(0, 1fr); }
   .evidence-layout { min-height: 0; }
-  .evidence-panel { grid-template-rows: auto repeat(4, minmax(0, 1fr)); }
+  .evidence-panel { grid-template-rows: auto repeat(5, minmax(0, 1fr)); }
   .meaning-panel { grid-template-rows: auto minmax(92px, .95fr) minmax(136px, 1.3fr) minmax(88px, .9fr) minmax(66px, auto); }
   .meaning-panel.meaning-with-hepa { grid-template-rows: auto minmax(82px, .8fr) minmax(62px, .55fr) minmax(122px, 1.1fr) minmax(78px, .75fr) minmax(58px, auto); }
   .meaning-evidence { min-height: 0; grid-template-rows: repeat(3, minmax(44px, 1fr)); }
   .office-rail { grid-template-rows: auto auto auto minmax(0, 1fr) auto minmax(112px, auto); }
-  .office-trends { min-height: 0; grid-template-rows: auto repeat(3, minmax(0, 1fr)); }
+  .office-trends { min-height: 0; grid-template-rows: auto repeat(4, minmax(0, 1fr)); }
 }
 
 /* Android tablets can expose a 1280-1600px desktop-style viewport. Stack the
@@ -407,7 +423,7 @@ line.activity-close { stroke: var(--amber); }
   .critical-grid-nine, .critical-grid-ten { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .evidence-layout { grid-template-columns: minmax(0, 1fr); min-height: 0; }
-  .evidence-panel { min-height: 600px; }
+  .evidence-panel { min-height: 720px; }
   .meaning-panel { min-height: 0; }
 }
 
@@ -418,6 +434,7 @@ line.activity-close { stroke: var(--amber); }
 .wallboard-compact .identity { width: 100%; flex-wrap: wrap; }
 .wallboard-compact .identity strong { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .wallboard-compact .header-state { width: 100%; min-width: 0; justify-content: flex-start; flex-wrap: wrap; white-space: normal; }
+.wallboard-compact .outdoor-weather { min-width: min(100%, 250px); }
 .wallboard-compact .day-end-stamps { width: 100%; text-align: left; }
 .wallboard-compact .room-layout { grid-template-columns: minmax(0, 1fr); align-items: start; overflow: visible; }
 .wallboard-compact .lab-panel { grid-template-rows: repeat(5, auto); }
@@ -430,12 +447,12 @@ line.activity-close { stroke: var(--amber); }
 .wallboard-compact .critical-grid-ten { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .wallboard-compact .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .wallboard-compact .evidence-layout { grid-template-columns: minmax(0, 1fr); min-height: 0; }
-.wallboard-compact .evidence-panel { min-height: 600px; grid-template-rows: auto repeat(4, minmax(138px, 1fr)); }
+.wallboard-compact .evidence-panel { min-height: 720px; grid-template-rows: auto repeat(5, minmax(128px, 1fr)); }
 .wallboard-compact .meaning-panel,
 .wallboard-compact .meaning-panel.meaning-with-hepa { grid-template-rows: repeat(5, auto); }
 .wallboard-compact .meaning-panel.meaning-with-hepa { grid-template-rows: repeat(6, auto); }
 .wallboard-compact .meaning-evidence { min-height: 210px; grid-template-rows: repeat(3, minmax(62px, 1fr)); }
-.wallboard-compact .office-trends { min-height: 480px; grid-template-rows: auto repeat(3, minmax(138px, 1fr)); }
+.wallboard-compact .office-trends { min-height: 610px; grid-template-rows: auto repeat(4, minmax(128px, 1fr)); }
 
 @media (max-width: 1450px), (max-height: 920px) {
   .wallboard-header { min-height: 60px; padding-block: 8px; }
@@ -457,6 +474,7 @@ line.activity-close { stroke: var(--amber); }
   .identity strong { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: clamp(1.1rem, 5vw, 1.45rem); }
   .identity span { display: none; }
   .header-state { width: 100%; min-width: 0; justify-content: flex-start; flex-wrap: wrap; gap: 7px; white-space: normal; }
+  .outdoor-weather { width: min(100%, 280px); min-width: 0; }
   .day-end-stamps { width: 100%; text-align: left; }
   .header-state button { padding-inline: 8px; }
   .room-layout { padding: 7px 6px; }
@@ -546,7 +564,7 @@ html[data-dashboard-fullscreen="true"] body {
 }
 .wallboard-fullscreen .identity { width: auto; flex-wrap: nowrap; gap: 16px; }
 .wallboard-fullscreen .identity strong { max-width: none; white-space: nowrap; overflow-wrap: normal; font-size: 2rem; }
-.wallboard-fullscreen .identity span { display: inline; font-size: .95rem; }
+.wallboard-fullscreen .identity span { display: none; font-size: .95rem; }
 .wallboard-fullscreen .header-state { width: auto; justify-content: flex-end; flex-wrap: nowrap; gap: 13px; white-space: nowrap; font-size: .95rem; }
 .wallboard-fullscreen .header-state > span { display: inline; }
 .wallboard-fullscreen .header-state > .connection-dot { display: block; }
@@ -610,7 +628,7 @@ html[data-dashboard-fullscreen="true"] body {
 }
 .wallboard-fullscreen .evidence-panel {
   min-height: 0;
-  grid-template-rows: auto repeat(4, minmax(0, 1fr));
+  grid-template-rows: auto repeat(5, minmax(0, 1fr));
   padding: 12px 14px;
 }
 .wallboard-fullscreen .panel-heading { align-items: baseline; flex-wrap: nowrap; }
@@ -646,7 +664,7 @@ html[data-dashboard-fullscreen="true"] body {
 
 .wallboard-fullscreen .office-trends {
   min-height: 0;
-  grid-template-rows: auto repeat(3, minmax(0, 1fr));
+  grid-template-rows: auto repeat(4, minmax(0, 1fr));
   padding: 10px 11px;
 }
 .wallboard-fullscreen .office-trend-title,
