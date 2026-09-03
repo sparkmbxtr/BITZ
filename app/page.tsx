@@ -414,7 +414,12 @@ export default function Home() {
         return;
       }
       if (!response.ok) throw new Error("Connection check failed");
-      const payload = await response.json() as { configured?: boolean };
+      const payload = await response.json() as { configured?: boolean; reauthenticate?: boolean };
+      if (payload.reauthenticate === true) {
+        setApiConnected(null);
+        setAuthorized(false);
+        return;
+      }
       setApiConnected(payload.configured === true);
     } catch {
       setApiConnected(false);
