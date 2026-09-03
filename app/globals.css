@@ -210,6 +210,7 @@ line.activity-close { stroke: var(--amber); }
 .meaning-panel-watch { border-color: rgba(255, 196, 87, .42); border-top-color: var(--amber); background: linear-gradient(155deg, rgba(91, 61, 11, .86), var(--panel) 62%); }
 .meaning-panel-action { border-color: rgba(255, 147, 79, .48); border-top-color: var(--orange); background: linear-gradient(155deg, rgba(104, 47, 14, .9), var(--panel) 62%); }
 .meaning-panel-unknown { border-color: rgba(192, 201, 203, .3); border-top-color: var(--unknown); }
+.meaning-panel-closed { border-color: rgba(88, 222, 212, .28); border-top-color: var(--teal); background: linear-gradient(155deg, rgba(18, 65, 68, .82), var(--panel) 62%); }
 .meaning-panel > h2 { padding: 3px 5px 7px; font-size: clamp(1.2rem, min(1.25vw, 2.25vh), 1.64rem); }
 .meaning-copy { display: grid; align-content: center; padding: 14px 16px; border-left: 7px solid var(--teal); background: rgba(6, 24, 26, .56); }
 .meaning-copy strong, .office-summary strong { font-size: clamp(1.08rem, min(1.12vw, 2vh), 1.46rem); font-weight: 800; letter-spacing: .035em; }
@@ -238,6 +239,9 @@ line.activity-close { stroke: var(--amber); }
 .action-action strong { color: var(--orange); }
 .action-unknown { background: rgba(65, 75, 78, .46); border-color: rgba(192, 201, 203, .28); border-left-color: var(--unknown); }
 .action-unknown strong { color: var(--unknown); }
+.closed-period-copy { display: grid; align-content: center; padding: 14px 16px; background: rgba(18, 65, 68, .74); border: 1px solid rgba(88, 222, 212, .3); border-left: 7px solid var(--teal); }
+.closed-period-copy strong { color: var(--teal); font-size: clamp(1.15rem, min(1.2vw, 2.1vh), 1.58rem); letter-spacing: .055em; }
+.closed-period-copy p { margin: 9px 0 0; color: #d6e5e7; font-size: clamp(1rem, min(1vw, 1.8vh), 1.3rem); line-height: 1.4; }
 .critical-message { min-width: 0; display: grid; grid-template-columns: minmax(120px, auto) 1fr; align-items: center; gap: 15px; padding: 10px 14px; border: 2px solid currentColor; background: rgba(13, 78, 51, .8); color: var(--green); }
 .critical-message strong { font-size: clamp(1.5rem, 1.65vw, 2.15rem); letter-spacing: .08em; }
 .critical-message span { color: #e6f3ed; font-size: clamp(.84rem, .78vw, 1rem); font-weight: 680; line-height: 1.25; }
