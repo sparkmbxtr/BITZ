@@ -170,7 +170,8 @@ button, input { font: inherit; }
 .trend-row:last-child { border-bottom: 0; }
 .trend-row > strong { font-size: clamp(.86rem, min(.8vw, 1.45vh), 1rem); font-weight: 680; }
 .trend-reading { min-width: 0; display: grid; justify-items: end; text-align: right; }
-.trend-chart { position: relative; width: 100%; height: 100%; min-height: 58px; }
+.trend-chart { position: relative; width: 100%; height: 100%; min-height: 78px; display: grid; grid-template-rows: minmax(0, 1fr) 20px; }
+.trend-plot { position: relative; width: 100%; height: 100%; min-height: 58px; }
 .trend-svg { display: block; width: 100%; height: 100%; min-height: 58px; overflow: visible; }
 .trend-zone { stroke: none; }
 .zone-great { fill: rgba(28, 147, 91, .22); }
@@ -179,6 +180,7 @@ button, input { font: inherit; }
 .zone-action { fill: rgba(225, 96, 21, .3); }
 .zone-unknown { fill: rgba(148, 158, 161, .08); }
 .trend-grid { stroke: rgba(96, 128, 134, .4); stroke-width: .7; }
+.trend-time-grid { stroke: rgba(181, 211, 216, .27); stroke-width: .38; stroke-dasharray: 1.4 1.4; vector-effect: non-scaling-stroke; }
 .recent-window { fill: rgba(81, 210, 202, .09); }
 .trend-primary, .trend-secondary { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
 .trend-primary { stroke: var(--cyan); stroke-width: 1.5; }
@@ -187,6 +189,10 @@ button, input { font: inherit; }
 .trend-recent { opacity: 1; stroke-width: 2.8; }
 .current-point { position: absolute; width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--cyan); border-radius: 50%; background: var(--foreground); transform: translate(-50%, -50%); pointer-events: none; }
 .trend-last-valid { position: absolute; inset: 8px 8px auto; padding: 6px 9px; color: #e8f0f1; background: rgba(37, 48, 51, .9); border-left: 4px solid var(--unknown); font-size: clamp(.68rem, .62vw, .82rem); font-weight: 760; letter-spacing: .025em; text-align: center; }
+.time-axis { position: relative; min-width: 0; height: 20px; border-top: 1px solid rgba(103, 137, 143, .46); color: #b9ced2; font-size: clamp(.58rem, min(.57vw, 1.05vh), .76rem); font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.time-axis span { position: absolute; top: 5px; transform: translateX(-50%); }
+.time-axis .axis-first { transform: none; }
+.time-axis .axis-last { color: var(--teal); font-weight: 800; transform: translateX(-100%); }
 
 .meaning-panel { display: grid; grid-template-rows: repeat(5, auto); align-content: stretch; gap: 8px; border: 1px solid rgba(88, 222, 212, .24); border-top: 7px solid var(--teal); }
 .meaning-panel { padding: 9px 10px; }
@@ -244,7 +250,9 @@ button, input { font: inherit; }
 .office-trend-row { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); border-top: 1px solid rgba(65, 91, 96, .52); padding: 5px 4px 2px; }
 .office-trend-row > div { font-size: clamp(.76rem, .68vw, .9rem); }
 .office-trend-row > div > span { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
-.office-trend-row .trend-chart, .office-trend-row .trend-svg { height: 100%; min-height: 45px; }
+.office-trend-row .trend-chart { height: 100%; min-height: 66px; }
+.office-trend-row .trend-plot, .office-trend-row .trend-svg { height: 100%; min-height: 45px; }
+.office-trend-row .time-axis { font-size: clamp(.5rem, .47vw, .64rem); }
 .office-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 5px 7px; }
 .office-checks > div { min-width: 0; padding: 4px 6px; background: rgba(23, 45, 49, .55); }
 .office-checks span, .office-checks strong { display: block; font-size: clamp(.72rem, .64vw, .84rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
