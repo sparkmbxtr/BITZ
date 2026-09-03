@@ -24,7 +24,11 @@ export async function POST(request: Request) {
   let password = "";
   try {
     const body = await request.json() as { password?: unknown };
-    if (typeof body.password === "string") password = body.password;
+    if (typeof body.password === "string") {
+      // Shared wall displays use varied Android keyboards. Normalize harmless
+      // keyboard differences while retaining the same stored password verifier.
+      password = body.password.normalize("NFKC").trim().toUpperCase();
+    }
   } catch {
     return Response.json({ error: "Invalid request" }, { status: 400 });
   }
