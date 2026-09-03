@@ -237,6 +237,20 @@ function latestValue(samples: Sample[], selector: (sample: Sample) => number | n
   return list.length ? list.at(-1)! : null;
 }
 
+function median(list: number[]) {
+  if (!list.length) return null;
+  const ordered = [...list].sort((left, right) => left - right);
+  const middle = Math.floor(ordered.length / 2);
+  return ordered.length % 2 ? ordered[middle] : (ordered[middle - 1] + ordered[middle]) / 2;
+}
+
+function recentMedianShift(samples: Sample[], selector: (sample: Sample) => number | null) {
+  if (samples.length < 6) return null;
+  const current = median(values(samples.slice(-3), selector));
+  const reference = median(values(samples.slice(-15, -3), selector));
+  return current === null || reference === null ? null : current - reference;
+}
+
 function shareMatching(
   samples: Sample[],
   selector: (sample: Sample) => number | null,
@@ -268,7 +282,12 @@ function mergeSupplementalSample(history: Sample[], supplemental: Sample | null)
   return history.sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function check(label: string, method: "DIRECT" | "PROXY" | "PATTERN" | "RAW" | "SYSTEM", status: string, level: Level) {
+function check(
+  label: string,
+  method: "DIRECT" | "PROXY" | "PATTERN" | "RAW" | "SYSTEM" | "COMPUTED UNTIL PROPANE SENSOR IS INSTALLED" | "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED",
+  status: string,
+  level: Level,
+) {
   return { label, method, status, level };
 }
 
@@ -324,6 +343,11 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const humidityDelta = delta(recent, (sample) => sample.humidityAbs);
   const soundDelta = delta(recent, (sample) => sample.sound);
   const temperatureDelta = delta(recent, (sample) => sample.temperature);
+  const recentO2Shift = recentMedianShift(recent, (sample) => sample.oxygen);
+  const recentCo2Shift = recentMedianShift(recent, (sample) => sample.co2);
+  const recentTvocShift = recentMedianShift(recent, (sample) => sample.tvoc);
+  const recentHchoShift = recentMedianShift(recent, (sample) => sample.hcho);
+  const recentCoShift = recentMedianShift(recent, (sample) => sample.co);
   const recentTvocValues = values(recent, (sample) => sample.tvoc);
   const tvocRise = recentTvocValues.length > 0 && tvocMax !== null ? tvocMax - recentTvocValues[0] : null;
   const finalTwenty = recent.filter((sample) => sample.timestamp >= (latest?.timestamp ?? 0) - 20 * 60_000);
@@ -391,8 +415,29 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
       ? check("Sound peak >90 dB", "RAW", `${soundMax.toFixed(0)} dB EVENT`, "watch")
       : check("Sound peak >90 dB", "RAW", "NONE", "normal");
 
+  const displacementComputable = recentO2Shift !== null && recentCo2Shift !== null;
+  const coordinatedDisplacement = displacementComputable && recentO2Shift <= -0.08 && recentCo2Shift <= -75;
+  const propaneCorroboration = recentTvocShift !== null && recentTvocShift >= 100;
+  const inertPatternComputable = recentTvocShift !== null && recentHchoShift !== null && recentCoShift !== null;
+  const noGasChannelRise = inertPatternComputable && recentTvocShift < 100 && recentHchoShift < 20 && recentCoShift < 0.08;
+  const propanePattern = name === "LAB"
+    ? !displacementComputable || recentTvocShift === null
+      ? check("Propane-associated pattern", "COMPUTED UNTIL PROPANE SENSOR IS INSTALLED", "TREND FORMING", "unknown")
+      : coordinatedDisplacement && propaneCorroboration
+        ? check("Propane-associated pattern", "COMPUTED UNTIL PROPANE SENSOR IS INSTALLED", "POSSIBLE PATTERN — CHECK", "watch")
+        : check("Propane-associated pattern", "COMPUTED UNTIL PROPANE SENSOR IS INSTALLED", "NOT INDICATED", "normal")
+    : null;
+  const nitrogenPattern = name === "LAB"
+    ? !displacementComputable || !inertPatternComputable
+      ? check("Nitrogen (N₂) displacement pattern", "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED", "TREND FORMING", "unknown")
+      : coordinatedDisplacement && noGasChannelRise
+        ? check("Nitrogen (N₂) displacement pattern", "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED", "POSSIBLE N₂ / INERT-GAS PATTERN", "watch")
+        : check("Nitrogen (N₂) displacement pattern", "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED", "NOT INDICATED", "normal")
+    : null;
+
   const checks = [carbonMonoxide, oxygen, vapour, formaldehyde, carbonDioxide, acoustics, freshness];
   if (particles) checks.splice(4, 0, particles);
+  if (name === "LAB" && propanePattern && nitrogenPattern) checks.splice(2, 0, propanePattern, nitrogenPattern);
   const rawStatus = worst(checks.map((item) => item.level));
   const status = rawStatus === "unknown" && freshness.level === "normal" ? "normal" : rawStatus;
   const gasDominant = currentParticleAvailable && pmDelta !== null && (tvocDelta ?? 0) > 150 && pmDelta < 5;
@@ -425,6 +470,8 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
     (tvocDelta ?? 0) <= 0 && (hchoDelta ?? 0) <= 0 && (coDelta ?? 0) <= .03;
   const thermalMoisturePattern = Math.abs(temperatureDelta ?? 0) >= 1 && Math.abs(humidityDelta ?? 0) >= .35 &&
     Math.abs(co2Delta ?? 0) < 80 && Math.abs(tvocDelta ?? 0) < 100 && Math.abs(hchoDelta ?? 0) < 20;
+  const propanePatternActive = propanePattern?.level === "watch";
+  const nitrogenPatternActive = nitrogenPattern?.level === "watch";
 
   let summary = "The recent pattern is stable across the available channels.";
   if (freshness.level !== "normal") {
@@ -434,6 +481,8 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
       : `The newest validated sample is ${ageMinutes} minutes old; displayed values are last known, not current.`;
   }
   else if (directCritical) summary = `A direct safety channel requires dedicated verification: ${oxygen.level === "action" ? `oxygen reached ${o2Now?.toFixed(2) ?? "a low value"}%` : `carbon monoxide reached ${coNow?.toFixed(2) ?? "an elevated value"} mg/m³`}. Other channels may provide context but do not cancel the direct reading.`;
+  else if (propanePatternActive) summary = "Oxygen and CO₂ fell together while TVOC rose in the same recent window. This is a computed propane-associated early-warning pattern, not compound identification; the dedicated propane system remains decisive.";
+  else if (nitrogenPatternActive) summary = "Oxygen and CO₂ fell together without a matching TVOC, formaldehyde or CO rise. This is a computed nitrogen/inert-gas displacement pattern; the dedicated oxygen and nitrogen systems remain decisive.";
   else if (oxygenProxyPattern) summary = `Oxygen moved into the watch range without a matching CO₂ rise. This is an oxygen-displacement proxy pattern, not confirmation of nitrogen or another gas; a dedicated oxygen measurement is the deciding check.`;
   else if (officeClosePattern) summary = "A late-day TVOC rise with the occupancy transition matches the established OFFICE window-closing and synchronized departure signature.";
   else if (coOnly) summary = `The CO channel rose without matching TVOC, formaldehyde or particle movement. A combustion/exhaust input, electrochemical cross-response or local instrument effect remain distinct possibilities.`;
@@ -467,6 +516,10 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
     ? "Latest readings are last known; connection status merits review."
     : directCritical
       ? `Use the room procedure and a dedicated instrument to verify ${oxygen.level === "action" ? "oxygen" : "carbon monoxide"} now; do not rely on the dashboard alone.`
+      : propanePatternActive
+        ? "Check the dedicated propane alarm and LAB gas system now. Treat this dashboard result as an early-warning correlation until the direct propane sensor is installed in air-Q."
+      : nitrogenPatternActive
+        ? "Check the dedicated oxygen/nitrogen alarm and LAB gas system now. Treat this dashboard result as an early-warning displacement correlation until the direct nitrogen sensor is installed in air-Q."
       : oxygenProxyPattern
         ? "Verify oxygen with a dedicated instrument and check nitrogen/process timing. Escalate only if the low reading persists or another independent channel changes."
       : officeClosePattern
