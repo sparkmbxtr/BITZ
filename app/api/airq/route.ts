@@ -319,9 +319,11 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const hchoDelta = delta(recent, (sample) => sample.hcho);
   const coDelta = delta(recent, (sample) => sample.co);
   const co2Delta = delta(recent, (sample) => sample.co2);
+  const o2Delta = delta(recent, (sample) => sample.oxygen);
   const pmDelta = delta(recent, particleValue);
   const humidityDelta = delta(recent, (sample) => sample.humidityAbs);
   const soundDelta = delta(recent, (sample) => sample.sound);
+  const temperatureDelta = delta(recent, (sample) => sample.temperature);
   const recentTvocValues = values(recent, (sample) => sample.tvoc);
   const tvocRise = recentTvocValues.length > 0 && tvocMax !== null ? tvocMax - recentTvocValues[0] : null;
   const finalTwenty = recent.filter((sample) => sample.timestamp >= (latest?.timestamp ?? 0) - 20 * 60_000);
@@ -395,6 +397,7 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const status = rawStatus === "unknown" && freshness.level === "normal" ? "normal" : rawStatus;
   const gasDominant = currentParticleAvailable && pmDelta !== null && (tvocDelta ?? 0) > 150 && pmDelta < 5;
   const occupancyPattern = (co2Delta ?? 0) > 80 && (humidityDelta ?? 0) > 0.15;
+  const metabolicPattern = occupancyPattern && (o2Delta ?? 0) < -0.025;
   const ventilationPattern = name === "OFFICE" && (co2Delta ?? 0) < -80 && ((pmDelta ?? 0) > 3 || (tvocDelta ?? 0) > 100);
   const directCritical = oxygen.level === "action" || carbonMonoxide.level === "action";
   const gasSignals = Number(vapour.level !== "normal" && vapour.level !== "unknown") +
@@ -405,6 +408,13 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
     ((tvocDelta ?? 0) > 150 && (coDelta ?? 0) > .08);
   const particleGasPattern = currentParticleAvailable && (pmDelta ?? 0) > 3 &&
     ((tvocDelta ?? 0) > 100 || (coDelta ?? 0) > .08);
+  const particleOnly = currentParticleAvailable && (pmDelta ?? 0) > 3 &&
+    Math.abs(tvocDelta ?? 0) < 100 && Math.abs(hchoDelta ?? 0) < 20 && (coDelta ?? 0) < .08;
+  const coOnly = carbonMonoxide.level === "watch" && vapour.level === "normal" && formaldehyde.level === "normal" &&
+    (!particles || particles.level === "normal");
+  const oxygenProxyPattern = oxygen.level === "watch" && (co2Delta ?? 0) < 50;
+  const humidityLinkedFormaldehyde = (hchoDelta ?? 0) > 20 && Math.abs(humidityDelta ?? 0) > .35 &&
+    vapour.level === "normal" && carbonMonoxide.level === "normal";
   const isolatedFormaldehyde = formaldehyde.level === "watch" && vapour.level === "normal" && carbonMonoxide.level === "normal";
   const isolatedVapour = vapour.level === "watch" && formaldehyde.level === "normal" && carbonMonoxide.level === "normal";
   const isolatedGasPersistent = (isolatedFormaldehyde && hchoPersistent) || (isolatedVapour && tvocPersistent);
@@ -413,6 +423,8 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
       .every((item) => item.level === "normal" || item.level === "unknown");
   const recoveringGas = tvocMax !== null && tvocNow !== null && tvocMax - tvocNow > 250 &&
     (tvocDelta ?? 0) <= 0 && (hchoDelta ?? 0) <= 0 && (coDelta ?? 0) <= .03;
+  const thermalMoisturePattern = Math.abs(temperatureDelta ?? 0) >= 1 && Math.abs(humidityDelta ?? 0) >= .35 &&
+    Math.abs(co2Delta ?? 0) < 80 && Math.abs(tvocDelta ?? 0) < 100 && Math.abs(hchoDelta ?? 0) < 20;
 
   let summary = "The recent pattern is stable across the available channels.";
   if (freshness.level !== "normal") {
@@ -422,19 +434,27 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
       : `The newest validated sample is ${ageMinutes} minutes old; displayed values are last known, not current.`;
   }
   else if (directCritical) summary = `A direct safety channel requires dedicated verification: ${oxygen.level === "action" ? `oxygen reached ${o2Now?.toFixed(2) ?? "a low value"}%` : `carbon monoxide reached ${coNow?.toFixed(2) ?? "an elevated value"} mg/m³`}. Other channels may provide context but do not cancel the direct reading.`;
+  else if (oxygenProxyPattern) summary = `Oxygen moved into the watch range without a matching CO₂ rise. This is an oxygen-displacement proxy pattern, not confirmation of nitrogen or another gas; a dedicated oxygen measurement is the deciding check.`;
   else if (officeClosePattern) summary = "A late-day TVOC rise with the occupancy transition matches the established OFFICE window-closing and synchronized departure signature.";
+  else if (coOnly) summary = `The CO channel rose without matching TVOC, formaldehyde or particle movement. A combustion/exhaust input, electrochemical cross-response or local instrument effect remain distinct possibilities.`;
   else if (multiGasPattern) summary = `Two or more gas-related channels moved together within the recent window${tvocPersistent || hchoPersistent ? " and remained elevated through much of the latest 20 minutes" : ""}. This supports a real mixed vapour/process or airflow event, while the sensor set cannot identify a compound.`;
   else if (particleGasPattern) summary = name === "LAB"
     ? `Particles${pmNow === null ? "" : ` (latest ${pmNow.toFixed(1)} µg/m³)`} and gas-related channels rose together${particlePersistent ? " and the particle rise persisted" : ""}. Check whether a process, door or pressure/airflow transition occurred; the combined pattern is not specific to one source.`
     : `Particles${pmNow === null ? "" : ` (latest ${pmNow.toFixed(1)} µg/m³)`} and a gas-related channel rose together${particlePersistent ? " and the particle rise persisted" : ""}. Outdoor-air import and an indoor mixed-source event remain competing explanations; window and construction timing are decisive.`;
   else if (gasDominant && name === "LAB") summary = "Gas channels changed without matching particles, supporting a vapour, process or airflow event; identity remains unresolved.";
   else if (ventilationPattern) summary = "Falling CO₂ with rising PM or VOC supports recent outdoor-air exchange; window state would strengthen the attribution.";
+  else if (humidityLinkedFormaldehyde) summary = "The formaldehyde signal moved with absolute humidity while TVOC and CO remained comparatively stable. A climatic influence or cross-response is plausible; persistence after humidity stabilizes would support a separate source.";
   else if (isolatedFormaldehyde) summary = "The formaldehyde channel changed without matching TVOC or CO support. Treat it as an isolated mixture/cross-sensitivity signal until persistence or a second channel corroborates it.";
   else if (isolatedVapour) summary = "TVOC changed without matching formaldehyde, CO or particle support. An intermittent vapour source, airflow change or sensor cross-response remains possible; identity is unresolved.";
+  else if (particleOnly) summary = name === "LAB"
+    ? `Particles rose without a matching gas pattern. A local particle-generating process, door/pressure transition or delayed filtered-air response is more plausible than a vapour event.`
+    : `Particles rose without a matching gas pattern. Open-window outdoor import, nearby road work and a local dust event remain competing explanations.`;
   else if (co2Persistent) summary = `CO₂ remained elevated through most of the latest 20 minutes${co2Now === null ? "" : ` and is ${co2Now.toFixed(0)} ppm`}, supporting sustained occupancy or limited air exchange rather than a brief spike.`;
+  else if (metabolicPattern) summary = "CO₂ and absolute humidity rose together while oxygen eased slightly, a coordinated occupancy pattern rather than evidence for an inert-gas release.";
   else if (occupancyPattern) summary = "CO₂ and absolute humidity rose together, supporting an occupancy-related change rather than a single chemical event.";
   else if (acousticOnly) summary = "A brief raw sound-max event occurred without a matching gas, oxygen, CO₂ or particle pattern. It is retained as an acoustic event, not interpreted as an air-quality event.";
   else if (recoveringGas) summary = "An earlier gas-channel excursion is declining toward the recent reference and has not gained CO, formaldehyde or particle support.";
+  else if (thermalMoisturePattern) summary = "Temperature and absolute humidity moved together while gas, CO₂ and particle channels remained comparatively stable. This is a room-condition or airflow pattern, not a supported gas event.";
   else if ((co2Delta ?? 0) > 80) summary = currentParticleAvailable
     ? "CO₂ rose gradually while the other available gas and particle channels stayed comparatively stable; routine occupancy is plausible."
     : "CO₂ rose gradually while the other available gas channels stayed comparatively stable; routine occupancy is plausible.";
@@ -447,8 +467,12 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
     ? "Latest readings are last known; connection status merits review."
     : directCritical
       ? `Use the room procedure and a dedicated instrument to verify ${oxygen.level === "action" ? "oxygen" : "carbon monoxide"} now; do not rely on the dashboard alone.`
+      : oxygenProxyPattern
+        ? "Verify oxygen with a dedicated instrument and check nitrogen/process timing. Escalate only if the low reading persists or another independent channel changes."
       : officeClosePattern
         ? "Treat this as CLOSE while TVOC falls toward the OFFICE night reference; check ventilation or another source only if it persists or gains CO, formaldehyde, or PM support."
+      : coOnly
+        ? "Check combustion, vehicle/exhaust and instrument context; use a dedicated CO measurement if the rise persists or increases."
       : multiGasPattern
         ? `Match the onset to process, hood, pump, door and airflow timestamps. A source check becomes useful if the pattern persists for two more samples or continues rising.`
       : particleGasPattern
@@ -457,12 +481,18 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
         ? isolatedGasPersistent
           ? "The isolated signal has persisted; check the nearest process, material or window/airflow event and seek an independent channel before assigning a cause."
           : "Record the nearest process or window event and watch two more samples. Act only if the signal persists, rises sharply or gains an independent gas/particle channel."
+      : particleOnly
+        ? name === "LAB"
+          ? "Match the onset to local particle work, doors and pressure/airflow. Review HEPA performance only if the elevation persists or clearance is slower than the LAB's own history."
+          : "Check window and road-work timing. Indoor action is useful only if particles stay elevated after the suspected outdoor or local dust event ends."
       : co2Persistent
         ? `Review occupancy and air exchange. A ventilation adjustment becomes useful if CO₂ remains elevated for another 20–30 minutes or continues rising.`
       : acousticOnly
         ? "Retain the event timestamp for equipment or activity review; no air-quality action follows from an isolated sound peak."
       : recoveringGas
         ? "No immediate change is suggested while the decline continues; review only if the trend reverses or gains an independent channel."
+      : thermalMoisturePattern
+        ? "No gas action is indicated. Observe whether the room-condition change settles with the next ventilation or occupancy transition."
       : status === "action"
         ? `Room procedure and dedicated verification are appropriate for ${flaggedText}.`
       : status === "watch"
