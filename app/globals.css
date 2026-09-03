@@ -344,6 +344,11 @@ line.activity-close { stroke: var(--amber); }
   .office-checks,
   .office-summary,
   .wallboard-footer { width: 100%; max-width: 100%; min-width: 0; }
+  .wallboard-header { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
+  .identity { width: 100%; flex-wrap: wrap; }
+  .identity strong { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .header-state { width: 100%; min-width: 0; justify-content: flex-start; flex-wrap: wrap; white-space: normal; }
+  .day-end-stamps { width: 100%; text-align: left; }
   .room-layout > *,
   .lab-panel > *,
   .office-rail > *,
@@ -351,6 +356,14 @@ line.activity-close { stroke: var(--amber); }
   .critical-grid > *,
   .metric-grid > *,
   .office-metrics > * { min-width: 0; max-width: 100%; }
+  .room-heading > *,
+  .office-heading > *,
+  .overall-state > *,
+  .office-state > * { min-width: 0; max-width: 100%; }
+  .overall-state strong,
+  .overall-state span,
+  .office-state strong,
+  .office-state span { overflow-wrap: anywhere; }
   .room-layout { grid-template-columns: minmax(0, 1fr); align-items: start; overflow: visible; }
   .office-rail { padding: 14px 0 0; border-left: 0; border-top: 1px solid var(--border); }
   .header-state span:nth-of-type(n+3) { display: none; }
