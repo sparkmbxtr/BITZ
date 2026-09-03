@@ -54,9 +54,12 @@ button, input { font: inherit; }
 .access-card button:disabled { cursor: wait; opacity: .45; }
 .access-error { margin-top: 10px; color: var(--red); font-size: .9rem; }
 .access-checking { padding: 16px 0; color: var(--muted); font-size: 1rem; }
-.connection-pending { width: min(580px, 100%); }
+.connection-pending { width: min(620px, 100%); }
+.connection-pending p { margin-bottom: 10px; }
 .pending-state { display: flex; align-items: center; gap: 14px; margin: 20px 0 12px; font-size: 1.25rem; }
 .pending-state .connection-dot { width: 18px; height: 18px; box-shadow: 0 0 14px rgba(255, 196, 87, .5); }
+.connection-retry { min-height: 66px; margin-top: 14px !important; font-size: 1.12rem; letter-spacing: .055em; touch-action: manipulation; }
+.connection-auto-note { margin-top: 12px; color: var(--muted); font-size: .88rem; line-height: 1.35; text-align: center; }
 
 .wallboard {
   min-height: 100dvh;
