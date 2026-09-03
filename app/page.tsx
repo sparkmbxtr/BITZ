@@ -792,9 +792,9 @@ function HistoryTrend({
           <span
             key={`event-label-${event.label}-${index}`}
             className={`activity-event-label activity-${event.label.toLowerCase()}`}
-            style={{ left: `${Math.min(95, Math.max(5, event.x))}%` }}
-            title={event.label === "BEGIN" ? `DAY BEGINS ${berlinShortTime(event.timestamp)}` : "Coordinated late-day transition"}
-          >{event.label}{event.label === "BEGIN" && event.peopleRange ? ` · ≈${event.peopleRange}` : ""}</span>
+            style={{ left: `${event.label === "CLOSE" ? Math.min(98, Math.max(5, event.x)) : Math.min(95, Math.max(5, event.x))}%` }}
+            title={event.label === "BEGIN" ? `DAY BEGINS ${berlinShortTime(event.timestamp)}` : `CLOSE ${berlinShortTime(event.timestamp)} · coordinated late-day transition`}
+          >{event.label} {berlinShortTime(event.timestamp)}{event.label === "BEGIN" && event.peopleRange ? ` · ≈${event.peopleRange}` : ""}</span>
         ))}
         {geometry.primary.current ? (
           <span
