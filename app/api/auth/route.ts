@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { expiredSessionCookie, isAuthorized, sessionCookie, verifyPassword } from "@/lib/dashboard-auth";
+import { expiredSessionCookie, isAuthorized, passwordVerifierReady, sessionCookie, verifyPassword } from "@/lib/dashboard-auth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -15,12 +15,18 @@ function secrets() {
 export async function GET(request: Request) {
   const configured = secrets();
   const authorized = configured ? await isAuthorized(request, configured.sessionSecret) : false;
-  return Response.json({ authorized }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json(
+    { authorized, passwordVerifierReady: configured ? passwordVerifierReady(configured.passwordHash) : false },
+    { headers: { "Cache-Control": "no-store, max-age=0" } },
+  );
 }
 
 export async function POST(request: Request) {
   const configured = secrets();
   if (!configured) return Response.json({ error: "Access protection is unavailable" }, { status: 503 });
+  if (!passwordVerifierReady(configured.passwordHash)) {
+    return Response.json({ error: "Display password configuration needs correction" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
   let password = "";
   try {
     const body = await request.json() as { password?: unknown };
