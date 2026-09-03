@@ -205,6 +205,9 @@ button, input { font: inherit; }
 .trend-reading { min-width: 0; display: grid; justify-items: end; gap: 6px; text-align: right; }
 .trend-reading small { color: #d7e7e9; font-size: clamp(.61rem, min(.57vw, 1.02vh), .76rem); font-weight: 720; line-height: 1.15; white-space: nowrap; }
 .trend-chart { position: relative; width: 100%; height: 100%; min-height: 78px; display: grid; grid-template-rows: minmax(0, 1fr) 20px; }
+.trend-chart-with-left-axis { grid-template-columns: 42px minmax(0, 1fr); column-gap: 5px; }
+.trend-chart-with-left-axis .trend-plot { grid-column: 2; grid-row: 1; }
+.trend-chart-with-left-axis .time-axis { grid-column: 2; grid-row: 2; }
 .trend-chart-with-axes { grid-template-columns: 42px minmax(0, 1fr) 42px; column-gap: 5px; }
 .trend-chart-with-axes .trend-plot { grid-column: 2; grid-row: 1; }
 .trend-chart-with-axes .time-axis { grid-column: 2; grid-row: 2; }
@@ -309,6 +312,8 @@ line.activity-close { stroke: var(--amber); }
 .office-trend-title span, .office-trend-row span { color: var(--muted); }
 .office-trend-row { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); border-top: 1px solid rgba(65, 91, 96, .52); padding: 5px 4px 2px; }
 .office-trend-row > div { font-size: clamp(.76rem, .68vw, .9rem); }
+.office-series-name { display: grid; gap: 1px; color: var(--cyan); line-height: 1.1; }
+.office-series-name small { color: inherit; font-size: .72em; font-weight: 620; letter-spacing: .035em; opacity: .78; }
 .office-trend-row > div > span { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
 .office-trend-row .trend-chart { width: 100%; min-width: 0; height: 100%; min-height: 66px; }
 .office-trend-row .trend-plot, .office-trend-row .trend-svg { height: 100%; min-height: 45px; }
@@ -438,6 +443,7 @@ line.activity-close { stroke: var(--amber); }
   .trend-row > span { display: grid; }
   .trend-reading { grid-column: 2; grid-row: 1; }
   .trend-chart { min-width: 0; overflow: hidden; }
+  .trend-chart-with-left-axis { grid-template-columns: 35px minmax(0, 1fr); column-gap: 3px; }
   .trend-chart-with-axes { grid-template-columns: 35px minmax(0, 1fr) 35px; column-gap: 3px; }
   .time-axis { font-size: clamp(.57rem, 2.3vw, .7rem); }
   .meaning-evidence { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
