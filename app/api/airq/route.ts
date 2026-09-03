@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { isAuthorized } from "@/lib/dashboard-auth";
+import { apiKeyFromRequest, isAuthorized } from "@/lib/dashboard-auth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -230,7 +230,8 @@ export async function GET(request: Request) {
   if (typeof sessionSecret !== "string" || !await isAuthorized(request, sessionSecret)) {
     return Response.json({ error: "Authorization required" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
-  const apiKey = runtimeEnv.AIRQ_API_KEY;
+  const environmentKey = runtimeEnv.AIRQ_API_KEY;
+  const apiKey = typeof environmentKey === "string" ? environmentKey : await apiKeyFromRequest(request, sessionSecret);
   const labId = runtimeEnv.AIRQ_LAB_DEVICE_ID;
   const officeId = runtimeEnv.AIRQ_OFFICE_DEVICE_ID;
   if (typeof apiKey !== "string" || typeof labId !== "string" || typeof officeId !== "string") {

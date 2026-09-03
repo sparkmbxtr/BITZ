@@ -1,5 +1,7 @@
 const COOKIE_NAME = "airq_wallboard_session";
+const API_COOKIE_NAME = "airq_api_credential";
 const SESSION_DAYS = 30;
+const API_KEY_DAYS = 120;
 
 function hex(bytes: ArrayBuffer) {
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -27,13 +29,30 @@ async function signature(secret: string, expires: string) {
   return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`airq-wallboard:${expires}`)));
 }
 
-function cookieValue(request: Request) {
+function cookieValue(request: Request, cookieName = COOKIE_NAME) {
   const header = request.headers.get("cookie") ?? "";
   for (const part of header.split(";")) {
     const [name, ...rest] = part.trim().split("=");
-    if (name === COOKIE_NAME) return rest.join("=");
+    if (name === cookieName) return rest.join("=");
   }
   return null;
+}
+
+function base64UrlEncode(value: Uint8Array) {
+  let binary = "";
+  for (const byte of value) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
+}
+
+function base64UrlDecode(value: string) {
+  const padded = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+async function apiEncryptionKey(secret: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`airq-api:${secret}`));
+  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
 export async function verifyPassword(password: string, expectedHash: string) {
@@ -58,4 +77,38 @@ export async function sessionCookie(sessionSecret: string) {
 
 export function expiredSessionCookie() {
   return `${COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
+}
+
+export async function encryptedApiKeyCookie(apiKey: string, sessionSecret: string) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    await apiEncryptionKey(sessionSecret),
+    new TextEncoder().encode(apiKey),
+  );
+  const value = `${base64UrlEncode(iv)}.${base64UrlEncode(new Uint8Array(encrypted))}`;
+  const maxAge = API_KEY_DAYS * 24 * 60 * 60;
+  return `${API_COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
+}
+
+export async function apiKeyFromRequest(request: Request, sessionSecret: string) {
+  const value = cookieValue(request, API_COOKIE_NAME);
+  if (!value) return null;
+  const [ivValue, cipherValue, extra] = value.split(".");
+  if (!ivValue || !cipherValue || extra) return null;
+  try {
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: base64UrlDecode(ivValue) },
+      await apiEncryptionKey(sessionSecret),
+      base64UrlDecode(cipherValue),
+    );
+    const apiKey = new TextDecoder().decode(decrypted);
+    return apiKey.length >= 8 && apiKey.length <= 256 ? apiKey : null;
+  } catch {
+    return null;
+  }
+}
+
+export function expiredApiKeyCookie() {
+  return `${API_COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
 }

@@ -198,6 +198,7 @@ function LevelMark({ status }: { status: RoomData["status"] }) {
 
 export default function Home() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
+  const [apiConnected, setApiConnected] = useState<boolean | null>(null);
   const [data, setData] = useState<DashboardData>(DEMO_DATA);
   const [clock, setClock] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -224,19 +225,34 @@ export default function Home() {
     let active = true;
     fetch("/api/auth", { cache: "no-store" })
       .then((response) => response.json())
-      .then((payload: { authorized?: boolean }) => { if (active) setAuthorized(payload.authorized === true); })
+      .then((payload: { authorized?: boolean }) => {
+        if (active) setAuthorized(payload.authorized === true);
+      })
       .catch(() => { if (active) setAuthorized(false); });
     return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    if (!authorized) return;
+    if (!authorized) {
+      setApiConnected(null);
+      return;
+    }
+    let active = true;
+    fetch("/api/key", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { configured?: boolean }) => { if (active) setApiConnected(payload.configured === true); })
+      .catch(() => { if (active) setApiConnected(false); });
+    return () => { active = false; };
+  }, [authorized]);
+
+  useEffect(() => {
+    if (!authorized || !apiConnected) return;
     setClock(Date.now());
     loadData();
     const refreshTimer = window.setInterval(loadData, 120_000);
     const clockTimer = window.setInterval(() => setClock(Date.now()), 15_000);
     return () => { window.clearInterval(refreshTimer); window.clearInterval(clockTimer); };
-  }, [authorized, loadData]);
+  }, [authorized, apiConnected, loadData]);
 
   const newestTimestamp = Math.max(data.rooms.lab.latest?.timestamp ?? 0, data.rooms.office.latest?.timestamp ?? 0);
   const ageMinutes = newestTimestamp ? Math.max(0, Math.floor((clock - newestTimestamp) / 60_000)) : null;
@@ -251,9 +267,11 @@ export default function Home() {
   async function lockBoard() {
     await fetch("/api/auth", { method: "DELETE" }).catch(() => undefined);
     setAuthorized(false);
+    setApiConnected(null);
   }
 
   if (authorized !== true) return <AccessGate checking={authorized === null} onGranted={() => setAuthorized(true)} />;
+  if (apiConnected !== true) return <ApiKeySetup checking={apiConnected === null} onConnected={() => setApiConnected(true)} />;
 
   return (
     <main className="wallboard">
@@ -327,6 +345,60 @@ function AccessGate({ checking, onGranted }: { checking: boolean; onGranted: () 
             />
             {error ? <div className="access-error" role="alert">{error}</div> : null}
             <button type="submit" disabled={!password || submitting}>{submitting ? "Opening…" : "Open monitor"}</button>
+          </>
+        )}
+      </form>
+    </main>
+  );
+}
+
+function ApiKeySetup({ checking, onConnected }: { checking: boolean; onConnected: () => void }) {
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!apiKey || submitting) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch("/api/key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey }),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Connection failed");
+      setApiKey("");
+      onConnected();
+    } catch (reason) {
+      setApiKey("");
+      setError(reason instanceof Error ? reason.message : "Connection failed");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="access-shell">
+      <form className="access-card api-setup-card" onSubmit={submit}>
+        <div className="access-kicker">ONE-TIME LIVE CONNECTION</div>
+        <h1>Connect air-Q</h1>
+        <p>The key is validated against both rooms, encrypted, and retained only as an HTTP-only display credential.</p>
+        {checking ? <div className="access-checking">Checking saved air-Q connection…</div> : (
+          <>
+            <label htmlFor="airq-api-key">air-Q API key</label>
+            <input
+              id="airq-api-key"
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              autoComplete="off"
+              autoFocus
+            />
+            {error ? <div className="access-error" role="alert">{error}</div> : null}
+            <button type="submit" disabled={!apiKey || submitting}>{submitting ? "Validating both rooms…" : "Connect live data"}</button>
           </>
         )}
       </form>
