@@ -31,6 +31,21 @@ const API_ROOT = "https://air-q-cloud.de/open_api/v3";
 const HISTORY_HOURS = 24;
 const ANALYSIS_MINUTES = 60;
 
+const BERLIN_CLOCK = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Berlin",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+function berlinMinuteOfDay(timestamp: number) {
+  const values: Record<string, number> = {};
+  for (const part of BERLIN_CLOCK.formatToParts(timestamp)) {
+    if (part.type === "hour" || part.type === "minute") values[part.type] = Number(part.value);
+  }
+  return (values.hour ?? 0) * 60 + (values.minute ?? 0);
+}
+
 function numericScalar(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
@@ -201,6 +216,18 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const co2Delta = delta(recent, (sample) => sample.co2);
   const pmDelta = delta(recent, particleValue);
   const humidityDelta = delta(recent, (sample) => sample.humidityAbs);
+  const soundDelta = delta(recent, (sample) => sample.sound);
+  const recentTvocValues = values(recent, (sample) => sample.tvoc);
+  const tvocRise = recentTvocValues.length > 0 && tvocMax !== null ? tvocMax - recentTvocValues[0] : null;
+  const localMinute = latest ? berlinMinuteOfDay(latest.timestamp) : -1;
+  const officeClosePattern = name === "OFFICE" &&
+    localMinute >= 16 * 60 + 20 &&
+    localMinute <= 18 * 60 &&
+    (tvocRise ?? 0) >= 25 &&
+    (
+      (soundDelta ?? 0) <= -2 ||
+      ((co2Delta ?? Infinity) <= 15 && (humidityDelta ?? Infinity) <= .08)
+    );
 
   const freshness = dataAge <= 8 * 60_000
     ? check("Sensor/data integrity", "SYSTEM", "CURRENT", "normal")
@@ -261,6 +288,7 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
       : `The newest validated sample is ${ageMinutes} minutes old; displayed values are last known, not current.`;
   }
   else if (gasDominant && name === "LAB") summary = "Gas channels changed without matching particles, supporting a vapour, process or airflow event; identity remains unresolved.";
+  else if (officeClosePattern) summary = "A late-day TVOC rise with the occupancy transition matches the established OFFICE window-closing and synchronized departure signature.";
   else if (ventilationPattern) summary = "Falling CO₂ with rising PM or VOC supports recent outdoor-air exchange; window state would strengthen the attribution.";
   else if (occupancyPattern) summary = "CO₂ and absolute humidity rose together, supporting an occupancy-related change rather than a single chemical event.";
   else if ((co2Delta ?? 0) > 80) summary = currentParticleAvailable
@@ -275,6 +303,8 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
     ? "Latest readings are last known; connection status merits review."
     : status === "action"
       ? `Room procedure and dedicated verification are appropriate for ${flaggedText}.`
+      : officeClosePattern
+        ? "Treat this as CLOSE while TVOC falls toward the OFFICE night reference; check ventilation or another source only if it persists or gains CO, formaldehyde, or PM support."
       : status === "watch"
         ? `A source check becomes useful if ${flaggedText} persists for 10–30 minutes or gains a second signal.`
         : "No immediate change is suggested; review again if the pattern persists or gains a second signal.";

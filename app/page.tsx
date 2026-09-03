@@ -234,7 +234,10 @@ const ACTIVITY_SIGNALS: ActivitySignal[] = [
   { key: "sound", select: (sample) => sample.sound, changeFloor: 2.5, settleFloor: 4 },
 ];
 
-const activityCycleCache = new WeakMap<Sample[], ActivityCycle[]>();
+const activityCycleCache: Record<"LAB" | "OFFICE", WeakMap<Sample[], ActivityCycle[]>> = {
+  LAB: new WeakMap<Sample[], ActivityCycle[]>(),
+  OFFICE: new WeakMap<Sample[], ActivityCycle[]>(),
+};
 
 function valuesBetween(samples: Sample[], signal: ActivitySignal, start: number, end: number) {
   return samples
@@ -259,6 +262,46 @@ function transitionScore(
     score += Math.min(ratio, 2.5);
   }
   return { changed, score };
+}
+
+function signedWindowDelta(
+  samples: Sample[],
+  signal: ActivitySignal,
+  timestamp: number,
+) {
+  const before = median(valuesBetween(samples, signal, timestamp - 14 * 60_000, timestamp - 2 * 60_000));
+  const after = median(valuesBetween(samples, signal, timestamp + 2 * 60_000, timestamp + 14 * 60_000));
+  return before === null || after === null ? null : after - before;
+}
+
+function officeCloseSignature(
+  samples: Sample[],
+  timestamp: number,
+  scales: Map<ActivitySignal["key"], number>,
+) {
+  const minuteOfDay = berlinCalendar(timestamp).minuteOfDay;
+  if (minuteOfDay < 16 * 60 + 20 || minuteOfDay > 18 * 60) return { matched: false, score: 0 };
+
+  const byKey = new Map(ACTIVITY_SIGNALS.map((signal) => [signal.key, signal] as const));
+  const tvocChange = signedWindowDelta(samples, byKey.get("tvoc")!, timestamp);
+  const soundChange = signedWindowDelta(samples, byKey.get("sound")!, timestamp);
+  const co2Change = signedWindowDelta(samples, byKey.get("co2")!, timestamp);
+  const humidityChange = signedWindowDelta(samples, byKey.get("humidityAbs")!, timestamp);
+  const tvocThreshold = Math.max(25, (scales.get("tvoc") ?? 25) * .75);
+
+  if (tvocChange === null || tvocChange < tvocThreshold) return { matched: false, score: 0 };
+
+  const soundDrop = soundChange !== null && soundChange <= -Math.max(2, (scales.get("sound") ?? 2.5) * .5);
+  const co2NotAccumulating = co2Change !== null && co2Change <= Math.max(15, (scales.get("co2") ?? 20) * .5);
+  const humidityNotAccumulating = humidityChange !== null && humidityChange <= Math.max(.08, (scales.get("humidityAbs") ?? .12) * .5);
+  const occupancyDeparture = co2NotAccumulating && humidityNotAccumulating;
+  const matched = soundDrop || occupancyDeparture;
+  const support = Number(soundDrop) + Number(co2NotAccumulating) + Number(humidityNotAccumulating);
+
+  return {
+    matched,
+    score: Math.min(tvocChange / tvocThreshold, 3) + support * .55,
+  };
 }
 
 function departureScore(
@@ -315,8 +358,8 @@ function approximatePeopleAfterBegin(
   return String(low) + "–" + String(high);
 }
 
-function activityCycles(samples: Sample[]) {
-  const cached = activityCycleCache.get(samples);
+function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
+  const cached = activityCycleCache[room].get(samples);
   if (cached) return cached;
 
   const grouped = new Map<string, Sample[]>();
@@ -374,15 +417,27 @@ function activityCycles(samples: Sample[]) {
       candidate.minuteOfDay <= 19 * 60 + 30 &&
       (!begin || candidate.timestamp >= begin + 4 * 60 * 60_000)
     );
+    const officeCloseCandidates = room === "OFFICE"
+      ? eveningWindow
+          .map((candidate) => ({ ...candidate, closeSignature: officeCloseSignature(day, candidate.timestamp, scales) }))
+          .filter((candidate) => candidate.closeSignature.matched)
+      : [];
     const strictEvening = eveningWindow.filter((candidate) => candidate.changed >= 3 && candidate.score >= 3.4);
     const evening = strictEvening.length
       ? strictEvening
       : eveningWindow.filter((candidate) => candidate.changed >= 2 && candidate.score >= 2.25);
     let close: number | null = null;
-    if (evening.length) {
+    if (officeCloseCandidates.length) {
+      close = officeCloseCandidates.reduce((best, candidate) => {
+        const bestWeighted = best.score + best.closeSignature.score - Math.abs(best.minuteOfDay - (16 * 60 + 50)) / 300;
+        const candidateWeighted = candidate.score + candidate.closeSignature.score - Math.abs(candidate.minuteOfDay - (16 * 60 + 50)) / 300;
+        return candidateWeighted > bestWeighted ? candidate : best;
+      }).timestamp;
+    } else if (evening.length) {
       close = evening.reduce((best, candidate) => {
-        const bestWeighted = best.score - Math.abs(best.minuteOfDay - 17 * 60) / 360;
-        const candidateWeighted = candidate.score - Math.abs(candidate.minuteOfDay - 17 * 60) / 360;
+        const targetMinute = room === "OFFICE" ? 16 * 60 + 50 : 17 * 60;
+        const bestWeighted = best.score - Math.abs(best.minuteOfDay - targetMinute) / 360;
+        const candidateWeighted = candidate.score - Math.abs(candidate.minuteOfDay - targetMinute) / 360;
         return candidateWeighted > bestWeighted ? candidate : best;
       }).timestamp;
     }
@@ -427,16 +482,16 @@ function activityCycles(samples: Sample[]) {
     if (begin || close || end) cycles.push({ dayKey, begin, close, end, peopleRange });
   }
 
-  activityCycleCache.set(samples, cycles);
+  activityCycleCache[room].set(samples, cycles);
   return cycles;
 }
 
-function latestCycle(samples: Sample[]) {
-  return [...activityCycles(samples)].reverse().find((cycle) => cycle.begin || cycle.close || cycle.end) ?? null;
+function latestCycle(samples: Sample[], room: "LAB" | "OFFICE") {
+  return [...activityCycles(samples, room)].reverse().find((cycle) => cycle.begin || cycle.close || cycle.end) ?? null;
 }
 
-function latestDayEnd(samples: Sample[]) {
-  return [...activityCycles(samples)].reverse().find((cycle) => cycle.end)?.end ?? null;
+function latestDayEnd(samples: Sample[], room: "LAB" | "OFFICE") {
+  return [...activityCycles(samples, room)].reverse().find((cycle) => cycle.end)?.end ?? null;
 }
 
 function latestValue(samples: Sample[], selector: (sample: Sample) => number | null) {
@@ -652,6 +707,7 @@ function HistoryTrend({
   levelFor,
   analysisMinutes = 60,
   noSeriesLabel,
+  room,
 }: {
   samples: Sample[];
   primary: (sample: Sample) => number | null;
@@ -660,6 +716,7 @@ function HistoryTrend({
   levelFor: (value: number | null) => Grade;
   analysisMinutes?: number;
   noSeriesLabel?: string;
+  room: "LAB" | "OFFICE";
 }) {
   const geometry = useMemo(() => {
     const start = samples[0]?.timestamp ?? 0;
@@ -702,7 +759,7 @@ function HistoryTrend({
       return result;
     }, []);
     const ticks = roundedTimeTicks(start, end);
-    const events: ActivityEvent[] = activityCycles(samples).flatMap((cycle) => [
+    const events: ActivityEvent[] = activityCycles(samples, room).flatMap((cycle) => [
       ...(cycle.begin ? [{ timestamp: cycle.begin, label: "BEGIN" as const, peopleRange: cycle.peopleRange }] : []),
       ...(cycle.close ? [{ timestamp: cycle.close, label: "CLOSE" as const, peopleRange: null }] : []),
     ]).filter((event) => event.timestamp >= start && event.timestamp <= end)
@@ -715,7 +772,7 @@ function HistoryTrend({
       events,
       recentBoundary: Math.max(0, ((recentStart - start) / timeRange) * 100),
     };
-  }, [samples, primary, secondary, analysisMinutes, levelFor]);
+  }, [samples, primary, secondary, analysisMinutes, levelFor, room]);
 
   return (
     <div className="trend-chart">
@@ -902,8 +959,8 @@ export default function Home() {
   const newestTimestamp = Math.max(data.rooms.lab.latest?.timestamp ?? 0, data.rooms.office.latest?.timestamp ?? 0);
   const ageMinutes = newestTimestamp ? Math.max(0, Math.floor((clock - newestTimestamp) / 60_000)) : null;
   const sourceTime = newestTimestamp ? berlinClock(newestTimestamp) : "—";
-  const labDayEnd = latestDayEnd(data.rooms.lab.samples);
-  const officeDayEnd = latestDayEnd(data.rooms.office.samples);
+  const labDayEnd = latestDayEnd(data.rooms.lab.samples, "LAB");
+  const officeDayEnd = latestDayEnd(data.rooms.office.samples, "OFFICE");
 
   function requestFullscreen() {
     document.documentElement.requestFullscreen?.().catch(() => undefined);
@@ -1092,7 +1149,7 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
   const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
   const hepa = hepaAssessment(room.samples, latest);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
-  const cycle = latestCycle(room.samples);
+  const cycle = latestCycle(room.samples, "LAB");
   const evidenceOrder = ["CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
   const evidenceLabels: Record<string, string> = {
     "CO release": "CO SAFETY",
@@ -1177,7 +1234,7 @@ function Metric({ label, value, note, grade }: { label: string; value: string; n
 
 function TrendRow({ label, samples, primary, secondary, gradeFor, analysisMinutes, reading }: { label: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary?: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; analysisMinutes: number; reading?: string }) {
   const grade = gradeFor(latestValue(samples, primary));
-  return <div className={`trend-row trend-row-${grade.level}`}><strong>{label}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}</span></div>;
+  return <div className={`trend-row trend-row-${grade.level}`}><strong>{label}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} room="LAB" /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}</span></div>;
 }
 
 function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes: number }) {
@@ -1187,7 +1244,7 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
   const pmValue = currentParticleAvailable ? pmObservation?.value ?? null : null;
   const pmAge = currentParticleAvailable && pmObservation ? ageLabel(pmObservation.timestamp, latest?.timestamp) : "";
   const actionLabel = room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK";
-  const cycle = latestCycle(room.samples);
+  const cycle = latestCycle(room.samples, "OFFICE");
   const visibleChecks = room.checks.filter((check) => ["CO release", "O₂ displacement", "Volatile-gas pattern", "Sound peak >90 dB"].includes(check.label));
   return (
     <aside className="office-rail" aria-labelledby="office-heading">
@@ -1223,5 +1280,5 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
 
 function OfficeTrend({ label, value, samples, selector, gradeFor, displayGrade, noSeriesLabel, analysisMinutes }: { label: string; value: string; samples: Sample[]; selector: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; displayGrade?: Grade; noSeriesLabel?: string; analysisMinutes: number }) {
   const grade = displayGrade ?? gradeFor(latestValue(samples, selector));
-  return <div className={`office-trend-row trend-row-${grade.level}`}><div><strong>{label}</strong><span><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b> {value}</span></div><HistoryTrend samples={samples} primary={selector} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the reading`} noSeriesLabel={noSeriesLabel} analysisMinutes={analysisMinutes} /></div>;
+  return <div className={`office-trend-row trend-row-${grade.level}`}><div><strong>{label}</strong><span><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b> {value}</span></div><HistoryTrend samples={samples} primary={selector} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the reading`} noSeriesLabel={noSeriesLabel} analysisMinutes={analysisMinutes} room="OFFICE" /></div>;
 }
