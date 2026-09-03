@@ -504,9 +504,9 @@ line.activity-close { stroke: var(--amber); }
   .colour-key { width: 100%; flex-wrap: wrap; }
 }
 
-/* The Full screen control uses a fixed 1920px presentation canvas and scales
-   that canvas to the browser's actual visual viewport. This remains useful on
-   Android displays whose browser ignores the native Fullscreen API. */
+/* The Full screen control guarantees a minimum logical canvas and expands its
+   unused dimension to match the physical aspect ratio. Very wide phones retain
+   enough logical height for every panel instead of clipping the bottom. */
 html[data-dashboard-fullscreen="true"],
 html[data-dashboard-fullscreen="true"] body {
   width: 100%;
@@ -521,7 +521,7 @@ html[data-dashboard-fullscreen="true"] body {
   position: fixed;
   z-index: 1000;
   inset: 0 auto auto 0;
-  width: 1920px !important;
+  width: var(--fullscreen-canvas-width, 1920px) !important;
   max-width: none !important;
   height: var(--fullscreen-canvas-height, 1080px) !important;
   min-height: 0 !important;
