@@ -244,7 +244,7 @@ button, input { font: inherit; }
 .office-metrics .grade-word { font-size: clamp(.61rem, .55vw, .71rem); }
 .office-metrics .metric-foot small { font-size: .61rem; }
 .office-trends { min-height: 480px; display: grid; grid-template-rows: auto repeat(3, minmax(138px, 1fr)); padding: 10px 11px; }
-.office-trend-title, .office-trend-row > div { display: flex; justify-content: space-between; gap: 8px; }
+.office-trend-title, .office-trend-row > div:first-child { display: flex; justify-content: space-between; gap: 8px; }
 .office-trend-title { min-height: 24px; font-size: clamp(.82rem, .76vw, .98rem); }
 .office-trend-title span, .office-trend-row span { color: var(--muted); }
 .office-trend-row { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); border-top: 1px solid rgba(65, 91, 96, .52); padding: 5px 4px 2px; }
