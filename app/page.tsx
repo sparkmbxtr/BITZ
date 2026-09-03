@@ -14,6 +14,7 @@ type Sample = {
   hcho: number | null;
   pm1: number | null;
   pm25: number | null;
+  pm4: number | null;
   pm10: number | null;
   sound: number | null;
   soundMax: number | null;
@@ -83,6 +84,7 @@ function demoSeries(room: "LAB" | "OFFICE"): Sample[] {
       hcho: lab ? 7.8 + workday * 2 + vapourEvent * 6 : 3.2 + workday * 1.4,
       pm1: lab ? 0 : 0.8 + Math.max(0, wave),
       pm25: lab ? 0 : 1 + Math.max(0, wave * 1.5),
+      pm4: lab ? 0 : 1.1 + Math.max(0, wave * 1.65),
       pm10: lab ? 0 : 1.2 + Math.max(0, wave * 1.8),
       sound: lab ? 42 + workday * 14 + Math.abs(wave) * 6 : 31 + workday * 5,
       soundMax: lab ? (index === 119 ? 81 : 59 + workday * 12) : 39 + workday * 7,
@@ -584,38 +586,31 @@ function latestObservation(samples: Sample[], selector: (sample: Sample) => numb
   return null;
 }
 
-function particleValue(sample: Sample) {
-  return sample.pm25 ?? sample.pm10 ?? sample.pm1;
+function pmBalanceValue(sample: Sample) {
+  if (sample.pm1 === null || sample.pm25 === null || sample.pm4 === null || sample.pm10 === null) return null;
+  return (sample.pm1 + sample.pm25 + sample.pm4 + sample.pm10) / 4;
 }
 
-function particleObservation(samples: Sample[]) {
+function pmBalanceObservation(samples: Sample[]) {
   for (let index = samples.length - 1; index >= 0; index -= 1) {
     const sample = samples[index];
-    if (sample.pm25 !== null) return { value: sample.pm25, timestamp: sample.timestamp, channel: "PM₂.₅" };
-    if (sample.pm10 !== null) return { value: sample.pm10, timestamp: sample.timestamp, channel: "PM₁₀" };
-    if (sample.pm1 !== null) return { value: sample.pm1, timestamp: sample.timestamp, channel: "PM₁" };
-  }
-  return null;
-}
-
-function labPmMeanValue(sample: Sample) {
-  if (sample.pm25 === null || sample.pm10 === null) return null;
-  return (sample.pm25 + sample.pm10) / 2;
-}
-
-function labPmMeanObservation(samples: Sample[]) {
-  for (let index = samples.length - 1; index >= 0; index -= 1) {
-    const sample = samples[index];
-    const value = labPmMeanValue(sample);
+    const value = pmBalanceValue(sample);
     if (value !== null) {
-      return { value, pm25: sample.pm25!, pm10: sample.pm10!, timestamp: sample.timestamp };
+      return {
+        value,
+        pm1: sample.pm1!,
+        pm25: sample.pm25!,
+        pm4: sample.pm4!,
+        pm10: sample.pm10!,
+        timestamp: sample.timestamp,
+      };
     }
   }
   return null;
 }
 
 function hepaAssessment(samples: Sample[], latest: Sample | null) {
-  const observation = labPmMeanObservation(samples);
+  const observation = pmBalanceObservation(samples);
   if (!latest || !observation || latest.timestamp - observation.timestamp > 10 * 60_000) return null;
 
   const paired = samples
@@ -1250,7 +1245,7 @@ function ApiKeySetup({ checking, onConnected }: { checking: boolean; onConnected
 
 function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refreshing: boolean; analysisMinutes: number }) {
   const latest = room.latest;
-  const pmObservation = labPmMeanObservation(room.samples);
+  const pmObservation = pmBalanceObservation(room.samples);
   const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
   const hepa = hepaAssessment(room.samples, latest);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
@@ -1314,7 +1309,7 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
           <TrendRow label="CO₂ / humidity" samples={room.samples} primary={(s) => s.co2} secondary={(s) => s.humidityAbs} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
           <TrendRow label="O₂ / CO" samples={room.samples} primary={(s) => s.oxygen} secondary={(s) => s.co} gradeFor={oxygenGrade} analysisMinutes={analysisMinutes} />
           {currentParticleAvailable && pmObservation
-            ? <TrendRow label="PM / sound max" samples={room.samples} primary={labPmMeanValue} secondary={(s) => s.soundMax} gradeFor={labPmGrade} analysisMinutes={analysisMinutes} reading={`PM ${fmt(pmObservation.value, 1)} µg/m³`} />
+            ? <TrendRow label="PM balance / sound max" samples={room.samples} primary={pmBalanceValue} secondary={(s) => s.soundMax} gradeFor={labPmGrade} analysisMinutes={analysisMinutes} reading={`PM balance ${fmt(pmObservation.value, 1)} µg/m³`} />
             : <TrendRow label="Sound max" samples={room.samples} primary={(s) => s.soundMax} gradeFor={soundMaxGrade} analysisMinutes={analysisMinutes} />}
         </section>
         <aside className={`meaning-panel meaning-panel-${room.status} ${hepa ? "meaning-with-hepa" : ""} ${routineClosed ? "meaning-panel-closed" : ""}`} aria-labelledby="meaning-heading">
@@ -1351,7 +1346,7 @@ function TrendRow({ label, samples, primary, secondary, gradeFor, analysisMinute
 
 function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes: number }) {
   const latest = room.latest;
-  const pmObservation = particleObservation(room.samples);
+  const pmObservation = pmBalanceObservation(room.samples);
   const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
   const pmValue = currentParticleAvailable ? pmObservation?.value ?? null : null;
   const pmAge = currentParticleAvailable && pmObservation ? ageLabel(pmObservation.timestamp, latest?.timestamp) : "";
@@ -1368,7 +1363,7 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
         <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="vapour pattern" grade={tvocGrade(latest?.tvoc ?? null)} />
         {currentParticleAvailable && pmObservation
-          ? <Metric label="PM" value={`${fmt(pmValue, 1)} µg/m³`} note={`${pmObservation.channel} · ${pmAge}`} grade={officePmGrade(pmValue)} />
+          ? <Metric label="PM balance" value={`${fmt(pmValue, 1)} µg/m³`} note={`COMPUTED · 4 CHANNELS · ${pmAge}`} grade={officePmGrade(pmValue)} />
           : <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} note="OFFICE humidity band" grade={humidityGrade(latest?.humidity ?? null)} />}
         <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="OFFICE thermal band" grade={temperatureGrade(latest?.temperature ?? null, "OFFICE")} />
       </div>
@@ -1377,7 +1372,7 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
         <OfficeTrend label="CO₂" value={`${fmt(latest?.co2)} ppm`} samples={room.samples} selector={(s) => s.co2} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
         <OfficeTrend label="VOC" value={`${fmt(latest?.tvoc)} ppb`} samples={room.samples} selector={(s) => s.tvoc} gradeFor={tvocGrade} analysisMinutes={analysisMinutes} />
         {currentParticleAvailable
-          ? <OfficeTrend label="PM" value={`${fmt(pmValue, 1)} µg/m³`} samples={room.samples} selector={particleValue} gradeFor={officePmGrade} analysisMinutes={analysisMinutes} />
+          ? <OfficeTrend label="PM balance" value={`${fmt(pmValue, 1)} µg/m³`} samples={room.samples} selector={pmBalanceValue} gradeFor={officePmGrade} analysisMinutes={analysisMinutes} />
           : <OfficeTrend label="Humidity" value={`${fmt(latest?.humidity)}%`} samples={room.samples} selector={(s) => s.humidity} gradeFor={humidityGrade} analysisMinutes={analysisMinutes} />}
       </section>
       <div className="office-checks">{visibleChecks.map((check) => <div key={check.label}><span>{check.label}</span><strong className={`text-${check.level}`}>{check.status}</strong></div>)}</div>
