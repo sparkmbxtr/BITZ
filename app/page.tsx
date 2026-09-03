@@ -565,12 +565,15 @@ function AccessGate({ checking, onGranted }: { checking: boolean; onGranted: () 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
       });
-      if (!response.ok) throw new Error("Incorrect password");
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) {
+        throw new Error(response.status === 401 ? "Password not accepted" : payload.error ?? "Connection unavailable — try again");
+      }
       setPassword("");
       onGranted();
-    } catch {
+    } catch (reason) {
       setPassword("");
-      setError("Password not accepted");
+      setError(reason instanceof Error ? reason.message : "Connection unavailable — try again");
     } finally {
       setSubmitting(false);
     }
@@ -591,6 +594,10 @@ function AccessGate({ checking, onGranted }: { checking: boolean; onGranted: () 
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="go"
               autoFocus
             />
             {error ? <div className="access-error" role="alert">{error}</div> : null}
