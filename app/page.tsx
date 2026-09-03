@@ -321,6 +321,9 @@ function officeCloseEventTime(
       minute <= 18 * 60;
   });
 
+  // First find the most clearly corroborated TVOC-rise / occupancy-departure
+  // transition. This remains the anchor that prevents an unrelated fluctuation
+  // from becoming a CLOSE event.
   let best = { timestamp: candidateTimestamp, score: Number.NEGATIVE_INFINITY };
   for (const sample of candidates) {
     const timestamp = sample.timestamp;
@@ -337,7 +340,45 @@ function officeCloseEventTime(
 
     if (score > best.score) best = { timestamp, score };
   }
-  return best.timestamp;
+
+  // Report when the sustained TVOC spike starts, not its later maximum or the
+  // centre of the change window. Two or more cloud records in the following
+  // six minutes must remain above the local pre-event reference.
+  const anchor = best.timestamp;
+  const localReference = median(valuesBetween(
+    samples,
+    tvocSignal,
+    anchor - 22 * 60_000,
+    anchor - 10 * 60_000,
+  ));
+  if (localReference === null) return anchor;
+
+  const onsetDelta = Math.max(10, tvocScale * .25);
+  const onsetLevel = localReference + onsetDelta;
+  const onsetCandidates = candidates
+    .filter((sample) => sample.timestamp >= anchor - 20 * 60_000 && sample.timestamp <= anchor + 2 * 60_000)
+    .sort((left, right) => left.timestamp - right.timestamp);
+
+  for (const sample of onsetCandidates) {
+    const timestamp = sample.timestamp;
+    const current = tvocSignal.select(sample);
+    if (current === null || current < onsetLevel) continue;
+
+    const previous = median(valuesBetween(samples, tvocSignal, timestamp - 6 * 60_000, timestamp - 2 * 60_000));
+    const following = samples
+      .filter((entry) => entry.timestamp >= timestamp && entry.timestamp <= timestamp + 6 * 60_000)
+      .map(tvocSignal.select)
+      .filter((value): value is number => value !== null && Number.isFinite(value));
+    const sustained = following.filter((value) => value >= onsetLevel);
+
+    if (
+      previous !== null &&
+      current - previous >= onsetDelta * .6 &&
+      sustained.length >= 2
+    ) return timestamp;
+  }
+
+  return anchor;
 }
 
 function departureScore(
