@@ -136,14 +136,40 @@ function berlinClock(timestamp: number) {
   }).format(timestamp);
 }
 
-function berlinAxisLabel(timestamp: number) {
-  return new Intl.DateTimeFormat("en-GB", {
+function berlinHour(timestamp: number) {
+  const part = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Berlin",
-    weekday: "short",
     hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(timestamp).replace(",", "");
+    hourCycle: "h23",
+  }).formatToParts(timestamp).find((item) => item.type === "hour");
+  return Number(part?.value ?? 0);
+}
+
+function berlinAxisLabel(timestamp: number) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Berlin",
+    hour: "numeric",
+    hour12: true,
+  }).format(timestamp).toUpperCase();
+}
+
+function roundedTimeTicks(start: number, end: number) {
+  const durationHours = Math.max((end - start) / 3_600_000, 0);
+  const intervalHours = durationHours >= 18 ? 6 : durationHours >= 9 ? 3 : 1;
+  const ticks: Array<{ x: number; labelX: number; label: string; midnight: boolean }> = [];
+  const firstWholeHour = Math.ceil(start / 3_600_000) * 3_600_000;
+  for (let timestamp = firstWholeHour; timestamp <= end; timestamp += 3_600_000) {
+    const hour = berlinHour(timestamp);
+    if (hour % intervalHours !== 0) continue;
+    const x = ((timestamp - start) / Math.max(end - start, 1)) * 100;
+    ticks.push({
+      x,
+      labelX: Math.min(96, Math.max(4, x)),
+      label: berlinAxisLabel(timestamp),
+      midnight: hour === 0,
+    });
+  }
+  return ticks;
 }
 
 function latestValue(samples: Sample[], selector: (sample: Sample) => number | null) {
@@ -325,11 +351,7 @@ function HistoryTrend({
       else result.push({ ...item });
       return result;
     }, []);
-    const ticks = Array.from({ length: 5 }, (_, index) => {
-      const ratio = index / 4;
-      const timestamp = start + (end - start) * ratio;
-      return { x: ratio * 100, label: berlinAxisLabel(timestamp) };
-    });
+    const ticks = roundedTimeTicks(start, end);
     return {
       primary: build(primary),
       secondary: build(secondary),
@@ -365,8 +387,8 @@ function HistoryTrend({
         {geometry.ticks.map((tick, index) => (
           <span
             key={`axis-${index}`}
-            className={index === 0 ? "axis-first" : index === geometry.ticks.length - 1 ? "axis-last" : ""}
-            style={{ left: `${tick.x}%` }}
+            className={tick.midnight ? "axis-midnight" : ""}
+            style={{ left: `${tick.labelX}%` }}
           >
             {tick.label}
           </span>
