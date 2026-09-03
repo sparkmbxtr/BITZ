@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     if (typeof body.password === "string") {
       // Shared wall displays use varied Android keyboards. Normalize harmless
       // keyboard differences while retaining the same stored password verifier.
-      password = body.password.normalize("NFKC").trim().toUpperCase();
+      password = body.password.normalize("NFKC").replace(/[\\p{Cf}\\p{Z}\\s]/gu, "").toUpperCase();
     }
   } catch {
     return Response.json({ error: "Invalid request" }, { status: 400 });
