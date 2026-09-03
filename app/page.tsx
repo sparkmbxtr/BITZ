@@ -858,15 +858,17 @@ function HistoryTrend({
     };
   }, [samples, primary, secondary, analysisMinutes, levelFor, room]);
 
-  const showAxes = room === "LAB" && Boolean(primaryUnit);
+  const showPrimaryAxis = Boolean(primaryUnit);
+  const showSecondaryAxis = Boolean(secondaryUnit && secondary);
+  const axisLayout = showPrimaryAxis ? (showSecondaryAxis ? "trend-chart-with-axes" : "trend-chart-with-left-axis") : "";
 
   return (
-    <div className={`trend-chart ${showAxes ? "trend-chart-with-axes" : ""}`}>
-      {showAxes ? <TrendScale scale={geometry.primary.scale} unit={primaryUnit!} side="primary" /> : null}
+    <div className={`trend-chart ${axisLayout}`}>
+      {showPrimaryAxis ? <TrendScale scale={geometry.primary.scale} unit={primaryUnit!} side="primary" /> : null}
       <div className="trend-plot">
         <svg className="trend-svg" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={`${label}; x axis is Europe/Berlin local time`}>
           {geometry.zones.map((zone, index) => <rect key={`${zone.from}-${index}`} x={zone.from} y="2" width={Math.max(zone.to - zone.from, .1)} height="24" className={`trend-zone zone-${zone.level}`} />)}
-          {showAxes ? [7, 16, 25].map((y) => <line key={`y-grid-${y}`} x1="0" y1={y} x2="100" y2={y} className="trend-y-grid" />) : null}
+          {showPrimaryAxis ? [7, 16, 25].map((y) => <line key={`y-grid-${y}`} x1="0" y1={y} x2="100" y2={y} className="trend-y-grid" />) : null}
           {geometry.ticks.map((tick, index) => <line key={`tick-${index}`} x1={tick.x} y1="2" x2={tick.x} y2="26" className="trend-time-grid" />)}
           {geometry.events.map((event, index) => <line key={`event-${event.label}-${index}`} x1={event.x} y1="2" x2={event.x} y2="26" className={`activity-time-grid activity-${event.label.toLowerCase()}`} />)}
           <line x1="0" y1="25" x2="100" y2="25" className="trend-grid" />
@@ -899,7 +901,7 @@ function HistoryTrend({
         ) : null}
         {geometry.primary.count < 2 && noSeriesLabel ? <div className="trend-last-valid">{noSeriesLabel}</div> : null}
       </div>
-      {showAxes && secondaryUnit ? <TrendScale scale={geometry.secondary.scale} unit={secondaryUnit} side="secondary" /> : null}
+      {showSecondaryAxis && secondaryUnit ? <TrendScale scale={geometry.secondary.scale} unit={secondaryUnit} side="secondary" /> : null}
       <div className="time-axis" aria-label="Europe/Berlin local time">
         {geometry.ticks.map((tick, index) => (
           <span
@@ -1399,11 +1401,11 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
       </div>
       <section className="office-trends" aria-label="OFFICE 24-hour compact trends">
         <div className="office-trend-title"><strong>24-hour colour history</strong></div>
-        <OfficeTrend label="CO₂" value={`${fmt(latest?.co2)} ppm`} samples={room.samples} selector={(s) => s.co2} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
-        <OfficeTrend label="VOC" value={`${fmt(latest?.tvoc)} ppb`} samples={room.samples} selector={(s) => s.tvoc} gradeFor={tvocGrade} analysisMinutes={analysisMinutes} />
+        <OfficeTrend label="CO₂" unit="ppm" value={`${fmt(latest?.co2)} ppm`} samples={room.samples} selector={(s) => s.co2} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
+        <OfficeTrend label="VOC" unit="ppb" value={`${fmt(latest?.tvoc)} ppb`} samples={room.samples} selector={(s) => s.tvoc} gradeFor={tvocGrade} analysisMinutes={analysisMinutes} />
         {currentParticleAvailable
-          ? <OfficeTrend label="PM balance" value={`${fmt(pmValue, 1)} µg/m³`} samples={room.samples} selector={pmBalanceValue} gradeFor={officePmGrade} analysisMinutes={analysisMinutes} />
-          : <OfficeTrend label="Humidity" value={`${fmt(latest?.humidity)}%`} samples={room.samples} selector={(s) => s.humidity} gradeFor={humidityGrade} analysisMinutes={analysisMinutes} />}
+          ? <OfficeTrend label="PM balance" unit="µg/m³" value={`${fmt(pmValue, 1)} µg/m³`} samples={room.samples} selector={pmBalanceValue} gradeFor={officePmGrade} analysisMinutes={analysisMinutes} />
+          : <OfficeTrend label="Humidity" unit="%" value={`${fmt(latest?.humidity)}%`} samples={room.samples} selector={(s) => s.humidity} gradeFor={humidityGrade} analysisMinutes={analysisMinutes} />}
       </section>
       <div className="office-checks">{visibleChecks.map((check) => <div key={check.label}><span>{check.label}</span><strong className={`text-${check.level}`}>{check.status}</strong></div>)}</div>
       <div className={`office-summary office-meaning action-${room.status}`}>
@@ -1415,7 +1417,7 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
   );
 }
 
-function OfficeTrend({ label, value, samples, selector, gradeFor, displayGrade, noSeriesLabel, analysisMinutes }: { label: string; value: string; samples: Sample[]; selector: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; displayGrade?: Grade; noSeriesLabel?: string; analysisMinutes: number }) {
+function OfficeTrend({ label, unit, value, samples, selector, gradeFor, displayGrade, noSeriesLabel, analysisMinutes }: { label: string; unit: string; value: string; samples: Sample[]; selector: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; displayGrade?: Grade; noSeriesLabel?: string; analysisMinutes: number }) {
   const grade = displayGrade ?? gradeFor(latestValue(samples, selector));
-  return <div className={`office-trend-row trend-row-${grade.level}`}><div><strong>{label}</strong><span><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b> {value}</span></div><HistoryTrend samples={samples} primary={selector} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the reading`} noSeriesLabel={noSeriesLabel} analysisMinutes={analysisMinutes} room="OFFICE" /></div>;
+  return <div className={`office-trend-row trend-row-${grade.level}`}><div><strong className="office-series-name"><span>{label}</span><small>{unit}</small></strong><span><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b> {value}</span></div><HistoryTrend samples={samples} primary={selector} primaryUnit={unit} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the reading`} noSeriesLabel={noSeriesLabel} analysisMinutes={analysisMinutes} room="OFFICE" /></div>;
 }
