@@ -45,11 +45,20 @@ async function configuredApiKey(request: Request, configured: NonNullable<Return
 
 export async function GET(request: Request) {
   const configured = configuration();
-  if (!configured || !await isAuthorized(request, configured.sessionSecret)) {
+  if (!configured) {
     return Response.json({ error: "Authorization required" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
+  if (!await isAuthorized(request, configured.sessionSecret)) {
+    // Older wallboard builds only understood the configured flag. Returning true
+    // moves a stale in-memory display to /api/airq, whose 401 reliably restores
+    // the password screen. Newer builds use reauthenticate directly.
+    return Response.json(
+      { configured: true, reauthenticate: true },
+      { headers: { "Cache-Control": "no-store, max-age=0", "Clear-Site-Data": "\"cache\"" } },
+    );
+  }
   const storedKey = await configuredApiKey(request, configured);
-  return Response.json({ configured: Boolean(storedKey) }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json({ configured: Boolean(storedKey), reauthenticate: false }, { headers: { "Cache-Control": "no-store, max-age=0" } });
 }
 
 export async function POST(request: Request) {
