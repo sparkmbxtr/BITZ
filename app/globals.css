@@ -86,7 +86,7 @@ button, input { font: inherit; }
 .header-state { display: flex; align-items: center; justify-content: flex-end; gap: 13px; color: var(--muted); font-size: clamp(.78rem, min(.72vw, 1.35vh), .95rem); white-space: nowrap; }
 .day-end-stamps { min-width: 0; display: grid; gap: 2px; padding-right: 4px; text-align: right; }
 .day-end-stamps span { margin: 0; color: var(--teal); font-size: clamp(.62rem, min(.6vw, 1.08vh), .78rem); font-weight: 780; line-height: 1.1; letter-spacing: .025em; }
-.header-state button { min-height: 38px; padding: 7px 12px; color: var(--foreground); background: var(--panel-strong); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
+.header-state button, .header-state .header-export { min-height: 38px; padding: 7px 12px; display: inline-flex; align-items: center; color: var(--foreground); background: var(--panel-strong); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; text-decoration: none; }
 .connection-dot { width: 12px; height: 12px; flex: 0 0 auto; border-radius: 50%; background: var(--amber); }
 .connection-dot.is-live { background: var(--green); box-shadow: 0 0 14px rgba(105, 221, 162, .65); }
 .preview-banner { padding: 7px 18px; color: #fff3cf; background: #5a3e0b; font-size: .9rem; text-align: center; }
