@@ -372,6 +372,7 @@ export default function Home() {
   const [data, setData] = useState<DashboardData>(DEMO_DATA);
   const [clock, setClock] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
+  const [connectionChecking, setConnectionChecking] = useState(false);
 
   const loadData = useCallback(async () => {
     setRefreshing(true);
@@ -402,17 +403,62 @@ export default function Home() {
     return () => { active = false; };
   }, []);
 
-  useEffect(() => {
-    if (!authorized) return;
-    let active = true;
-    const checkConnection = () => fetch("/api/key", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((payload: { configured?: boolean }) => { if (active) setApiConnected(payload.configured === true); })
-      .catch(() => { if (active) setApiConnected(false); });
-    checkConnection();
-    const timer = window.setInterval(checkConnection, 30_000);
-    return () => { active = false; window.clearInterval(timer); };
+  const checkConnection = useCallback(async () => {
+    if (authorized !== true) return;
+    setConnectionChecking(true);
+    try {
+      const response = await fetch(`/api/key?check=${Date.now()}`, { cache: "no-store" });
+      if (response.status === 401) {
+        setApiConnected(null);
+        setAuthorized(false);
+        return;
+      }
+      if (!response.ok) throw new Error("Connection check failed");
+      const payload = await response.json() as { configured?: boolean };
+      setApiConnected(payload.configured === true);
+    } catch {
+      setApiConnected(false);
+    } finally {
+      setConnectionChecking(false);
+    }
   }, [authorized]);
+
+  useEffect(() => {
+    if (authorized !== true || apiConnected === true) return;
+    void checkConnection();
+    const timer = window.setInterval(() => void checkConnection(), 15_000);
+    const retryWhenVisible = () => {
+      if (document.visibilityState === "visible") void checkConnection();
+    };
+    window.addEventListener("focus", retryWhenVisible);
+    document.addEventListener("visibilitychange", retryWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", retryWhenVisible);
+      document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
+  }, [authorized, apiConnected, checkConnection]);
+
+  useEffect(() => {
+    if (authorized !== true || apiConnected !== false) return;
+    const watchdog = window.setTimeout(() => {
+      const now = Date.now();
+      const storageKey = "bitz-connection-watchdog-reload";
+      try {
+        const previous = Number(window.sessionStorage.getItem(storageKey) ?? "0");
+        if (!Number.isFinite(previous) || now - previous >= 5 * 60_000) {
+          window.sessionStorage.setItem(storageKey, String(now));
+          window.location.reload();
+          return;
+        }
+      } catch {
+        window.location.reload();
+        return;
+      }
+      void checkConnection();
+    }, 90_000);
+    return () => window.clearTimeout(watchdog);
+  }, [authorized, apiConnected, checkConnection]);
 
   useEffect(() => {
     if (!authorized || !apiConnected) return;
@@ -436,10 +482,10 @@ export default function Home() {
     setApiConnected(null);
   }
 
-  if (authorized !== true) return <AccessGate checking={authorized === null} onGranted={() => setAuthorized(true)} />;
+  if (authorized !== true) return <AccessGate checking={authorized === null} onGranted={() => { setApiConnected(null); setAuthorized(true); }} />;
   if (apiConnected !== true) {
     if (ownerSetup && apiConnected === false) return <ApiKeySetup checking={false} onConnected={() => setApiConnected(true)} />;
-    return <ConnectionPending checking={apiConnected === null} />;
+    return <ConnectionPending checking={apiConnected === null || connectionChecking} onRetry={checkConnection} />;
   }
 
   return (
@@ -521,13 +567,17 @@ function AccessGate({ checking, onGranted }: { checking: boolean; onGranted: () 
   );
 }
 
-function ConnectionPending({ checking }: { checking: boolean }) {
+function ConnectionPending({ checking, onRetry }: { checking: boolean; onRetry: () => void | Promise<void> }) {
   return (
     <main className="access-shell">
       <section className="access-card connection-pending" aria-live="polite">
         <div className="access-kicker">BITZ LAB AIR MONITORING</div>
         <div className="pending-state"><span className="connection-dot" /><strong>{checking ? "Checking live sensor feed" : "Live sensor feed is being initialized"}</strong></div>
-        <p>No visitor input is required. This display will open automatically when the secure data connection is ready.</p>
+        <p>The display retries automatically. If it remains here, use the large touch control below.</p>
+        <button className="connection-retry" type="button" onClick={() => void onRetry()} disabled={checking}>
+          {checking ? "CHECKING CONNECTION…" : "RETRY CONNECTION"}
+        </button>
+        <div className="connection-auto-note">Automatic recovery remains active while this page is open.</div>
       </section>
     </main>
   );
