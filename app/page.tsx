@@ -1075,7 +1075,6 @@ export default function Home() {
 
   return (
     <main className="wallboard" data-password-verifier={passwordVerifierReady === false ? "invalid" : passwordVerifierReady === true ? "ready" : "checking"}>
-      <a href="/api/airq?export=1" download="airq-dashboard-data.json" hidden aria-hidden="true" data-testid="data-export">Export current samples</a>
       <header className="wallboard-header">
         <div className="identity"><strong>BITZ LAB AIR MONITORING</strong><span>LIVE READINGS · 24-HOUR HISTORY · LATEST 60-MINUTE ANALYSIS</span></div>
         <div className="header-state" aria-live="polite">
@@ -1088,6 +1087,7 @@ export default function Home() {
           <span>{data.live ? "LIVE" : "PREVIEW"}</span>
           <span>{data.live ? `Source ${sourceTime} Europe/Berlin` : "24-hour sample history"}</span>
           <span>{data.live ? (ageMinutes === null ? "age unknown" : `${ageMinutes} min old`) : "recent hour highlighted"}</span>
+          <a className="header-export" href="/api/airq?export=1&cycle=1" download="airq-daily-cycle.json" data-testid="data-export">Daily data</a>
           <button type="button" onClick={lockBoard}>Lock</button>
           <button type="button" onClick={requestFullscreen}>Full screen</button>
         </div>
