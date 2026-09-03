@@ -332,13 +332,13 @@ function activityCycles(samples: Sample[]) {
     }));
 
     const morningWindow = candidates.filter((candidate) =>
-      candidate.minuteOfDay >= 6 * 60 + 30 &&
+      candidate.minuteOfDay >= 6 * 60 + 45 &&
       candidate.minuteOfDay <= 10 * 60 + 30
     );
-    const strictMorning = morningWindow.filter((candidate) => candidate.changed >= 3 && candidate.score >= 3.4);
-    const morning = strictMorning.length
-      ? strictMorning
-      : morningWindow.filter((candidate) => candidate.changed >= 2 && candidate.score >= 2.25);
+    const morning = morningWindow.filter((candidate) =>
+      (candidate.changed >= 3 && candidate.score >= 3.4) ||
+      (candidate.changed >= 2 && candidate.score >= 2.25)
+    );
     let begin: number | null = null;
     if (morning.length) {
       const firstEpisode = morning.filter((candidate) => candidate.timestamp <= morning[0].timestamp + 20 * 60_000);
