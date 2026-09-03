@@ -193,6 +193,8 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const tvocMax = maxValue(recent, (sample) => sample.tvoc);
   const hchoMax = maxValue(recent, (sample) => sample.hcho);
   const particleMax = maxValue(recent, particleValue);
+  const particleLatest = [...recent].reverse().find((sample) => particleValue(sample) !== null) ?? null;
+  const currentParticleAvailable = Boolean(latest && particleLatest && latest.timestamp - particleLatest.timestamp <= 10 * 60_000);
   const soundMax = maxValue(recent, (sample) => sample.soundMax);
   const co2Max = maxValue(recent, (sample) => sample.co2);
   const tvocDelta = delta(recent, (sample) => sample.tvoc);
@@ -227,11 +229,11 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
     : hchoMax > 100
       ? check("Formaldehyde elevation", "DIRECT", "ELEVATED", "watch")
       : check("Formaldehyde elevation", "DIRECT", "NOT DETECTED", "normal");
-  const particles = particleMax === null
-    ? check("Particle signal", "RAW", "NO RECENT PM VALUE", "unknown")
-    : particleMax > 35 || (pmDelta ?? 0) > 15
+  const particles = currentParticleAvailable && particleMax !== null
+    ? particleMax > 35 || (pmDelta ?? 0) > 15
       ? check("Particle pattern", "RAW", "RISE — CHECK", "watch")
-      : check("Particle pattern", "RAW", "NO RISE", "normal");
+      : check("Particle pattern", "RAW", "NO RISE", "normal")
+    : null;
   const carbonDioxide = co2Max === null
     ? check("CO₂ accumulation", "PATTERN", "UNAVAILABLE", "unknown")
     : co2Max > 1_400 || (co2Delta ?? 0) > 450
@@ -243,10 +245,11 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
       ? check("Sound peak >90 dB", "RAW", `${soundMax.toFixed(0)} dB EVENT`, "watch")
       : check("Sound peak >90 dB", "RAW", "NONE", "normal");
 
-  const checks = [carbonMonoxide, oxygen, vapour, formaldehyde, particles, carbonDioxide, acoustics, freshness];
+  const checks = [carbonMonoxide, oxygen, vapour, formaldehyde, carbonDioxide, acoustics, freshness];
+  if (particles) checks.splice(4, 0, particles);
   const rawStatus = worst(checks.map((item) => item.level));
   const status = rawStatus === "unknown" && freshness.level === "normal" ? "normal" : rawStatus;
-  const gasDominant = (tvocDelta ?? 0) > 150 && (pmDelta ?? 0) < 5;
+  const gasDominant = currentParticleAvailable && pmDelta !== null && (tvocDelta ?? 0) > 150 && pmDelta < 5;
   const occupancyPattern = (co2Delta ?? 0) > 80 && (humidityDelta ?? 0) > 0.15;
   const ventilationPattern = name === "OFFICE" && (co2Delta ?? 0) < -80 && ((pmDelta ?? 0) > 3 || (tvocDelta ?? 0) > 100);
 
@@ -260,7 +263,9 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   else if (gasDominant && name === "LAB") summary = "Gas channels changed without matching particles, supporting a vapour, process or airflow event; identity remains unresolved.";
   else if (ventilationPattern) summary = "Falling CO₂ with rising PM or VOC supports recent outdoor-air exchange; window state would strengthen the attribution.";
   else if (occupancyPattern) summary = "CO₂ and absolute humidity rose together, supporting an occupancy-related change rather than a single chemical event.";
-  else if ((co2Delta ?? 0) > 80) summary = "CO₂ rose gradually while critical gas and particle channels stayed comparatively stable; routine occupancy is plausible.";
+  else if ((co2Delta ?? 0) > 80) summary = currentParticleAvailable
+    ? "CO₂ rose gradually while the other available gas and particle channels stayed comparatively stable; routine occupancy is plausible."
+    : "CO₂ rose gradually while the other available gas channels stayed comparatively stable; routine occupancy is plausible.";
 
   const flaggedLabels = checks
     .filter((item) => item.level === "watch" || item.level === "action")

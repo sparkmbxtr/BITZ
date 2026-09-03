@@ -127,6 +127,15 @@ function fmt(value: number | null | undefined, digits = 0) {
   return value.toLocaleString("en-GB", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+function berlinClock(timestamp: number) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(timestamp);
+}
+
 function latestValue(samples: Sample[], selector: (sample: Sample) => number | null) {
   for (let index = samples.length - 1; index >= 0; index -= 1) {
     const value = selector(samples[index]);
@@ -221,6 +230,12 @@ function pmGrade(value: number | null): Grade {
   if (value <= 15) return { label: "GOOD", level: "good" };
   if (value <= 35) return { label: "CHECK", level: "watch" };
   return { label: "HIGH", level: "action" };
+}
+
+function soundMaxGrade(value: number | null): Grade {
+  if (value === null) return { label: "NO DATA", level: "unknown" };
+  if (value <= 90) return { label: "GOOD", level: "great" };
+  return { label: "CHECK", level: "watch" };
 }
 
 function pointsFor(
@@ -409,9 +424,7 @@ export default function Home() {
 
   const newestTimestamp = Math.max(data.rooms.lab.latest?.timestamp ?? 0, data.rooms.office.latest?.timestamp ?? 0);
   const ageMinutes = newestTimestamp ? Math.max(0, Math.floor((clock - newestTimestamp) / 60_000)) : null;
-  const sourceTime = newestTimestamp
-    ? new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(newestTimestamp)
-    : "—";
+  const sourceTime = newestTimestamp ? berlinClock(newestTimestamp) : "—";
 
   function requestFullscreen() {
     document.documentElement.requestFullscreen?.().catch(() => undefined);
@@ -576,22 +589,26 @@ function ApiKeySetup({ checking, onConnected }: { checking: boolean; onConnected
 
 function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refreshing: boolean; analysisMinutes: number }) {
   const latest = room.latest;
+  const pmObservation = particleObservation(room.samples);
+  const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
-  const evidenceChecks = [...room.checks]
+  const evidenceChecks = room.checks
+    .filter((check) => !["CO release", "Particle signal", "Particle pattern"].includes(check.label))
+    .map((check) => check)
     .sort((left, right) => {
       const priority = { action: 0, watch: 1, unknown: 2, normal: 3 };
       return priority[left.level] - priority[right.level];
     })
-    .slice(0, 2);
+    .slice(0, 4);
   return (
     <section className="lab-panel" aria-labelledby="lab-heading">
       <div className="room-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h1 id="lab-heading">BIOENGINEERING S1 LAB</h1></div>{refreshing ? <span className="refresh-label">UPDATING</span> : null}</div>
       <div className={`overall-state overall-${room.status}`}>
         <LevelMark status={room.status} />
         <div><strong>{room.statusLabel}</strong><span>{normalCount}/{room.checks.length} monitored conditions currently clear</span></div>
-        <div className="state-detail"><strong>{room.samples.length} readings</strong><span>rolling 24-hour trace</span></div>
+        <div className="state-detail"><strong>{latest ? `Updated ${berlinClock(latest.timestamp)}` : "Update pending"}</strong><span>latest LAB sample · Europe/Berlin</span></div>
       </div>
-      <div className="critical-grid">
+      <div className={`critical-grid ${room.checks.length === 7 ? "critical-grid-seven" : ""}`}>
         {room.checks.map((check) => <article className={`critical-check check-${check.level}`} key={check.label}><span>{check.label} · {check.method.toLowerCase()}</span><strong>{check.status}</strong></article>)}
       </div>
       <div className="metric-grid">
@@ -609,7 +626,9 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
           <TrendRow label="TVOC / HCHO" samples={room.samples} primary={(s) => s.tvoc} secondary={(s) => s.hcho} gradeFor={tvocGrade} analysisMinutes={analysisMinutes} />
           <TrendRow label="CO₂ / humidity" samples={room.samples} primary={(s) => s.co2} secondary={(s) => s.humidityAbs} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
           <TrendRow label="O₂ / CO" samples={room.samples} primary={(s) => s.oxygen} secondary={(s) => s.co} gradeFor={oxygenGrade} analysisMinutes={analysisMinutes} />
-          <TrendRow label="PM / sound max" samples={room.samples} primary={particleValue} secondary={(s) => s.soundMax} gradeFor={pmGrade} analysisMinutes={analysisMinutes} />
+          {currentParticleAvailable
+            ? <TrendRow label="PM / sound max" samples={room.samples} primary={particleValue} secondary={(s) => s.soundMax} gradeFor={pmGrade} analysisMinutes={analysisMinutes} />
+            : <TrendRow label="Sound max" samples={room.samples} primary={(s) => s.soundMax} gradeFor={soundMaxGrade} analysisMinutes={analysisMinutes} />}
         </section>
         <aside className={`meaning-panel meaning-panel-${room.status}`} aria-labelledby="meaning-heading">
           <h2 id="meaning-heading">Meaningful action</h2>
@@ -636,11 +655,9 @@ function TrendRow({ label, samples, primary, secondary, gradeFor, analysisMinute
 function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes: number }) {
   const latest = room.latest;
   const pmObservation = particleObservation(room.samples);
-  const pmValue = pmObservation?.value ?? null;
-  const pmAge = pmObservation ? ageLabel(pmObservation.timestamp, latest?.timestamp) : "PM VALUE NOT RETURNED";
-  const pmDisplayGrade = pmObservation && latest && latest.timestamp - pmObservation.timestamp > 10 * 60_000
-    ? { label: "LAST VALID", level: "unknown" as const }
-    : pmGrade(pmValue);
+  const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
+  const pmValue = currentParticleAvailable ? pmObservation?.value ?? null : null;
+  const pmAge = currentParticleAvailable && pmObservation ? ageLabel(pmObservation.timestamp, latest?.timestamp) : "";
   const actionLabel = room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK";
   const visibleChecks = room.checks.filter((check) => ["CO release", "O₂ displacement", "Volatile-gas pattern", "Sound peak >90 dB"].includes(check.label));
   return (
@@ -652,14 +669,18 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
         <Metric label="Performance" value={fmt(latest?.performance)} note="air-Q index" grade={indexGrade(latest?.performance ?? null)} />
         <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="vapour pattern" grade={tvocGrade(latest?.tvoc ?? null)} />
-        <Metric label="PM" value={`${fmt(pmValue, 1)} µg/m³`} note={pmObservation ? `${pmObservation.channel} · ${pmAge}` : pmAge} grade={pmDisplayGrade} />
+        {currentParticleAvailable && pmObservation
+          ? <Metric label="PM" value={`${fmt(pmValue, 1)} µg/m³`} note={`${pmObservation.channel} · ${pmAge}`} grade={pmGrade(pmValue)} />
+          : <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} note="OFFICE humidity band" grade={humidityGrade(latest?.humidity ?? null)} />}
         <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="OFFICE thermal band" grade={temperatureGrade(latest?.temperature ?? null, "OFFICE")} />
       </div>
       <section className="office-trends" aria-label="OFFICE 24-hour compact trends">
         <div className="office-trend-title"><strong>24-hour colour history</strong></div>
         <OfficeTrend label="CO₂" value={`${fmt(latest?.co2)} ppm`} samples={room.samples} selector={(s) => s.co2} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
         <OfficeTrend label="VOC" value={`${fmt(latest?.tvoc)} ppb`} samples={room.samples} selector={(s) => s.tvoc} gradeFor={tvocGrade} analysisMinutes={analysisMinutes} />
-        <OfficeTrend label="PM" value={`${fmt(pmValue, 1)} µg/m³`} samples={room.samples} selector={particleValue} gradeFor={pmGrade} displayGrade={pmDisplayGrade} noSeriesLabel={pmObservation ? `${pmObservation.channel} ${fmt(pmValue, 1)} µg/m³ · ${pmAge}` : pmAge} analysisMinutes={analysisMinutes} />
+        {currentParticleAvailable
+          ? <OfficeTrend label="PM" value={`${fmt(pmValue, 1)} µg/m³`} samples={room.samples} selector={particleValue} gradeFor={pmGrade} analysisMinutes={analysisMinutes} />
+          : <OfficeTrend label="Humidity" value={`${fmt(latest?.humidity)}%`} samples={room.samples} selector={(s) => s.humidity} gradeFor={humidityGrade} analysisMinutes={analysisMinutes} />}
       </section>
       <div className="office-checks">{visibleChecks.map((check) => <div key={check.label}><span>{check.label}</span><strong className={`text-${check.level}`}>{check.status}</strong></div>)}</div>
       <div className={`office-summary office-meaning action-${room.status}`}>
