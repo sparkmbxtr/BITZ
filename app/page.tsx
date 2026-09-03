@@ -51,6 +51,13 @@ type DashboardData = {
 
 type GradeLevel = "great" | "good" | "watch" | "action" | "unknown";
 type Grade = { label: string; level: GradeLevel };
+type ActivityCycle = {
+  dayKey: string;
+  begin: number | null;
+  close: number | null;
+  end: number | null;
+};
+type ActivityEvent = { timestamp: number; label: "BEGIN" | "CLOSE"; x: number };
 
 // Keep the server and first client render identical. Live timestamps replace this
 // deterministic preview anchor immediately after hydration when the feed is set.
@@ -170,6 +177,201 @@ function roundedTimeTicks(start: number, end: number) {
     });
   }
   return ticks;
+}
+
+const BERLIN_CALENDAR = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Berlin",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+function berlinCalendar(timestamp: number) {
+  const values: Record<string, string> = {};
+  for (const part of BERLIN_CALENDAR.formatToParts(timestamp)) {
+    if (part.type !== "literal") values[part.type] = part.value;
+  }
+  const hour = Number(values.hour ?? 0);
+  const minute = Number(values.minute ?? 0);
+  return {
+    dayKey: [values.year, values.month, values.day].join("-"),
+    minuteOfDay: hour * 60 + minute,
+  };
+}
+
+function berlinShortTime(timestamp: number) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(timestamp);
+}
+
+function median(values: number[]) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+type ActivitySignal = {
+  key: "co2" | "tvoc" | "humidityAbs" | "temperature" | "sound";
+  select: (sample: Sample) => number | null;
+  changeFloor: number;
+  settleFloor: number;
+};
+
+const ACTIVITY_SIGNALS: ActivitySignal[] = [
+  { key: "co2", select: (sample) => sample.co2, changeFloor: 20, settleFloor: 45 },
+  { key: "tvoc", select: (sample) => sample.tvoc, changeFloor: 25, settleFloor: 80 },
+  { key: "humidityAbs", select: (sample) => sample.humidityAbs, changeFloor: .12, settleFloor: .3 },
+  { key: "temperature", select: (sample) => sample.temperature, changeFloor: .15, settleFloor: .4 },
+  { key: "sound", select: (sample) => sample.sound, changeFloor: 2.5, settleFloor: 4 },
+];
+
+const activityCycleCache = new WeakMap<Sample[], ActivityCycle[]>();
+
+function valuesBetween(samples: Sample[], signal: ActivitySignal, start: number, end: number) {
+  return samples
+    .filter((sample) => sample.timestamp >= start && sample.timestamp <= end)
+    .map(signal.select)
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+}
+
+function transitionScore(
+  samples: Sample[],
+  timestamp: number,
+  scales: Map<ActivitySignal["key"], number>,
+) {
+  let changed = 0;
+  let score = 0;
+  for (const signal of ACTIVITY_SIGNALS) {
+    const before = median(valuesBetween(samples, signal, timestamp - 14 * 60_000, timestamp - 2 * 60_000));
+    const after = median(valuesBetween(samples, signal, timestamp + 2 * 60_000, timestamp + 14 * 60_000));
+    if (before === null || after === null) continue;
+    const ratio = Math.abs(after - before) / (scales.get(signal.key) ?? signal.changeFloor);
+    if (ratio >= 1) changed += 1;
+    score += Math.min(ratio, 2.5);
+  }
+  return { changed, score };
+}
+
+function activityCycles(samples: Sample[]) {
+  const cached = activityCycleCache.get(samples);
+  if (cached) return cached;
+
+  const grouped = new Map<string, Sample[]>();
+  for (const sample of samples) {
+    const key = berlinCalendar(sample.timestamp).dayKey;
+    const day = grouped.get(key) ?? [];
+    day.push(sample);
+    grouped.set(key, day);
+  }
+
+  const cycles: ActivityCycle[] = [];
+  for (const [dayKey, rawDay] of grouped) {
+    const day = [...rawDay].sort((left, right) => left.timestamp - right.timestamp);
+    const baseline = day.filter((sample) => berlinCalendar(sample.timestamp).minuteOfDay < 6 * 60);
+    if (baseline.length < 10) continue;
+
+    const scales = new Map<ActivitySignal["key"], number>();
+    const centres = new Map<ActivitySignal["key"], number>();
+    for (const signal of ACTIVITY_SIGNALS) {
+      const values = baseline.map(signal.select).filter((value): value is number => value !== null && Number.isFinite(value));
+      const centre = median(values);
+      if (centre === null) continue;
+      const deviation = median(values.map((value) => Math.abs(value - centre))) ?? 0;
+      centres.set(signal.key, centre);
+      scales.set(signal.key, Math.max(signal.changeFloor, deviation * 5));
+    }
+
+    const candidates = day.map((sample) => ({
+      timestamp: sample.timestamp,
+      minuteOfDay: berlinCalendar(sample.timestamp).minuteOfDay,
+      ...transitionScore(day, sample.timestamp, scales),
+    }));
+
+    const morning = candidates.filter((candidate) =>
+      candidate.minuteOfDay >= 6 * 60 + 30 &&
+      candidate.minuteOfDay <= 10 * 60 + 30 &&
+      candidate.changed >= 3 &&
+      candidate.score >= 3.4
+    );
+    let begin: number | null = null;
+    if (morning.length) {
+      const firstEpisode = morning.filter((candidate) => candidate.timestamp <= morning[0].timestamp + 20 * 60_000);
+      begin = firstEpisode.reduce((best, candidate) => candidate.score > best.score ? candidate : best).timestamp;
+    }
+
+    const evening = candidates.filter((candidate) =>
+      candidate.minuteOfDay >= 15 * 60 + 30 &&
+      candidate.minuteOfDay <= 19 * 60 + 30 &&
+      (!begin || candidate.timestamp >= begin + 4 * 60 * 60_000) &&
+      candidate.changed >= 3 &&
+      candidate.score >= 3.4
+    );
+    let close: number | null = null;
+    if (evening.length) {
+      close = evening.reduce((best, candidate) => {
+        const bestWeighted = best.score - Math.abs(best.minuteOfDay - 17 * 60) / 360;
+        const candidateWeighted = candidate.score - Math.abs(candidate.minuteOfDay - 17 * 60) / 360;
+        return candidateWeighted > bestWeighted ? candidate : best;
+      }).timestamp;
+    }
+
+    function settledWindow(start: number, end: number) {
+      const relevant = ACTIVITY_SIGNALS.filter((signal) =>
+        signal.key === "co2" || signal.key === "humidityAbs" || signal.key === "temperature" || signal.key === "sound"
+      );
+      const checks = relevant.map((signal) => {
+        const centre = centres.get(signal.key);
+        const current = median(valuesBetween(day, signal, start, end));
+        if (centre === undefined || current === null) return null;
+        const baselineScale = scales.get(signal.key) ?? signal.changeFloor;
+        return {
+          key: signal.key,
+          within: Math.abs(current - centre) <= Math.max(signal.settleFloor, baselineScale * 1.6),
+        };
+      }).filter((check): check is { key: ActivitySignal["key"]; within: boolean } => check !== null);
+      if (checks.length < 3) return false;
+      const core = checks.filter((check) => check.key === "co2" || check.key === "sound");
+      return core.every((check) => check.within) && checks.filter((check) => check.within).length >= 3;
+    }
+
+    let end: number | null = null;
+    if (close) {
+      const afterClose = day.filter((sample) =>
+        sample.timestamp >= close + 20 * 60_000 &&
+        berlinCalendar(sample.timestamp).minuteOfDay <= 23 * 60 + 30
+      );
+      for (const sample of afterClose) {
+        if (
+          settledWindow(sample.timestamp, sample.timestamp + 15 * 60_000) &&
+          settledWindow(sample.timestamp + 15 * 60_000, sample.timestamp + 35 * 60_000)
+        ) {
+          end = sample.timestamp;
+          break;
+        }
+      }
+    }
+
+    if (begin || close || end) cycles.push({ dayKey, begin, close, end });
+  }
+
+  activityCycleCache.set(samples, cycles);
+  return cycles;
+}
+
+function latestCycle(samples: Sample[]) {
+  return [...activityCycles(samples)].reverse().find((cycle) => cycle.begin || cycle.close || cycle.end) ?? null;
+}
+
+function latestDayEnd(samples: Sample[]) {
+  return [...activityCycles(samples)].reverse().find((cycle) => cycle.end)?.end ?? null;
 }
 
 function latestValue(samples: Sample[], selector: (sample: Sample) => number | null) {
@@ -352,11 +554,17 @@ function HistoryTrend({
       return result;
     }, []);
     const ticks = roundedTimeTicks(start, end);
+    const events: ActivityEvent[] = activityCycles(samples).flatMap((cycle) => [
+      ...(cycle.begin ? [{ timestamp: cycle.begin, label: "BEGIN" as const }] : []),
+      ...(cycle.close ? [{ timestamp: cycle.close, label: "CLOSE" as const }] : []),
+    ]).filter((event) => event.timestamp >= start && event.timestamp <= end)
+      .map((event) => ({ ...event, x: ((event.timestamp - start) / timeRange) * 100 }));
     return {
       primary: build(primary),
       secondary: build(secondary),
       zones,
       ticks,
+      events,
       recentBoundary: Math.max(0, ((recentStart - start) / timeRange) * 100),
     };
   }, [samples, primary, secondary, analysisMinutes, levelFor]);
@@ -367,6 +575,7 @@ function HistoryTrend({
         <svg className="trend-svg" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={`${label}; x axis is Europe/Berlin local time`}>
           {geometry.zones.map((zone, index) => <rect key={`${zone.from}-${index}`} x={zone.from} y="2" width={Math.max(zone.to - zone.from, .1)} height="24" className={`trend-zone zone-${zone.level}`} />)}
           {geometry.ticks.map((tick, index) => <line key={`tick-${index}`} x1={tick.x} y1="2" x2={tick.x} y2="26" className="trend-time-grid" />)}
+          {geometry.events.map((event, index) => <line key={`event-${event.label}-${index}`} x1={event.x} y1="2" x2={event.x} y2="26" className={`activity-time-grid activity-${event.label.toLowerCase()}`} />)}
           <line x1="0" y1="25" x2="100" y2="25" className="trend-grid" />
           <rect x={geometry.recentBoundary} y="3" width={100 - geometry.recentBoundary} height="23" className="recent-window" />
           {geometry.secondary.all ? <path d={geometry.secondary.all} className="trend-secondary trend-history" /> : null}
@@ -374,6 +583,14 @@ function HistoryTrend({
           {geometry.secondary.recent ? <path d={geometry.secondary.recent} className="trend-secondary trend-recent" /> : null}
           {geometry.primary.recent ? <path d={geometry.primary.recent} className="trend-primary trend-recent" /> : null}
         </svg>
+        {geometry.events.map((event, index) => (
+          <span
+            key={`event-label-${event.label}-${index}`}
+            className={`activity-event-label activity-${event.label.toLowerCase()}`}
+            style={{ left: `${Math.min(95, Math.max(5, event.x))}%` }}
+            title={event.label === "BEGIN" ? `DAY BEGINS ${berlinShortTime(event.timestamp)}` : "Coordinated late-day transition"}
+          >{event.label}</span>
+        ))}
         {geometry.primary.current ? (
           <span
             className="current-point"
@@ -528,6 +745,8 @@ export default function Home() {
   const newestTimestamp = Math.max(data.rooms.lab.latest?.timestamp ?? 0, data.rooms.office.latest?.timestamp ?? 0);
   const ageMinutes = newestTimestamp ? Math.max(0, Math.floor((clock - newestTimestamp) / 60_000)) : null;
   const sourceTime = newestTimestamp ? berlinClock(newestTimestamp) : "—";
+  const labDayEnd = latestDayEnd(data.rooms.lab.samples);
+  const officeDayEnd = latestDayEnd(data.rooms.office.samples);
 
   function requestFullscreen() {
     document.documentElement.requestFullscreen?.().catch(() => undefined);
@@ -550,6 +769,12 @@ export default function Home() {
       <header className="wallboard-header">
         <div className="identity"><strong>BITZ LAB AIR MONITORING</strong><span>LIVE READINGS · 24-HOUR HISTORY · LATEST 60-MINUTE ANALYSIS</span></div>
         <div className="header-state" aria-live="polite">
+          {labDayEnd || officeDayEnd ? (
+            <div className="day-end-stamps" aria-label="Latest computed return to the room-specific night baseline">
+              {labDayEnd ? <span>LAB · DAY ENDS {berlinShortTime(labDayEnd)}</span> : null}
+              {officeDayEnd ? <span>OFFICE · DAY ENDS {berlinShortTime(officeDayEnd)}</span> : null}
+            </div>
+          ) : null}
           <span className={`connection-dot ${data.live ? "is-live" : "is-preview"}`} />
           <span>{data.live ? "LIVE" : "PREVIEW"}</span>
           <span>{data.live ? `Source ${sourceTime} Europe/Berlin` : "24-hour sample history"}</span>
@@ -706,6 +931,7 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
   const pmObservation = particleObservation(room.samples);
   const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
+  const cycle = latestCycle(room.samples);
   const evidenceOrder = ["CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
   const evidenceLabels: Record<string, string> = {
     "CO release": "CO SAFETY",
@@ -739,7 +965,7 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
       <div className={`overall-state overall-${room.status}`}>
         <LevelMark status={room.status} />
         <div><strong>{room.statusLabel}</strong><span>{normalCount}/{room.checks.length} monitored conditions currently clear</span></div>
-        <div className="state-detail"><strong>{latest ? `Updated ${berlinClock(latest.timestamp)}` : "Update pending"}</strong><span>latest LAB sample · Europe/Berlin</span></div>
+        <div className="state-detail"><strong>{latest ? `Updated ${berlinClock(latest.timestamp)}` : "Update pending"}</strong><span>latest LAB sample · Europe/Berlin</span>{cycle?.begin ? <span className="cycle-begin-stamp">DAY BEGINS {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div>
       </div>
       <div className={`critical-grid ${room.checks.length === 7 ? "critical-grid-seven" : ""}`}>
         {room.checks.map((check) => <article className={`critical-check check-${check.level}`} key={check.label}><span>{check.label} · {check.method.toLowerCase()}</span><strong>{check.status}</strong></article>)}
@@ -795,11 +1021,12 @@ function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes
   const pmValue = currentParticleAvailable ? pmObservation?.value ?? null : null;
   const pmAge = currentParticleAvailable && pmObservation ? ageLabel(pmObservation.timestamp, latest?.timestamp) : "";
   const actionLabel = room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK";
+  const cycle = latestCycle(room.samples);
   const visibleChecks = room.checks.filter((check) => ["CO release", "O₂ displacement", "Volatile-gas pattern", "Sound peak >90 dB"].includes(check.label));
   return (
     <aside className="office-rail" aria-labelledby="office-heading">
       <div className="office-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h2 id="office-heading">BIOENGINEERING OFFICE</h2></div></div>
-      <div className={`office-state overall-${room.status}`}><LevelMark status={room.status} /><div><strong>{room.statusLabel}</strong><span>{room.checks.filter((check) => check.level === "normal").length}/{room.checks.length} checks clear</span></div></div>
+      <div className={`office-state overall-${room.status}`}><LevelMark status={room.status} /><div><strong>{room.statusLabel}</strong><span>{room.checks.filter((check) => check.level === "normal").length}/{room.checks.length} checks clear</span>{cycle?.begin ? <span className="cycle-begin-stamp">DAY BEGINS {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div></div>
       <div className="office-metrics">
         <Metric label="Health" value={fmt(latest?.health)} note="air-Q index" grade={indexGrade(latest?.health ?? null)} />
         <Metric label="Performance" value={fmt(latest?.performance)} note="air-Q index" grade={indexGrade(latest?.performance ?? null)} />
