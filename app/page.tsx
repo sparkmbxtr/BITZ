@@ -972,6 +972,30 @@ export default function Home() {
   const [clock, setClock] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
   const [connectionChecking, setConnectionChecking] = useState(false);
+  const [compactViewport, setCompactViewport] = useState(false);
+
+  useEffect(() => {
+    const visualViewport = window.visualViewport;
+    const syncViewportLayout = () => {
+      const availableWidth = Math.max(320, Math.floor(Math.min(window.innerWidth, visualViewport?.width ?? window.innerWidth)));
+      const compact = availableWidth < 1700;
+      setCompactViewport(compact);
+      document.documentElement.dataset.dashboardLayout = compact ? "compact" : "wide";
+      document.documentElement.style.setProperty("--dashboard-visual-width", `${availableWidth}px`);
+    };
+
+    syncViewportLayout();
+    window.addEventListener("resize", syncViewportLayout);
+    window.addEventListener("orientationchange", syncViewportLayout);
+    visualViewport?.addEventListener("resize", syncViewportLayout);
+    return () => {
+      window.removeEventListener("resize", syncViewportLayout);
+      window.removeEventListener("orientationchange", syncViewportLayout);
+      visualViewport?.removeEventListener("resize", syncViewportLayout);
+      delete document.documentElement.dataset.dashboardLayout;
+      document.documentElement.style.removeProperty("--dashboard-visual-width");
+    };
+  }, []);
 
   const loadData = useCallback(async () => {
     setRefreshing(true);
@@ -1118,7 +1142,7 @@ export default function Home() {
   }
 
   return (
-    <main className="wallboard" data-password-verifier={passwordVerifierReady === false ? "invalid" : passwordVerifierReady === true ? "ready" : "checking"}>
+    <main className={`wallboard ${compactViewport ? "wallboard-compact" : ""}`} data-password-verifier={passwordVerifierReady === false ? "invalid" : passwordVerifierReady === true ? "ready" : "checking"}>
       <header className="wallboard-header">
         <div className="identity"><strong>BITZ LAB AIR MONITORING</strong><span>LIVE READINGS · 24-HOUR HISTORY · LATEST 60-MINUTE ANALYSIS</span></div>
         <div className="header-state" aria-live="polite">
