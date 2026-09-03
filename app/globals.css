@@ -83,6 +83,8 @@ button, input { font: inherit; }
 .identity strong { font-size: clamp(1.35rem, min(1.6vw, 2.55vh), 2rem); letter-spacing: .075em; font-weight: 700; white-space: nowrap; }
 .identity span { color: var(--muted); font-size: clamp(.78rem, min(.72vw, 1.35vh), .95rem); font-weight: 600; white-space: nowrap; }
 .header-state { display: flex; align-items: center; justify-content: flex-end; gap: 13px; color: var(--muted); font-size: clamp(.78rem, min(.72vw, 1.35vh), .95rem); white-space: nowrap; }
+.day-end-stamps { min-width: 0; display: grid; gap: 2px; padding-right: 4px; text-align: right; }
+.day-end-stamps span { margin: 0; color: var(--teal); font-size: clamp(.62rem, min(.6vw, 1.08vh), .78rem); font-weight: 780; line-height: 1.1; letter-spacing: .025em; }
 .header-state button { min-height: 38px; padding: 7px 12px; color: var(--foreground); background: var(--panel-strong); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
 .connection-dot { width: 12px; height: 12px; flex: 0 0 auto; border-radius: 50%; background: var(--amber); }
 .connection-dot.is-live { background: var(--green); box-shadow: 0 0 14px rgba(105, 221, 162, .65); }
@@ -113,6 +115,7 @@ button, input { font: inherit; }
 .overall-state span, .office-state span { display: block; margin-top: 4px; color: var(--muted); font-size: clamp(.82rem, min(.75vw, 1.42vh), .98rem); }
 .state-detail { text-align: right; }
 .state-detail strong { color: var(--teal); }
+.state-detail .cycle-begin-stamp, .office-state .cycle-begin-stamp { color: var(--teal); font-size: clamp(.66rem, min(.61vw, 1.08vh), .8rem); font-weight: 780; letter-spacing: .035em; }
 .level-mark { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 50%; font-size: 1.35rem; font-weight: 800; color: #07130e; background: var(--green); }
 .level-watch { color: #251700; background: var(--amber); }
 .level-action { color: #210807; background: var(--red); }
@@ -181,6 +184,11 @@ button, input { font: inherit; }
 .zone-unknown { fill: rgba(148, 158, 161, .08); }
 .trend-grid { stroke: rgba(96, 128, 134, .4); stroke-width: .7; }
 .trend-time-grid { stroke: rgba(181, 211, 216, .27); stroke-width: .38; stroke-dasharray: 1.4 1.4; vector-effect: non-scaling-stroke; }
+.activity-time-grid { stroke-width: 1.15; stroke-dasharray: 2.2 1.4; vector-effect: non-scaling-stroke; }
+line.activity-begin { stroke: var(--teal); }
+line.activity-close { stroke: var(--amber); }
+.activity-event-label { position: absolute; top: 3px; z-index: 3; transform: translateX(-50%); padding: 2px 5px; border: 1px solid currentColor; border-radius: 3px; color: var(--teal); background: rgba(4, 20, 23, .92); font-size: clamp(.5rem, min(.48vw, .9vh), .66rem); font-weight: 880; line-height: 1; letter-spacing: .045em; pointer-events: none; }
+.activity-event-label.activity-close { color: var(--amber); }
 .recent-window { fill: rgba(81, 210, 202, .09); }
 .trend-primary, .trend-secondary { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
 .trend-primary { stroke: var(--cyan); stroke-width: 1.5; }
@@ -189,7 +197,7 @@ button, input { font: inherit; }
 .trend-recent { opacity: 1; stroke-width: 2.8; }
 .current-point { position: absolute; width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--cyan); border-radius: 50%; background: var(--foreground); transform: translate(-50%, -50%); pointer-events: none; }
 .trend-last-valid { position: absolute; inset: 8px 8px auto; padding: 6px 9px; color: #e8f0f1; background: rgba(37, 48, 51, .9); border-left: 4px solid var(--unknown); font-size: clamp(.68rem, .62vw, .82rem); font-weight: 760; letter-spacing: .025em; text-align: center; }
-.time-axis { position: relative; min-width: 0; height: 20px; border-top: 1px solid rgba(103, 137, 143, .46); color: #b9ced2; font-size: clamp(.58rem, min(.57vw, 1.05vh), .76rem); font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.time-axis { position: relative; width: 100%; min-width: 0; height: 20px; border-top: 1px solid rgba(103, 137, 143, .46); color: #b9ced2; font-size: clamp(.58rem, min(.57vw, 1.05vh), .76rem); font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .time-axis span { position: absolute; top: 5px; transform: translateX(-50%); }
 .time-axis .axis-first { transform: none; }
 .time-axis .axis-last { color: var(--teal); font-weight: 800; transform: translateX(-100%); }
@@ -250,7 +258,7 @@ button, input { font: inherit; }
 .office-trend-row { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); border-top: 1px solid rgba(65, 91, 96, .52); padding: 5px 4px 2px; }
 .office-trend-row > div { font-size: clamp(.76rem, .68vw, .9rem); }
 .office-trend-row > div > span { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
-.office-trend-row .trend-chart { height: 100%; min-height: 66px; }
+.office-trend-row .trend-chart { width: 100%; min-width: 0; height: 100%; min-height: 66px; }
 .office-trend-row .trend-plot, .office-trend-row .trend-svg { height: 100%; min-height: 45px; }
 .office-trend-row .time-axis { font-size: clamp(.5rem, .47vw, .64rem); }
 .office-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 5px 7px; }
