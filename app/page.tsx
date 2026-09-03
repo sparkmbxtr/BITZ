@@ -1298,6 +1298,8 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
         <Metric label="Performance" value={fmt(latest?.performance)} note="air-Q workday index" grade={indexGrade(latest?.performance ?? null)} />
         <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="gas-pattern context" grade={tvocGrade(latest?.tvoc ?? null)} />
+        <Metric label="PM₁" value={`${fmt(latest?.pm1, 1)} µg/m³`} note="measured fine-particle channel" grade={labPmGrade(latest?.pm1 ?? null)} />
+        <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} note="measured fine-particle channel" grade={labPmGrade(latest?.pm25 ?? null)} />
         <Metric label="Oxygen" value={`${fmt(latest?.oxygen, 2)}%`} note="displacement proxy" grade={oxygenGrade(latest?.oxygen ?? null)} />
         <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} note="LAB thermal band" grade={temperatureGrade(latest?.temperature ?? null, "LAB")} />
         <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} note="humidity band" grade={humidityGrade(latest?.humidity ?? null)} />
