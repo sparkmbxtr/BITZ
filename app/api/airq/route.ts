@@ -31,10 +31,12 @@ type Sample = {
   soundMax: number | null;
   health: number | null;
   performance: number | null;
+  additionalEnvironmental?: Record<string, number>;
 };
 
 const API_ROOT = "https://air-q-cloud.de/open_api/v3";
 const HISTORY_HOURS = 24;
+const MAX_EXPORT_HOURS = 48;
 const ANALYSIS_MINUTES = 60;
 
 const BERLIN_CLOCK = new Intl.DateTimeFormat("en-GB", {
@@ -77,6 +79,27 @@ function normalizedFieldName(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+const KNOWN_ENVIRONMENTAL_FIELDS = new Set([
+  "timestamp", "temperature", "humidity", "humidityabs", "co2", "co", "oxygen", "tvoc",
+  "ch2om10", "hcho", "pm1", "pm1m10", "pm1sps30", "pm25", "pm25m10", "pm25sps30",
+  "pm4", "pm4m10", "pm4sps30", "pm10", "pm10m10", "pm10sps30", "pressure",
+  "pressurerel", "dewpt", "dewpoint", "dco2dt", "dhdt", "sound", "soundmax", "health",
+  "performance",
+]);
+
+const OPERATIONAL_FIELD = /(?:device|uptime|interval|serial|firmware|version|battery|status|rssi|wifi|ssid|mac|(?:^|_)ip|account|token|key|latitude|longitude|location|gps)/i;
+
+function additionalEnvironmentalFields(record: RawRecord) {
+  const fields: Record<string, number> = {};
+  for (const [key, rawValue] of Object.entries(record)) {
+    const normalized = normalizedFieldName(key);
+    if (KNOWN_ENVIRONMENTAL_FIELDS.has(normalized) || OPERATIONAL_FIELD.test(key)) continue;
+    const value = numericScalar(rawValue);
+    if (value !== null) fields[key] = value;
+  }
+  return fields;
+}
+
 function numberValue(record: RawRecord, ...keys: string[]) {
   for (const key of keys) {
     const value = numericScalar(record[key]);
@@ -106,12 +129,12 @@ function sensorRecords(payload: unknown): RawRecord[] {
   return [];
 }
 
-function normalize(record: RawRecord): Sample | null {
+function normalize(record: RawRecord, includeAdditionalEnvironmental = false): Sample | null {
   const timestamp = numberValue(record, "timestamp");
   if (!timestamp) return null;
   const healthRaw = numberValue(record, "health");
   const performanceRaw = numberValue(record, "performance");
-  return {
+  const sample: Sample = {
     timestamp,
     temperature: numberValue(record, "temperature"),
     humidity: numberValue(record, "humidity"),
@@ -135,6 +158,11 @@ function normalize(record: RawRecord): Sample | null {
     health: healthRaw === null ? null : healthRaw / 10,
     performance: performanceRaw === null ? null : performanceRaw / 10,
   };
+  if (includeAdditionalEnvironmental) {
+    const additionalEnvironmental = additionalEnvironmentalFields(record);
+    if (Object.keys(additionalEnvironmental).length) sample.additionalEnvironmental = additionalEnvironmental;
+  }
+  return sample;
 }
 
 function values(samples: Sample[], selector: (sample: Sample) => number | null) {
@@ -334,29 +362,56 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   };
 }
 
-async function fetchRoom(deviceId: string, apiKey: string) {
-  const to = Date.now();
-  const from = to - HISTORY_HOURS * 60 * 60_000;
+type TimeRange = { from: number; to: number; exact: boolean };
+
+function requestedRange(url: URL, exportRequested: boolean): TimeRange {
+  const fromValue = url.searchParams.get("f");
+  const toValue = url.searchParams.get("t");
+  if (fromValue === null && toValue === null) {
+    const to = Date.now();
+    return { from: to - HISTORY_HOURS * 60 * 60_000, to, exact: false };
+  }
+  if (!exportRequested || fromValue === null || toValue === null) throw new RangeError("Invalid export range");
+  const from = Number(fromValue);
+  const to = Number(toValue);
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from <= 0 || to <= from) {
+    throw new RangeError("Invalid export range");
+  }
+  if (to - from > MAX_EXPORT_HOURS * 60 * 60_000) throw new RangeError("Export range is too large");
+  return { from, to, exact: true };
+}
+
+async function fetchRoom(
+  deviceId: string,
+  apiKey: string,
+  range: TimeRange,
+  includeAdditionalEnvironmental: boolean,
+) {
+  const { from, to } = range;
   const url = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/timerange`);
   url.searchParams.set("f", String(from));
   url.searchParams.set("t", String(to));
-  const latestUrl = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/latest`);
-  const [response, latestResponse] = await Promise.all([
-    fetch(url, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" }),
-    fetch(latestUrl, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" }).catch(() => null),
-  ]);
+  const response = await fetch(url, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" });
   if (!response.ok) throw new Error("air-Q request failed");
   const payload = await response.json();
   const records = sensorRecords(payload);
   if (!records.length) throw new Error("Unexpected air-Q response");
   const history = records
-    .map((record) => normalize(record as RawRecord))
+    .map((record) => normalize(record as RawRecord, includeAdditionalEnvironmental))
     .filter((sample): sample is Sample => sample !== null)
+    .filter((sample) => sample.timestamp >= from && sample.timestamp <= to)
     .sort((a, b) => a.timestamp - b.timestamp)
     .filter((sample, index, list) => index === 0 || sample.timestamp !== list[index - 1].timestamp);
+  if (range.exact) return history;
+
+  const latestUrl = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/latest`);
+  const latestResponse = await fetch(latestUrl, {
+    headers: { "Api-Key": apiKey, Accept: "application/json" },
+    cache: "no-store",
+  }).catch(() => null);
   const latestPayload = latestResponse?.ok ? await latestResponse.json().catch(() => null) : null;
   const supplemental = sensorRecords(latestPayload)
-    .map((record) => normalize(record))
+    .map((record) => normalize(record, includeAdditionalEnvironmental))
     .filter((sample): sample is Sample => sample !== null)
     .sort((a, b) => a.timestamp - b.timestamp)
     .at(-1) ?? null;
@@ -364,7 +419,9 @@ async function fetchRoom(deviceId: string, apiKey: string) {
 }
 
 export async function GET(request: Request) {
-  const exportRequested = new URL(request.url).searchParams.get("export") === "1";
+  const requestUrl = new URL(request.url);
+  const exportRequested = requestUrl.searchParams.get("export") === "1";
+  const inlineExport = requestUrl.searchParams.get("inline") === "1";
   const runtimeEnv = env as unknown as Record<string, unknown>;
   const sessionSecret = runtimeEnv.DASHBOARD_SESSION_SECRET;
   if (typeof sessionSecret !== "string" || !await isAuthorized(request, sessionSecret)) {
@@ -379,17 +436,27 @@ export async function GET(request: Request) {
   if (typeof apiKey !== "string" || typeof labId !== "string" || typeof officeId !== "string") {
     return Response.json({ error: "Live air-Q connection is not configured" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
+  let range: TimeRange;
   try {
-    const [labHistory, officeHistory] = await Promise.all([fetchRoom(labId, apiKey), fetchRoom(officeId, apiKey)]);
+    range = requestedRange(requestUrl, exportRequested);
+  } catch {
+    return Response.json({ error: "Invalid export time range" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  }
+  try {
+    const [labHistory, officeHistory] = await Promise.all([
+      fetchRoom(labId, apiKey, range, exportRequested),
+      fetchRoom(officeId, apiKey, range, exportRequested),
+    ]);
     if (!labHistory.length || !officeHistory.length) throw new Error("No recent records returned");
     const headers = new Headers({ "Cache-Control": "no-store, max-age=0" });
-    if (exportRequested) {
+    if (exportRequested && !inlineExport) {
       headers.set("Content-Disposition", 'attachment; filename="airq-dashboard-data.json"');
     }
     return Response.json({
       live: true,
       fetchedAt: Date.now(),
-      historyHours: HISTORY_HOURS,
+      coverage: { from: range.from, to: range.to, exact: range.exact },
+      historyHours: (range.to - range.from) / (60 * 60_000),
       analysisMinutes: ANALYSIS_MINUTES,
       rooms: {
         lab: analyseRoom("LAB", labHistory, positiveNumber(runtimeEnv.LAB_VOLUME_M3), positiveNumber(runtimeEnv.LAB_ACH)),
