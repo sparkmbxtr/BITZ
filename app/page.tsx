@@ -1087,7 +1087,7 @@ export default function Home() {
           <span>{data.live ? "LIVE" : "PREVIEW"}</span>
           <span>{data.live ? `Source ${sourceTime} Europe/Berlin` : "24-hour sample history"}</span>
           <span>{data.live ? (ageMinutes === null ? "age unknown" : `${ageMinutes} min old`) : "recent hour highlighted"}</span>
-          <a className="header-export" href="/api/airq?export=1&cycle=1" download="airq-daily-cycle.json" data-testid="data-export">Daily data</a>
+          <a className="header-export" href="/api/airq?export=1&inline=1&cycle=1" target="_blank" rel="noreferrer" data-testid="data-export">Daily data</a>
           <button type="button" onClick={lockBoard}>Lock</button>
           <button type="button" onClick={requestFullscreen}>Full screen</button>
         </div>
