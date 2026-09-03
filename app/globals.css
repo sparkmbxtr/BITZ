@@ -189,7 +189,11 @@ button, input { font: inherit; }
 .grade-watch { color: var(--amber); background: rgba(82, 56, 12, .78); }
 .grade-action { color: var(--orange); background: rgba(91, 42, 12, .82); }
 .grade-unknown { color: var(--unknown); background: rgba(82, 91, 94, .28); }
-.metric > strong { display: block; margin-top: 3px; font-size: clamp(1.1rem, min(1.35vw, 2.35vh), 1.6rem); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.metric-value-line { min-width: 0; margin-top: 3px; display: flex; align-items: baseline; gap: .42em; font-size: clamp(1.1rem, min(1.35vw, 2.35vh), 1.6rem); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
+.metric-value-line.has-comparison { gap: .34em; font-size: clamp(.82rem, min(.92vw, 1.8vh), 1.16rem); }
+.metric-value-line > strong { min-width: 0; flex: 0 1 auto; font: inherit; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.metric-comparison { min-width: 0; flex: 0 1 auto; color: rgba(214, 229, 231, .48); font: inherit; font-weight: 580; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.metric-comparison small { color: rgba(214, 229, 231, .4); font-size: .63em; font-weight: 760; letter-spacing: .055em; }
 .metric-foot { min-width: 0; margin-top: 3px; display: flex; align-items: center; gap: 7px; }
 .metric-foot small { min-width: 0; color: var(--muted); font-size: clamp(.66rem, .57vw, .76rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grade-word { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; font-size: clamp(.68rem, .62vw, .82rem); font-weight: 850; letter-spacing: .04em; white-space: nowrap; }
@@ -239,10 +243,9 @@ button, input { font: inherit; }
 .zone-watch { fill: rgba(209, 137, 18, .27); }
 .zone-action { fill: rgba(225, 96, 21, .3); }
 .zone-unknown { fill: rgba(148, 158, 161, .08); }
-.climate-difference { stroke: none; pointer-events: none; }
-.climate-difference.climate-above { fill: rgba(255, 196, 87, .34); }
-.climate-difference.climate-below { fill: rgba(112, 216, 237, .3); }
-.climate-difference.climate-secondary { opacity: .48; }
+.outdoor-reference-area { stroke: none; pointer-events: none; }
+.outdoor-reference-area.outdoor-primary { fill: rgba(112, 216, 237, .105); }
+.outdoor-reference-area.outdoor-secondary { fill: rgba(255, 196, 87, .065); }
 .trend-grid { stroke: rgba(96, 128, 134, .4); stroke-width: .7; }
 .trend-y-grid { stroke: rgba(181, 211, 216, .2); stroke-width: .32; stroke-dasharray: 1.2 1.6; vector-effect: non-scaling-stroke; }
 .trend-time-grid { stroke: rgba(181, 211, 216, .27); stroke-width: .38; stroke-dasharray: 1.4 1.4; vector-effect: non-scaling-stroke; }
@@ -257,6 +260,10 @@ line.activity-close { stroke: var(--amber); }
 .trend-secondary { stroke: var(--amber); stroke-width: 1.3; }
 .trend-history { opacity: .38; }
 .trend-recent { opacity: 1; stroke-width: 2.8; }
+.trend-chart-climate .trend-primary { stroke-width: 2.25; }
+.trend-chart-climate .trend-secondary { stroke-width: 2.05; }
+.trend-chart-climate .trend-history { opacity: .76; }
+.trend-chart-climate .trend-recent { stroke-width: 3.45; }
 .current-point { position: absolute; width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--cyan); border-radius: 50%; background: var(--foreground); transform: translate(-50%, -50%); pointer-events: none; }
 .trend-last-valid { position: absolute; inset: 8px 8px auto; padding: 6px 9px; color: #e8f0f1; background: rgba(37, 48, 51, .9); border-left: 4px solid var(--unknown); font-size: clamp(.68rem, .62vw, .82rem); font-weight: 760; letter-spacing: .025em; text-align: center; }
 .time-axis { position: relative; width: 100%; min-width: 0; height: 20px; border-top: 1px solid rgba(103, 137, 143, .46); color: #b9ced2; font-size: clamp(.58rem, min(.57vw, 1.05vh), .76rem); font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -320,7 +327,8 @@ line.activity-close { stroke: var(--amber); }
 .office-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
 .office-metrics .metric { min-height: 80px; padding: 7px 8px; }
 .office-metrics .metric-label { align-items: flex-start; }
-.office-metrics .metric > strong { font-size: clamp(.95rem, .9vw, 1.2rem); }
+.office-metrics .metric-value-line { font-size: clamp(.95rem, .9vw, 1.2rem); }
+.office-metrics .metric-value-line.has-comparison { font-size: clamp(.72rem, .68vw, .9rem); }
 .office-metrics .metric-foot { gap: 4px; }
 .office-metrics .grade-word { font-size: clamp(.61rem, .55vw, .71rem); }
 .office-metrics .metric-foot small { font-size: .61rem; }
