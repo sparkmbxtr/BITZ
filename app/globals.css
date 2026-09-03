@@ -88,7 +88,7 @@ button, input { font: inherit; }
 .connection-auto-note { margin-top: 12px; color: var(--muted); font-size: .88rem; line-height: 1.35; text-align: center; }
 
 .wallboard {
-  width: min(100%, var(--dashboard-visual-width, 100%));
+  width: 100%;
   max-width: 100%;
   min-width: 0;
   min-height: 100dvh;
@@ -435,8 +435,8 @@ line.activity-close { stroke: var(--amber); }
   .meaning-panel { min-height: 0; }
 }
 
-/* visualViewport catches Android desktop mode and page zoom when the layout
-   viewport remains deceptively wide. It mirrors the tablet media-query rules. */
+/* The compact class mirrors the tablet media-query rules using the stable
+   layout viewport, so pinch zoom remains a browser action rather than a reflow. */
 .wallboard-compact { height: auto !important; min-height: 100dvh; overflow-y: visible !important; }
 .wallboard-compact .wallboard-header { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; }
 .wallboard-compact .identity { width: 100%; flex-wrap: wrap; }
