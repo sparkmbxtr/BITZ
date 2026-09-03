@@ -469,6 +469,89 @@ function particleObservation(samples: Sample[]) {
   return null;
 }
 
+function labPmMeanValue(sample: Sample) {
+  if (sample.pm25 === null || sample.pm10 === null) return null;
+  return (sample.pm25 + sample.pm10) / 2;
+}
+
+function labPmMeanObservation(samples: Sample[]) {
+  for (let index = samples.length - 1; index >= 0; index -= 1) {
+    const sample = samples[index];
+    const value = labPmMeanValue(sample);
+    if (value !== null) {
+      return { value, pm25: sample.pm25!, pm10: sample.pm10!, timestamp: sample.timestamp };
+    }
+  }
+  return null;
+}
+
+function hepaAssessment(samples: Sample[], latest: Sample | null) {
+  const observation = labPmMeanObservation(samples);
+  if (!latest || !observation || latest.timestamp - observation.timestamp > 10 * 60_000) return null;
+
+  const paired = samples
+    .filter((sample) => sample.pm25 !== null && sample.pm10 !== null)
+    .map((sample) => ({ timestamp: sample.timestamp, pm25: sample.pm25!, pm10: sample.pm10! }));
+  const night = paired.filter((sample) => berlinCalendar(sample.timestamp).minuteOfDay < 6 * 60);
+  const baseline25 = median(night.map((sample) => sample.pm25));
+  const baseline10 = median(night.map((sample) => sample.pm10));
+  const limit25 = Math.max(5, (baseline25 ?? 0) + 3);
+  const limit10 = Math.max(10, (baseline10 ?? 0) + 5);
+  const withinBand = (sample: { pm25: number; pm10: number }) => sample.pm25 <= limit25 && sample.pm10 <= limit10;
+  const currentWithin = withinBand(observation);
+
+  if (!currentWithin) {
+    return {
+      status: "CHECK",
+      level: "watch" as const,
+      note: "PM₂.₅ + PM₁₀ remain above the expected LAB band",
+    };
+  }
+
+  const recent = paired.filter((sample) => sample.timestamp >= observation.timestamp - 6 * 60 * 60_000);
+  let lastAboveIndex = -1;
+  for (let index = recent.length - 1; index >= 0; index -= 1) {
+    if (!withinBand(recent[index])) {
+      lastAboveIndex = index;
+      break;
+    }
+  }
+  if (lastAboveIndex >= 0) {
+    let episodeStart = lastAboveIndex;
+    while (
+      episodeStart > 0 &&
+      !withinBand(recent[episodeStart - 1]) &&
+      recent[episodeStart].timestamp - recent[episodeStart - 1].timestamp <= 10 * 60_000
+    ) {
+      episodeStart -= 1;
+    }
+    const recovery = recent.slice(lastAboveIndex + 1).find((sample, offset, list) =>
+      withinBand(sample) && (offset === list.length - 1 || withinBand(list[offset + 1]))
+    );
+    if (recovery) {
+      const clearanceMinutes = Math.round((recovery.timestamp - recent[episodeStart].timestamp) / 60_000);
+      if (clearanceMinutes > 60) {
+        return {
+          status: "CHECK",
+          level: "watch" as const,
+          note: "Particle return exceeded the 60 min review window",
+        };
+      }
+      return {
+        status: "GOOD",
+        level: "normal" as const,
+        note: `PM₂.₅ + PM₁₀ returned within ${clearanceMinutes} min`,
+      };
+    }
+  }
+
+  return {
+    status: "GOOD",
+    level: "normal" as const,
+    note: "PM₂.₅ + PM₁₀ are within the expected LAB band",
+  };
+}
+
 function ageLabel(timestamp: number, newestTimestamp: number | null | undefined) {
   if (!newestTimestamp) return "LAST VALID";
   const minutes = Math.max(0, Math.round((newestTimestamp - timestamp) / 60_000));
@@ -701,6 +784,7 @@ function occupancyText(room: RoomData) {
 
 export default function Home() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
+  const [passwordVerifierReady, setPasswordVerifierReady] = useState<boolean | null>(null);
   const [apiConnected, setApiConnected] = useState<boolean | null>(null);
   const [ownerSetup] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("setup") === "owner");
   const [data, setData] = useState<DashboardData>(DEMO_DATA);
@@ -730,10 +814,18 @@ export default function Home() {
     let active = true;
     fetch("/api/auth", { cache: "no-store" })
       .then((response) => response.json())
-      .then((payload: { authorized?: boolean }) => {
-        if (active) setAuthorized(payload.authorized === true);
+      .then((payload: { authorized?: boolean; passwordVerifierReady?: boolean }) => {
+        if (active) {
+          setAuthorized(payload.authorized === true);
+          setPasswordVerifierReady(payload.passwordVerifierReady === true);
+        }
       })
-      .catch(() => { if (active) setAuthorized(false); });
+      .catch(() => {
+        if (active) {
+          setAuthorized(false);
+          setPasswordVerifierReady(null);
+        }
+      });
     return () => { active = false; };
   }, []);
 
@@ -823,14 +915,14 @@ export default function Home() {
     setApiConnected(null);
   }
 
-  if (authorized !== true) return <AccessGate checking={authorized === null} onGranted={() => { setApiConnected(null); setAuthorized(true); }} />;
+  if (authorized !== true) return <AccessGate checking={authorized === null} verifierReady={passwordVerifierReady} onGranted={() => { setApiConnected(null); setAuthorized(true); }} />;
   if (apiConnected !== true) {
     if (ownerSetup && apiConnected === false) return <ApiKeySetup checking={false} onConnected={() => setApiConnected(true)} />;
     return <ConnectionPending checking={apiConnected === null || connectionChecking} onRetry={checkConnection} />;
   }
 
   return (
-    <main className="wallboard">
+    <main className="wallboard" data-password-verifier={passwordVerifierReady === false ? "invalid" : passwordVerifierReady === true ? "ready" : "checking"}>
       <header className="wallboard-header">
         <div className="identity"><strong>BITZ LAB AIR MONITORING</strong><span>LIVE READINGS · 24-HOUR HISTORY · LATEST 60-MINUTE ANALYSIS</span></div>
         <div className="header-state" aria-live="polite">
@@ -861,7 +953,7 @@ export default function Home() {
   );
 }
 
-function AccessGate({ checking, onGranted }: { checking: boolean; onGranted: () => void }) {
+function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean; verifierReady: boolean | null; onGranted: () => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -899,13 +991,16 @@ function AccessGate({ checking, onGranted }: { checking: boolean; onGranted: () 
         <p>Protected display access for the LAB and OFFICE wallboard.</p>
         {checking ? <div className="access-checking">Checking saved display session…</div> : (
           <>
+            {verifierReady === false ? <div className="access-config-error" role="alert">Display password configuration needs correction.</div> : null}
             <label htmlFor="dashboard-password">Display password</label>
             <input
               id="dashboard-password"
+              name="display-password"
               type="password"
+              inputMode="text"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
+              onInput={(event) => setPassword(event.currentTarget.value)}
+              autoComplete="off"
               autoCapitalize="characters"
               autoCorrect="off"
               spellCheck={false}
@@ -913,7 +1008,7 @@ function AccessGate({ checking, onGranted }: { checking: boolean; onGranted: () 
               autoFocus
             />
             {error ? <div className="access-error" role="alert">{error}</div> : null}
-            <button type="submit" disabled={!password || submitting}>{submitting ? "Opening…" : "Open monitor"}</button>
+            <button type="submit" disabled={!password || submitting || verifierReady === false}>{submitting ? "Opening…" : "Open monitor"}</button>
           </>
         )}
       </form>
@@ -993,8 +1088,9 @@ function ApiKeySetup({ checking, onConnected }: { checking: boolean; onConnected
 
 function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refreshing: boolean; analysisMinutes: number }) {
   const latest = room.latest;
-  const pmObservation = particleObservation(room.samples);
+  const pmObservation = labPmMeanObservation(room.samples);
   const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
+  const hepa = hepaAssessment(room.samples, latest);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
   const cycle = latestCycle(room.samples);
   const evidenceOrder = ["CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
@@ -1050,13 +1146,18 @@ function LabPanel({ room, refreshing, analysisMinutes }: { room: RoomData; refre
           <TrendRow label="TVOC / HCHO" samples={room.samples} primary={(s) => s.tvoc} secondary={(s) => s.hcho} gradeFor={tvocGrade} analysisMinutes={analysisMinutes} />
           <TrendRow label="CO₂ / humidity" samples={room.samples} primary={(s) => s.co2} secondary={(s) => s.humidityAbs} gradeFor={co2Grade} analysisMinutes={analysisMinutes} />
           <TrendRow label="O₂ / CO" samples={room.samples} primary={(s) => s.oxygen} secondary={(s) => s.co} gradeFor={oxygenGrade} analysisMinutes={analysisMinutes} />
-          {currentParticleAvailable
-            ? <TrendRow label="PM / sound max" samples={room.samples} primary={particleValue} secondary={(s) => s.soundMax} gradeFor={pmGrade} analysisMinutes={analysisMinutes} />
+          {currentParticleAvailable && pmObservation
+            ? <TrendRow label="PM / sound max" samples={room.samples} primary={labPmMeanValue} secondary={(s) => s.soundMax} gradeFor={pmGrade} analysisMinutes={analysisMinutes} reading={`PM ${fmt(pmObservation.value, 1)} µg/m³`} />
             : <TrendRow label="Sound max" samples={room.samples} primary={(s) => s.soundMax} gradeFor={soundMaxGrade} analysisMinutes={analysisMinutes} />}
         </section>
-        <aside className={`meaning-panel meaning-panel-${room.status}`} aria-labelledby="meaning-heading">
+        <aside className={`meaning-panel meaning-panel-${room.status} ${hepa ? "meaning-with-hepa" : ""}`} aria-labelledby="meaning-heading">
           <h2 id="meaning-heading">Meaningful action</h2>
           <div className="meaning-copy"><strong>RECENT PATTERN</strong><p>{room.summary}</p><span>COMPUTED · PAST HOUR</span></div>
+          {hepa ? (
+            <div className={`hepa-status hepa-${hepa.level}`}>
+              <span>HEPA STATUS</span><strong>{hepa.status}</strong><small>{hepa.note}</small>
+            </div>
+          ) : null}
           <div className="meaning-evidence" aria-label="Signals supporting the current interpretation">
             {evidenceChecks.map((check) => <div key={check.label}><span>{evidenceLabels[check.label] ?? check.label}</span><b className={`text-${check.level}`}>{check.status}</b></div>)}
           </div>
@@ -1074,9 +1175,9 @@ function Metric({ label, value, note, grade }: { label: string; value: string; n
   return <article className={`metric metric-${grade.level}`} title={`${label}: ${value} — ${grade.label}. ${note}`}><div className="metric-label"><span>{label}</span></div><strong>{value}</strong><div className="metric-foot"><b className={`grade-word grade-${grade.level}`}><i />{grade.label}</b></div></article>;
 }
 
-function TrendRow({ label, samples, primary, secondary, gradeFor, analysisMinutes }: { label: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary?: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; analysisMinutes: number }) {
+function TrendRow({ label, samples, primary, secondary, gradeFor, analysisMinutes, reading }: { label: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary?: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; analysisMinutes: number; reading?: string }) {
   const grade = gradeFor(latestValue(samples, primary));
-  return <div className={`trend-row trend-row-${grade.level}`}><strong>{label}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b></span></div>;
+  return <div className={`trend-row trend-row-${grade.level}`}><strong>{label}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} levelFor={gradeFor} label={`${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}</span></div>;
 }
 
 function OfficeRail({ room, analysisMinutes }: { room: RoomData; analysisMinutes: number }) {
