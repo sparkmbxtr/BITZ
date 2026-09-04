@@ -1020,20 +1020,23 @@ function HistoryTrend({
           {geometry.secondary.recent ? <path d={geometry.secondary.recent} className="trend-secondary trend-recent" /> : null}
           {geometry.primary.recent ? <path d={geometry.primary.recent} className="trend-primary trend-recent" /> : null}
         </svg>
-        {geometry.events.map((event, index) => (
-          <span
-            key={`event-label-${event.label}-${index}`}
-            className={`activity-event-label activity-${event.label.toLowerCase()}`}
-            style={{ left: `${event.label === "CLOSE" ? Math.min(98, Math.max(5, event.x)) : Math.min(95, Math.max(5, event.x))}%` }}
-            title={
-              event.label === "BEGIN"
-                ? `${beganWording(event.timestamp, samples.at(-1)?.timestamp, room === "LAB" && labPmGrade(pmBalanceObservation(samples)?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")} ${berlinShortTime(event.timestamp)}`
-                : room === "OFFICE"
-                  ? `CLOSE ${berlinShortTime(event.timestamp)} · sustained TVOC-rise onset with departure support`
-                  : `CLOSE ${berlinShortTime(event.timestamp)} · coordinated late-day transition`
-            }
-          >{event.label} {berlinShortTime(event.timestamp)}{event.label === "BEGIN" && event.peopleRange ? ` · ≈${event.peopleRange}` : ""}</span>
-        ))}
+        {geometry.events.map((event, index) => {
+          const alignment = event.x <= 20 ? "start" : event.x >= 80 ? "end" : "centre";
+          return (
+            <span
+              key={`event-label-${event.label}-${index}`}
+              className={`activity-event-label activity-${event.label.toLowerCase()} event-align-${alignment}`}
+              style={{ left: `${Math.min(98, Math.max(2, event.x))}%` }}
+              title={
+                event.label === "BEGIN"
+                  ? `${beganWording(event.timestamp, samples.at(-1)?.timestamp, room === "LAB" && labPmGrade(pmBalanceObservation(samples)?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")} ${berlinShortTime(event.timestamp)}`
+                  : room === "OFFICE"
+                    ? `CLOSE ${berlinShortTime(event.timestamp)} · sustained TVOC-rise onset with departure support`
+                    : `CLOSE ${berlinShortTime(event.timestamp)} · coordinated late-day transition`
+              }
+            >{event.label} {berlinShortTime(event.timestamp)}{event.label === "BEGIN" && event.peopleRange ? ` · ≈${event.peopleRange}` : ""}</span>
+          );
+        })}
         {geometry.primary.current ? (
           <span
             className="current-point"
