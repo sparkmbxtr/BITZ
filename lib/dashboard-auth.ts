@@ -1,6 +1,6 @@
 const COOKIE_NAME = "airq_wallboard_session";
 const API_COOKIE_NAME = "airq_api_credential";
-const SESSION_DAYS = 30;
+const SESSION_DAYS = 90;
 const API_KEY_DAYS = 120;
 
 function hex(bytes: ArrayBuffer) {
