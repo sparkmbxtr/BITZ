@@ -1755,7 +1755,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
             </div>
           ) : null}
           <div className="meaning-evidence" aria-label="Signals supporting the current interpretation">
-            {evidenceChecks.map((check) => <div key={check.label}><span>{evidenceLabels[check.label] ?? check.label}</span><b className={`text-${check.level}`}>{check.status}</b></div>)}
+            {evidenceChecks.map((check) => <div className={`meaning-signal meaning-signal-${check.level}`} key={check.label}><span>{evidenceLabels[check.label] ?? check.label}</span><b>{check.status}</b></div>)}
           </div>
           {routineClosed
             ? <div className="closed-period-copy"><strong>ROUTINE ACTIONS PAUSED</strong><p>No operational action step is displayed after CLOSE. The live channels and recent pattern remain visible for trend review.</p></div>
