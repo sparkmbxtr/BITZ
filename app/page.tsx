@@ -1535,7 +1535,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
     ? {
         label: "CONDENSATION WATCH",
         level: "watch",
-        text: `Outdoor RH is ${fmt(outdoorLatest.humidity)}%. Check electronics, connectors, optics and cooled surfaces for condensation. Moisture can form below the indoor dew point; avoid bringing cold equipment directly into the humid room.`,
+        text: `Outdoor RH is ${fmt(outdoorLatest.humidity)}%. Check electronics, connectors, optics and cooled surfaces for condensation.`,
       }
     : {
         label: room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK",
