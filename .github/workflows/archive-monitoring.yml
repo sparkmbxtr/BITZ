@@ -99,6 +99,38 @@ jobs:
             ))
           ' monitoring-export/context.json >/dev/null
 
+          # Push and manual runs also capture the not-yet-completed interval so
+          # newly submitted dashboard context can be verified immediately.
+          # The daily importer continues to use context.json only; this pending
+          # file is diagnostic and will enter context.json after its cycle ends.
+          if [[ "${GITHUB_EVENT_NAME}" != "schedule" ]]; then
+            pending_from="$((cycle_to + 1))"
+            pending_to="$(date +%s%3N)"
+            if (( pending_to >= pending_from )); then
+              pending_status="$(curl --silent --show-error \
+                -o monitoring-export/context-pending.json \
+                -w '%{http_code}' \
+                -H "Authorization: Bearer ${identity_token}" \
+                -H 'Accept: application/json' \
+                "https://spark.bioengineering.workers.dev/api/context?from=${pending_from}&to=${pending_to}")"
+              [[ "${pending_status}" == "200" ]]
+              jq -e --argjson from "${pending_from}" --argjson to "${pending_to}" '
+                .schemaVersion == 1
+                and .timezone == "Europe/Berlin"
+                and .range.from == $from
+                and .range.to == $to
+                and (.entries | type == "array")
+                and (.entries | length <= 5000)
+                and (.entries | all(
+                  (.id | type == "string" and length > 0)
+                  and (.createdAt | type == "number" and . >= $from and . <= $to)
+                  and (.area == "LAB" or .area == "OFFICE" or .area == "OUTDOOR")
+                  and (.note | type == "string" and length > 0 and length <= 500)
+                ))
+              ' monitoring-export/context-pending.json >/dev/null
+            fi
+          fi
+
           cycle_id="$(TZ=Europe/Berlin date --date="@$((${cycle_to} / 1000))" +%m%d%y%H%M)"
           context_entry_count="$(jq -er '.entries | length' monitoring-export/context.json)"
           sensor_sha256="$(sha256sum monitoring-export/sensor.json | cut -d' ' -f1)"
@@ -114,6 +146,21 @@ jobs:
             --argjson archivedAt "$(date +%s%3N)" \
             '{schemaVersion: 1, cycleId: $cycleId, timezone: $timezone, coverage: {from: $from, to: $to}, archivedAt: $archivedAt, files: {sensor: {name: "sensor.json", sha256: $sensorSha256}, context: {name: "context.json", sha256: $contextSha256, schemaVersion: 1, entryCount: $contextEntryCount}}}' \
             > monitoring-export/manifest.json
+
+          if [[ -f monitoring-export/context-pending.json ]]; then
+            pending_context_sha256="$(sha256sum monitoring-export/context-pending.json | cut -d' ' -f1)"
+            pending_context_count="$(jq -er '.entries | length' monitoring-export/context-pending.json)"
+            pending_context_from="$(jq -er '.range.from' monitoring-export/context-pending.json)"
+            pending_context_to="$(jq -er '.range.to' monitoring-export/context-pending.json)"
+            jq \
+              --arg sha256 "${pending_context_sha256}" \
+              --argjson entryCount "${pending_context_count}" \
+              --argjson from "${pending_context_from}" \
+              --argjson to "${pending_context_to}" \
+              '.files.contextPending = {name: "context-pending.json", sha256: $sha256, schemaVersion: 1, entryCount: $entryCount, coverage: {from: $from, to: $to}}' \
+              monitoring-export/manifest.json > monitoring-export/manifest.next.json
+            mv monitoring-export/manifest.next.json monitoring-export/manifest.json
+          fi
           echo "cycle_id=${cycle_id}" >> "$GITHUB_OUTPUT"
 
       - name: Upload private monitoring artifact
