@@ -82,6 +82,39 @@ type ActivityCycle = {
 };
 type ActivityEvent = { timestamp: number; label: "BEGIN" | "CLOSE"; x: number; peopleRange: string | null };
 
+const ACOUSTIC_CHECK_LABEL = "Sound peak >90 dB";
+
+function latestAcousticEventAt(samples: Sample[]) {
+  for (let index = samples.length - 1; index >= 0; index -= 1) {
+    const sample = samples[index];
+    if (sample.soundMax !== null && sample.soundMax > 90) return sample.timestamp;
+  }
+  return null;
+}
+
+function roomAtTime(room: RoomData, now: number, analysisMinutes: number): RoomData {
+  const acousticCheck = room.checks.find((check) => check.label === ACOUSTIC_CHECK_LABEL);
+  if (!acousticCheck || acousticCheck.level !== "watch") return room;
+
+  const eventAt = latestAcousticEventAt(room.samples);
+  if (eventAt !== null && now < eventAt + analysisMinutes * 60_000) return room;
+
+  const checks = room.checks.map((check) => check.label === ACOUSTIC_CHECK_LABEL
+    ? { ...check, status: "NONE", level: "normal" as const }
+    : check);
+  const anotherActiveCheck = checks.some((check) => check.level === "watch" || check.level === "action" || check.level === "unknown");
+  if (anotherActiveCheck) return { ...room, checks };
+
+  return {
+    ...room,
+    status: "normal",
+    statusLabel: "AVAILABLE CHANNELS NORMAL",
+    checks,
+    summary: "The recent pattern is stable across the available channels.",
+    action: "No immediate change is suggested; review again if the pattern persists or gains a second signal.",
+  };
+}
+
 // Keep the server and first client render identical. Live timestamps replace this
 // deterministic preview anchor immediately after hydration when the feed is set.
 const createdAt = Date.UTC(2026, 8, 3, 14, 0, 0);
@@ -1336,6 +1369,37 @@ export default function Home() {
     return () => { window.clearTimeout(kickoffTimer); window.clearInterval(refreshTimer); window.clearInterval(clockTimer); };
   }, [authorized, apiConnected, loadData]);
 
+  useEffect(() => {
+    if (!authorized || !apiConnected || !data.live) return;
+    const now = Date.now();
+    const expiryTimes = [
+      latestAcousticEventAt(data.rooms.lab.samples),
+      latestAcousticEventAt(data.rooms.office.samples),
+    ]
+      .filter((timestamp): timestamp is number => timestamp !== null)
+      .map((timestamp) => timestamp + data.analysisMinutes * 60_000)
+      .filter((timestamp) => timestamp > now);
+    if (!expiryTimes.length) return;
+
+    // The normal data poll follows the sensor cadence. This one-shot update
+    // clears an acoustic review at its exact wall-clock expiry instead of
+    // allowing it to linger until the next two-minute poll.
+    const expiryTimer = window.setTimeout(() => {
+      setClock(Date.now());
+      void loadData();
+    }, Math.min(...expiryTimes) - now + 50);
+    return () => window.clearTimeout(expiryTimer);
+  }, [authorized, apiConnected, data.live, data.analysisMinutes, data.rooms.lab.samples, data.rooms.office.samples, loadData]);
+
+  const displayedLabRoom = useMemo(
+    () => roomAtTime(data.rooms.lab, clock, data.analysisMinutes),
+    [data.rooms.lab, clock, data.analysisMinutes],
+  );
+  const displayedOfficeRoom = useMemo(
+    () => roomAtTime(data.rooms.office, clock, data.analysisMinutes),
+    [data.rooms.office, clock, data.analysisMinutes],
+  );
+
   const newestTimestamp = Math.max(data.rooms.lab.latest?.timestamp ?? 0, data.rooms.office.latest?.timestamp ?? 0);
   const ageMinutes = newestTimestamp ? Math.max(0, Math.floor((clock - newestTimestamp) / 60_000)) : null;
   const sourceTime = newestTimestamp ? berlinClock(newestTimestamp) : "—";
@@ -1404,8 +1468,8 @@ export default function Home() {
       </header>
       {!data.live ? <div className="preview-banner">{data.message ?? "Preview data — live connection pending"}</div> : null}
       <div className="room-layout">
-        <LabPanel room={data.rooms.lab} outdoor={data.outdoor ?? null} refreshing={refreshing} analysisMinutes={data.analysisMinutes} />
-        <OfficeRail room={data.rooms.office} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes} />
+        <LabPanel room={displayedLabRoom} outdoor={data.outdoor ?? null} refreshing={refreshing} analysisMinutes={data.analysisMinutes} />
+        <OfficeRail room={displayedOfficeRoom} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes} />
       </div>
       <footer className="wallboard-footer">
         <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently</span>
