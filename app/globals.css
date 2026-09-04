@@ -317,11 +317,20 @@ line.activity-close { stroke: var(--amber); }
 .hepa-watch { border-color: rgba(255, 196, 87, .44); border-left-color: var(--amber); background: rgba(101, 67, 10, .78); }
 .hepa-watch strong { color: var(--amber); }
 .meaning-evidence { min-height: 210px; padding: 7px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(62px, 1fr)); gap: 6px; background: rgba(10, 34, 37, .58); border: 1px solid rgba(88, 222, 212, .18); }
-.meaning-evidence > .meaning-signal { min-width: 0; display: grid; grid-template-rows: 2.3em 1.15em; align-content: center; justify-items: center; gap: 8px; padding: 10px 12px; border: 1px solid transparent; border-left-width: 6px; text-align: center; box-shadow: inset 0 0 26px rgba(0, 0, 0, .12); }
-.meaning-evidence span, .meaning-evidence b { width: 100%; overflow-wrap: anywhere; line-height: 1.12; }
-.meaning-evidence span { display: flex; align-items: center; justify-content: center; color: #f2fbf7; font-size: clamp(.94rem, min(.9vw, 1.62vh), 1.18rem); font-weight: 780; letter-spacing: .025em; }
-.meaning-evidence b.meaning-status { display: flex; align-items: center; justify-content: center; min-height: 1.15em; font-family: inherit; font-size: clamp(1.12rem, min(1.12vw, 2vh), 1.46rem); font-stretch: normal; font-weight: 850; letter-spacing: .02em; line-height: 1; text-align: center; white-space: nowrap; }
+.meaning-evidence > .meaning-signal { min-width: 0; container-type: inline-size; display: grid; grid-template-rows: 2.3em 2.05em; align-content: center; justify-items: center; gap: 8px; padding: 10px 12px; border: 1px solid transparent; border-left-width: 6px; text-align: center; box-shadow: inset 0 0 26px rgba(0, 0, 0, .12); }
+.meaning-evidence > .meaning-signal > span, .meaning-evidence > .meaning-signal > b { width: 100%; overflow-wrap: anywhere; line-height: 1.12; }
+.meaning-evidence > .meaning-signal > span { display: flex; align-items: center; justify-content: center; color: #f2fbf7; font-size: clamp(.94rem, min(.9vw, 1.62vh), 1.18rem); font-weight: 780; letter-spacing: .025em; }
+.meaning-evidence b.meaning-status { display: flex; align-items: center; justify-content: center; height: 2.05em; min-height: 2.05em; font-family: inherit; font-size: clamp(1.12rem, min(1.12vw, 2vh), 1.46rem); font-stretch: normal; font-weight: 850; letter-spacing: .02em; line-height: 1.02; text-align: center; white-space: pre-line; }
 .meaning-status[data-status="SAFE"] { letter-spacing: .09em; }
+.formaldehyde-label-short, .formaldehyde-label-tiny { display: none; }
+@container (max-width: 7rem) {
+  .formaldehyde-label-full { display: none; }
+  .formaldehyde-label-short { display: inline; }
+}
+@container (max-width: 4.75rem) {
+  .formaldehyde-label-short { display: none; }
+  .formaldehyde-label-tiny { display: inline; }
+}
 .meaning-signal-normal { border-color: rgba(98, 228, 160, .58) !important; border-left-color: var(--green) !important; background: linear-gradient(145deg, rgba(28, 118, 75, .86), rgba(17, 82, 56, .82)); }
 .meaning-signal-normal b { color: #b9ffd8; }
 .meaning-signal-watch, .meaning-signal-unknown { border-color: rgba(255, 196, 87, .66) !important; border-left-color: var(--amber) !important; background: linear-gradient(145deg, rgba(125, 82, 12, .9), rgba(82, 54, 12, .86)); }

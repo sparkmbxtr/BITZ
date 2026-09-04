@@ -1176,6 +1176,7 @@ function checkDisplayLabel(check: Check) {
 function meaningEvidenceStatus(check: Check) {
   if (["Propane-associated pattern", "Nitrogen (N₂) displacement pattern"].includes(check.label) && check.status === "NOT INDICATED") return "NOT INF";
   if (check.label === "CO release" && check.status === "NO ELEVATION") return "SAFE";
+  if (check.label === "Volatile-gas pattern" && check.status === "VERIFY SOURCE") return "VERIFY\nSOURCE";
   if (check.label === "O₂ displacement" && check.status === "NOT INDICATED") return "NORMAL";
   if (check.label === "Formaldehyde elevation" && check.status === "NOT DETECTED") return "NORMAL";
   return check.status;
@@ -1766,7 +1767,23 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
             </div>
           ) : null}
           <div className="meaning-evidence" aria-label="Signals supporting the current interpretation">
-            {evidenceChecks.map((check) => <div className={`meaning-signal meaning-signal-${check.level}`} key={check.label}><span>{evidenceLabels[check.label] ?? check.label}</span><b className="meaning-status" data-status={meaningEvidenceStatus(check)} aria-label={check.status} title={check.status}>{meaningEvidenceStatus(check)}</b></div>)}
+            {evidenceChecks.map((check) => {
+              const status = meaningEvidenceStatus(check);
+              return (
+                <div className={`meaning-signal meaning-signal-${check.level}`} key={check.label}>
+                  <span className="meaning-signal-label">
+                    {check.label === "Formaldehyde elevation" ? (
+                      <>
+                        <span className="formaldehyde-label formaldehyde-label-full">FORMALDEHYDE</span>
+                        <span className="formaldehyde-label formaldehyde-label-short">FORMALD.</span>
+                        <span className="formaldehyde-label formaldehyde-label-tiny">HCHO</span>
+                      </>
+                    ) : evidenceLabels[check.label] ?? check.label}
+                  </span>
+                  <b className="meaning-status" data-status={status} aria-label={check.status} title={check.status}>{status}</b>
+                </div>
+              );
+            })}
           </div>
           {routineClosed
             ? <div className="closed-period-copy"><strong>ROUTINE ACTIONS PAUSED</strong><p>No operational action step is displayed after CLOSE. The live channels and recent pattern remain visible for trend review.</p></div>
