@@ -298,6 +298,9 @@ line.activity-close { stroke: var(--amber); }
 .action-copy, .office-action { display: grid; align-content: center; padding: 14px 16px; background: rgba(20, 87, 83, .48); border: 1px solid rgba(88, 222, 212, .25); border-left: 7px solid var(--teal); }
 .action-copy strong, .office-action strong { color: var(--teal); font-size: clamp(1.2rem, min(1.25vw, 2.2vh), 1.62rem); letter-spacing: .065em; }
 .action-copy p, .office-action p { font-size: clamp(1rem, min(1vw, 1.8vh), 1.3rem); }
+.action-condensation { min-height: 112px; align-content: center; padding-block: 10px; }
+.action-condensation strong { font-size: clamp(1.05rem, min(1.08vw, 1.9vh), 1.42rem); line-height: 1.08; }
+.action-condensation p { margin-top: 6px; font-size: clamp(.88rem, min(.9vw, 1.6vh), 1.16rem); line-height: 1.28; overflow-wrap: anywhere; }
 .action-normal { background: rgba(17, 91, 61, .62); border-color: rgba(98, 228, 160, .34); border-left-color: var(--green); }
 .action-normal strong { color: var(--green); }
 .action-watch { background: rgba(101, 67, 10, .85); border-color: rgba(255, 196, 87, .4); border-left-color: var(--amber); }
@@ -378,7 +381,7 @@ line.activity-close { stroke: var(--amber); }
   .evidence-layout { min-height: 0; }
   .evidence-panel { grid-template-rows: auto repeat(5, minmax(0, 1fr)); }
   .meaning-panel { grid-template-rows: auto minmax(92px, .95fr) minmax(136px, 1.3fr) minmax(88px, .9fr) minmax(66px, auto); }
-  .meaning-panel.meaning-with-hepa { grid-template-rows: auto minmax(82px, .8fr) minmax(62px, .55fr) minmax(122px, 1.1fr) minmax(78px, .75fr) minmax(58px, auto); }
+  .meaning-panel.meaning-with-hepa { grid-template-rows: auto minmax(74px, .72fr) minmax(56px, .5fr) minmax(104px, 1fr) minmax(112px, 1.15fr) minmax(56px, auto); }
   .meaning-evidence { min-height: 0; grid-template-rows: repeat(3, minmax(44px, 1fr)); }
   .office-rail { grid-template-rows: auto auto auto minmax(0, 1fr) auto minmax(112px, auto); }
   .office-trends { min-height: 0; grid-template-rows: auto repeat(5, minmax(0, 1fr)); }
@@ -661,7 +664,7 @@ html[data-dashboard-fullscreen="true"] body {
   grid-template-rows: auto minmax(92px, .95fr) minmax(136px, 1.3fr) minmax(88px, .9fr) minmax(66px, auto) !important;
 }
 .wallboard-fullscreen .meaning-panel.meaning-with-hepa {
-  grid-template-rows: auto minmax(82px, .8fr) minmax(62px, .55fr) minmax(122px, 1.1fr) minmax(78px, .75fr) minmax(58px, auto) !important;
+  grid-template-rows: auto minmax(74px, .72fr) minmax(56px, .5fr) minmax(104px, 1fr) minmax(112px, 1.15fr) minmax(56px, auto) !important;
 }
 .wallboard-fullscreen .meaning-evidence {
   min-height: 0;
