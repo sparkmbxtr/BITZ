@@ -289,8 +289,16 @@ function shareMatching(
 }
 
 function particleValue(sample: Sample) {
-  if (sample.pm1 === null || sample.pm25 === null || sample.pm4 === null || sample.pm10 === null) return null;
-  return (sample.pm1 + sample.pm25 + sample.pm4 + sample.pm10) / 4;
+  const channels = [sample.pm1, sample.pm25, sample.pm4, sample.pm10]
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  if (!channels.length) return null;
+  return channels.reduce((sum, value) => sum + value, 0) / channels.length;
+}
+
+function particlePeakValue(sample: Sample) {
+  const channels = [sample.pm1, sample.pm25, sample.pm4, sample.pm10]
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  return channels.length ? Math.max(...channels) : null;
 }
 
 function mergeSupplementalSample(history: Sample[], supplemental: Sample | null) {
@@ -358,10 +366,15 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const coMax = maxValue(recent, (sample) => sample.co);
   const tvocMax = maxValue(recent, (sample) => sample.tvoc);
   const hchoMax = maxValue(recent, (sample) => sample.hcho);
-  const particleMax = maxValue(recent, particleValue);
+  const particleMax = maxValue(recent, particlePeakValue);
   const particleLatest = [...recent].reverse().find((sample) => particleValue(sample) !== null) ?? null;
   const currentParticleAvailable = Boolean(latest && particleLatest && latest.timestamp - particleLatest.timestamp <= 10 * 60_000);
-  const soundMax = maxValue(recent, (sample) => sample.soundMax);
+  // Acoustic checks are a rolling wall-clock event window. Basing this on the
+  // latest returned sample would let an old peak remain active indefinitely if
+  // the feed paused, even though sensor/data freshness is reported separately.
+  const acousticRecent = history.filter((sample) => sample.timestamp > Date.now() - ANALYSIS_MINUTES * 60_000);
+  const soundMax = maxValue(acousticRecent, (sample) => sample.soundMax);
+  const hasHistoricalSound = latestValue(history, (sample) => sample.soundMax) !== null;
   const co2Max = maxValue(recent, (sample) => sample.co2);
   const tvocDelta = delta(recent, (sample) => sample.tvoc);
   const hchoDelta = delta(recent, (sample) => sample.hcho);
@@ -389,7 +402,7 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const tvocPersistent = (shareMatching(finalTwenty, (sample) => sample.tvoc, (value) => value > 1_000) ?? 0) >= .5;
   const hchoPersistent = (shareMatching(finalTwenty, (sample) => sample.hcho, (value) => value > 100) ?? 0) >= .5;
   const particlePersistent = currentParticleAvailable &&
-    (shareMatching(finalTwenty, particleValue, (value) => value > 35) ?? 0) >= .5;
+    (shareMatching(finalTwenty, particlePeakValue, (value) => value > 35) ?? 0) >= .5;
   const co2Persistent = (shareMatching(finalTwenty, (sample) => sample.co2, (value) => value > 1_400) ?? 0) >= .5;
   const localMinute = latest ? berlinMinuteOfDay(latest.timestamp) : -1;
   const officeClosePattern = name === "OFFICE" &&
@@ -439,7 +452,9 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
       ? check("CO₂ accumulation", "PATTERN", "VENTILATE/CHECK", "watch")
       : check("CO₂ accumulation", "PATTERN", "STABLE", "normal");
   const acoustics = soundMax === null
-    ? check("Sound peak >90 dB", "RAW", "UNAVAILABLE", "unknown")
+    ? hasHistoricalSound
+      ? check("Sound peak >90 dB", "RAW", "NONE", "normal")
+      : check("Sound peak >90 dB", "RAW", "UNAVAILABLE", "unknown")
     : soundMax > 90
       ? check("Sound peak >90 dB", "RAW", `${soundMax.toFixed(0)} dB EVENT`, "watch")
       : check("Sound peak >90 dB", "RAW", "NONE", "normal");

@@ -630,8 +630,10 @@ function latestObservation(samples: Sample[], selector: (sample: Sample) => numb
 }
 
 function pmBalanceValue(sample: Sample) {
-  if (sample.pm1 === null || sample.pm25 === null || sample.pm4 === null || sample.pm10 === null) return null;
-  return (sample.pm1 + sample.pm25 + sample.pm4 + sample.pm10) / 4;
+  const channels = [sample.pm1, sample.pm25, sample.pm4, sample.pm10]
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  if (!channels.length) return null;
+  return channels.reduce((sum, value) => sum + value, 0) / channels.length;
 }
 
 function pmBalanceObservation(samples: Sample[]) {
@@ -641,10 +643,10 @@ function pmBalanceObservation(samples: Sample[]) {
     if (value !== null) {
       return {
         value,
-        pm1: sample.pm1!,
-        pm25: sample.pm25!,
-        pm4: sample.pm4!,
-        pm10: sample.pm10!,
+        pm1: sample.pm1,
+        pm25: sample.pm25,
+        pm4: sample.pm4,
+        pm10: sample.pm10,
         timestamp: sample.timestamp,
       };
     }
@@ -655,6 +657,7 @@ function pmBalanceObservation(samples: Sample[]) {
 function hepaAssessment(samples: Sample[], latest: Sample | null) {
   const observation = pmBalanceObservation(samples);
   if (!latest || !observation || latest.timestamp - observation.timestamp > 10 * 60_000) return null;
+  if (observation.pm25 === null || observation.pm10 === null) return null;
 
   const paired = samples
     .filter((sample) => sample.pm25 !== null && sample.pm10 !== null)
@@ -829,6 +832,30 @@ function officePmGrade(value: number | null): Grade {
   return { label: "HIGH", level: "action" };
 }
 
+function pmSampleGrade(sample: Pick<Sample, "pm1" | "pm25" | "pm4" | "pm10">, room: "LAB" | "OFFICE"): Grade {
+  const gradeFor = room === "LAB" ? labPmGrade : officePmGrade;
+  const grades = [sample.pm1, sample.pm25, sample.pm4, sample.pm10]
+    .filter((value): value is number => value !== null && Number.isFinite(value))
+    .map(gradeFor);
+  if (!grades.length) return { label: "NO DATA", level: "unknown" };
+  const levelRank: Record<GradeLevel, number> = { unknown: -1, great: 0, good: 1, watch: 2, action: 3 };
+  const labelRank: Record<string, number> = { PRISTINE: 0, CLEAN: 1, GOOD: 2, CHECK: 3, HIGH: 4 };
+  return grades.reduce((worstGrade, grade) => {
+    const levelDifference = levelRank[grade.level] - levelRank[worstGrade.level];
+    if (levelDifference > 0) return grade;
+    if (levelDifference < 0) return worstGrade;
+    return (labelRank[grade.label] ?? 0) > (labelRank[worstGrade.label] ?? 0) ? grade : worstGrade;
+  });
+}
+
+function labPmSampleGrade(sample: Sample) {
+  return pmSampleGrade(sample, "LAB");
+}
+
+function officePmSampleGrade(sample: Sample) {
+  return pmSampleGrade(sample, "OFFICE");
+}
+
 function soundMaxGrade(value: number | null): Grade {
   if (value === null) return { label: "NO DATA", level: "unknown" };
   if (value <= 90) return { label: "GOOD", level: "great" };
@@ -901,6 +928,7 @@ function HistoryTrend({
   noSeriesLabel,
   room,
   climateReference,
+  sampleGrade,
 }: {
   samples: Sample[];
   primary: (sample: Sample) => number | null;
@@ -913,6 +941,7 @@ function HistoryTrend({
   noSeriesLabel?: string;
   room: "LAB" | "OFFICE";
   climateReference?: ClimateReference;
+  sampleGrade?: (sample: Sample) => Grade;
 }) {
   const geometry = useMemo(() => {
     const start = samples[0]?.timestamp ?? 0;
@@ -969,7 +998,7 @@ function HistoryTrend({
       return {
         from: index === 0 ? 0 : (previousX + x) / 2,
         to: index === samples.length - 1 ? 100 : (x + nextX) / 2,
-        level: levelFor(primary(sample)).level,
+        level: (sampleGrade ? sampleGrade(sample) : levelFor(primary(sample))).level,
       };
     });
     const zones = graded.reduce<Array<{ from: number; to: number; level: GradeLevel }>>((result, item) => {
@@ -996,7 +1025,7 @@ function HistoryTrend({
       events,
       recentBoundary: Math.max(0, ((recentStart - start) / timeRange) * 100),
     };
-  }, [samples, primary, secondary, analysisMinutes, levelFor, room, climateReference]);
+  }, [samples, primary, secondary, analysisMinutes, levelFor, room, climateReference, sampleGrade]);
 
   const showPrimaryAxis = Boolean(primaryUnit);
   const showSecondaryAxis = Boolean(secondaryUnit && secondary);
@@ -1621,7 +1650,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
           />
           <TrendRow label="O₂ / CO" primaryUnit="%" secondaryUnit="mg/m³" samples={room.samples} primary={(s) => s.oxygen} secondary={(s) => s.co} gradeFor={oxygenGrade} analysisMinutes={analysisMinutes} />
           {currentParticleAvailable && pmObservation
-            ? <TrendRow label="PM balance / sound max" primaryUnit="µg/m³" secondaryUnit="dB" samples={room.samples} primary={pmBalanceValue} secondary={(s) => s.soundMax} gradeFor={labPmGrade} analysisMinutes={analysisMinutes} reading={`PM balance ${fmt(pmObservation.value, 1)} µg/m³`} />
+            ? <TrendRow label="PM balance / sound max" primaryUnit="µg/m³" secondaryUnit="dB" samples={room.samples} primary={pmBalanceValue} secondary={(s) => s.soundMax} gradeFor={labPmGrade} sampleGrade={labPmSampleGrade} analysisMinutes={analysisMinutes} reading={`PM balance ${fmt(pmObservation.value, 1)} µg/m³`} />
             : <TrendRow label="Sound max" primaryUnit="dB" samples={room.samples} primary={(s) => s.soundMax} gradeFor={soundMaxGrade} analysisMinutes={analysisMinutes} />}
         </section>
         <aside className={`meaning-panel meaning-panel-${room.status} ${hepa ? "meaning-with-hepa" : ""} ${routineClosed ? "meaning-panel-closed" : ""}`} aria-labelledby="meaning-heading">
@@ -1659,10 +1688,11 @@ function Metric({ label, value, comparison, note, grade }: { label: string; valu
   return <article className={`metric metric-${grade.level}`} title={`${label}: ${value} — ${grade.label}. ${note}${comparison ? ` Outdoor: ${comparison}.` : ""}`}><div className="metric-label"><span>{label}</span></div><div className={`metric-value-line ${comparison ? "has-comparison" : ""}`}><strong>{value}</strong>{comparison ? <span className="metric-comparison"><small>OUT</small> {comparison}</span> : null}</div><div className="metric-foot"><b className={`grade-word grade-${grade.level}`}><i />{grade.label}</b></div></article>;
 }
 
-function TrendRow({ label, primaryUnit, secondaryUnit, samples, primary, secondary, gradeFor, climateReference, analysisMinutes, reading }: { label: string; primaryUnit: string; secondaryUnit?: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary?: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; climateReference?: ClimateReference; analysisMinutes: number; reading?: string }) {
-  const grade = gradeFor(latestValue(samples, primary));
+function TrendRow({ label, primaryUnit, secondaryUnit, samples, primary, secondary, gradeFor, sampleGrade, climateReference, analysisMinutes, reading }: { label: string; primaryUnit: string; secondaryUnit?: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary?: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; sampleGrade?: (sample: Sample) => Grade; climateReference?: ClimateReference; analysisMinutes: number; reading?: string }) {
+  const latestGradedSample = sampleGrade ? [...samples].reverse().find((sample) => primary(sample) !== null) : null;
+  const grade = latestGradedSample && sampleGrade ? sampleGrade(latestGradedSample) : gradeFor(latestValue(samples, primary));
   const [primaryLabel, secondaryLabel] = label.split(" / ", 2);
-  return <div className={`trend-row trend-row-${grade.level}`}><strong className="trend-series-label"><span className="trend-series-key trend-label-primary"><span>{primaryLabel}</span><small>{primaryUnit}</small></span>{secondaryLabel ? <><span className="trend-label-separator" aria-hidden="true" /><span className="trend-series-key trend-label-secondary"><span>{secondaryLabel}</span><small>{secondaryUnit}</small></span></> : null}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} primaryUnit={primaryUnit} secondaryUnit={secondaryUnit} levelFor={gradeFor} climateReference={climateReference} label={climateReference ? `${label} across 24 hours; strong lines are indoor measurements and faint area fills rise from the x axis to the outdoor references` : `${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} room="LAB" /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}{climateReference ? <small className="climate-fill-key">PALE FILL = OUTDOOR</small> : null}</span></div>;
+  return <div className={`trend-row trend-row-${grade.level}`}><strong className="trend-series-label"><span className="trend-series-key trend-label-primary"><span>{primaryLabel}</span><small>{primaryUnit}</small></span>{secondaryLabel ? <><span className="trend-label-separator" aria-hidden="true" /><span className="trend-series-key trend-label-secondary"><span>{secondaryLabel}</span><small>{secondaryUnit}</small></span></> : null}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} primaryUnit={primaryUnit} secondaryUnit={secondaryUnit} levelFor={gradeFor} sampleGrade={sampleGrade} climateReference={climateReference} label={climateReference ? `${label} across 24 hours; strong lines are indoor measurements and faint area fills rise from the x axis to the outdoor references` : `${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} room="LAB" /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}{climateReference ? <small className="climate-fill-key">PALE FILL = OUTDOOR</small> : null}</span></div>;
 }
 
 function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoor: OutdoorData | null; analysisMinutes: number }) {
@@ -1707,7 +1737,7 @@ function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoo
           analysisMinutes={analysisMinutes}
         />
         <OfficePairTrend label="O₂ / CO" primaryUnit="%" secondaryUnit="mg/m³" reading={`${fmt(latest?.oxygen, 2)}% · ${fmt(latest?.co, 2)} mg/m³`} samples={room.samples} primary={(s) => s.oxygen} secondary={(s) => s.co} gradeFor={oxygenGrade} analysisMinutes={analysisMinutes} />
-        <OfficePairTrend label="PM balance / sound max" primaryUnit="µg/m³" secondaryUnit="dB" reading={pmObservation ? `${fmt(pmObservation.value, 1)} µg/m³ · ${fmt(latest?.soundMax)} dB` : undefined} samples={room.samples} primary={pmBalanceValue} secondary={(s) => s.soundMax} gradeFor={officePmGrade} analysisMinutes={analysisMinutes} />
+        <OfficePairTrend label="PM balance / sound max" primaryUnit="µg/m³" secondaryUnit="dB" reading={pmObservation ? `${fmt(pmObservation.value, 1)} µg/m³ · ${fmt(latest?.soundMax)} dB` : undefined} samples={room.samples} primary={pmBalanceValue} secondary={(s) => s.soundMax} gradeFor={officePmGrade} sampleGrade={officePmSampleGrade} analysisMinutes={analysisMinutes} />
       </section>
       <div className="office-checks">{visibleChecks.map((check) => <div key={check.label}><span>{check.label}</span><strong className={`text-${check.level}`}>{check.status}</strong></div>)}</div>
       <div className={`office-summary office-meaning action-${room.status}`}>
@@ -1719,8 +1749,9 @@ function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoo
   );
 }
 
-function OfficePairTrend({ label, primaryUnit, secondaryUnit, reading, samples, primary, secondary, gradeFor, climateReference, climateReading, analysisMinutes }: { label: string; primaryUnit: string; secondaryUnit: string; reading?: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; climateReference?: ClimateReference; climateReading?: string; analysisMinutes: number }) {
-  const grade = gradeFor(latestValue(samples, primary));
+function OfficePairTrend({ label, primaryUnit, secondaryUnit, reading, samples, primary, secondary, gradeFor, sampleGrade, climateReference, climateReading, analysisMinutes }: { label: string; primaryUnit: string; secondaryUnit: string; reading?: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; sampleGrade?: (sample: Sample) => Grade; climateReference?: ClimateReference; climateReading?: string; analysisMinutes: number }) {
+  const latestGradedSample = sampleGrade ? [...samples].reverse().find((sample) => primary(sample) !== null) : null;
+  const grade = latestGradedSample && sampleGrade ? sampleGrade(latestGradedSample) : gradeFor(latestValue(samples, primary));
   const [primaryLabel, secondaryLabel] = label.split(" / ", 2);
   return (
     <div className={`office-trend-row office-pair-row trend-row-${grade.level}`}>
@@ -1736,6 +1767,7 @@ function OfficePairTrend({ label, primaryUnit, secondaryUnit, reading, samples, 
         primaryUnit={primaryUnit}
         secondaryUnit={secondaryUnit}
         levelFor={gradeFor}
+        sampleGrade={sampleGrade}
         climateReference={climateReference}
         label={climateReference ? `${label} across 24 hours; strong lines are indoor measurements and faint area fills rise from the x axis to the outdoor references` : `${label} across 24 hours; background colour follows the primary reading`}
         analysisMinutes={analysisMinutes}
