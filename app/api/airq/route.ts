@@ -712,6 +712,18 @@ function openMeteoParticle(payload: unknown): OutdoorParticleSample | null {
   return { timestamp, pm25: numberValue(record, "pm2_5") };
 }
 
+function latestOutdoorValues(samples: OutdoorSample[]): OutdoorSample | null {
+  const newest = samples.at(-1);
+  if (!newest) return null;
+  const newestTemperature = [...samples].reverse().find((sample) => sample.temperature !== null);
+  const newestHumidity = [...samples].reverse().find((sample) => sample.humidity !== null);
+  return {
+    timestamp: Math.max(newestTemperature?.timestamp ?? newest.timestamp, newestHumidity?.timestamp ?? newest.timestamp),
+    temperature: newestTemperature?.temperature ?? null,
+    humidity: newestHumidity?.humidity ?? null,
+  };
+}
+
 async function fetchOutdoor(range: TimeRange): Promise<OutdoorData | null> {
   const now = Date.now();
   if (!range.exact && outdoorCache && outdoorCache.expiresAt > now) return outdoorCache.data;
@@ -757,7 +769,10 @@ async function fetchOutdoor(range: TimeRange): Promise<OutdoorData | null> {
     source: "DWD via Bright Sky",
     station,
     samples,
-    latest: samples.at(-1) ?? null,
+    // DWD observations can occasionally publish temperature and relative
+    // humidity in different newest records. Keep each card on the newest
+    // valid observation for its own channel instead of hiding the other one.
+    latest: latestOutdoorValues(samples),
     particleLatest: openMeteoParticle(airQualityPayload),
   };
   if (!range.exact) outdoorCache = { expiresAt: now + OUTDOOR_CACHE_MS, data };
