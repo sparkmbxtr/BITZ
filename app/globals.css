@@ -304,6 +304,9 @@ line.activity-close { stroke: var(--amber); }
 .action-condensation { min-height: 112px; align-content: center; padding-block: 10px; }
 .action-condensation strong { font-size: clamp(1.05rem, min(1.08vw, 1.9vh), 1.42rem); line-height: 1.08; }
 .action-condensation p { margin-top: 6px; font-size: clamp(.88rem, min(.9vw, 1.6vh), 1.16rem); line-height: 1.28; overflow-wrap: anywhere; }
+.action-secondary-warning { min-width: 0; margin-top: 9px; padding-top: 8px; border-top: 1px solid rgba(255, 196, 87, .55); }
+.action-secondary-warning strong { color: var(--amber); font-size: clamp(.94rem, min(.96vw, 1.7vh), 1.24rem); line-height: 1.1; }
+.action-secondary-warning p { margin-top: 5px; font-size: clamp(.82rem, min(.84vw, 1.48vh), 1.06rem); line-height: 1.22; }
 .action-normal { background: rgba(17, 91, 61, .62); border-color: rgba(98, 228, 160, .34); border-left-color: var(--green); }
 .action-normal strong { color: var(--green); }
 .action-watch { background: rgba(101, 67, 10, .85); border-color: rgba(255, 196, 87, .4); border-left-color: var(--amber); }
@@ -637,7 +640,7 @@ html[data-dashboard-fullscreen="true"] body {
 .wallboard-fullscreen .evidence-layout {
   height: 100%;
   min-height: 0;
-  grid-template-columns: minmax(0, 1.5fr) minmax(360px, .9fr);
+  grid-template-columns: minmax(0, 4fr) minmax(280px, 1fr);
   align-items: stretch;
 }
 .wallboard-fullscreen .evidence-panel {
@@ -670,7 +673,7 @@ html[data-dashboard-fullscreen="true"] body {
   overflow: hidden;
 }
 .wallboard-fullscreen .meaning-panel.meaning-with-hepa {
-  grid-template-rows: auto auto auto minmax(112px, 1fr) auto auto !important;
+  grid-template-rows: auto auto auto minmax(144px, 1fr) auto auto !important;
 }
 .wallboard-fullscreen .meaning-panel > h2 {
   padding: 1px 3px 4px;
@@ -703,9 +706,9 @@ html[data-dashboard-fullscreen="true"] body {
 .wallboard-fullscreen .hepa-status strong { font-size: .92rem; }
 .wallboard-fullscreen .hepa-status small { font-size: .66rem; line-height: 1.18; }
 .wallboard-fullscreen .meaning-evidence {
-  min-height: 112px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(48px, 1fr));
+  min-height: 144px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(42px, 1fr));
   gap: 4px;
   padding: 5px;
   overflow: hidden;
@@ -739,6 +742,9 @@ html[data-dashboard-fullscreen="true"] body {
   font-size: .82rem;
   line-height: 1.25;
 }
+.wallboard-fullscreen .action-secondary-warning { margin-top: 6px; padding-top: 6px; }
+.wallboard-fullscreen .action-secondary-warning strong { font-size: .84rem; line-height: 1.08; }
+.wallboard-fullscreen .action-secondary-warning p { margin-top: 4px; font-size: .74rem; line-height: 1.18; }
 .wallboard-fullscreen .critical-message {
   min-height: 40px;
   grid-template-columns: minmax(108px, auto) 1fr;

@@ -1041,7 +1041,7 @@ function HistoryTrend({
           <span
             className="current-point"
             aria-hidden="true"
-            style={{ left: `${geometry.primary.current.x}%`, top: `${(geometry.primary.current.y / 30) * 100}%` }}
+            style={{ left: `${Math.min(98, Math.max(2, geometry.primary.current.x))}%`, top: `${(geometry.primary.current.y / 30) * 100}%` }}
           />
         ) : null}
         {geometry.primary.count < 2 && noSeriesLabel ? <div className="trend-last-valid">{noSeriesLabel}</div> : null}
@@ -1533,12 +1533,16 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
     ? beganWording(cycle.begin, latest?.timestamp, currentParticleAvailable && labPmGrade(pmObservation?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")
     : "DAY BEGAN";
   const routineClosed = Boolean(cycle?.close && latest && latest.timestamp >= cycle.close && room.status !== "action" && room.status !== "unknown");
-  const condensationWatch = room.status === "normal" && outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined && outdoorLatest.humidity > 90;
-  const labAction = condensationWatch
+  const condensationPotential = outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined && outdoorLatest.humidity > 90;
+  const condensationPrimary = room.status === "normal" && condensationPotential;
+  const condensationText = condensationPotential
+    ? `Outdoor RH is ${fmt(outdoorLatest.humidity)}%. LAB RH is ${fmt(latest?.humidity)}%.`
+    : "";
+  const labAction = condensationPrimary
     ? {
         label: "CONDENSATION POTENTIAL HIGH",
         level: "watch",
-        text: `Outdoor RH is ${fmt(outdoorLatest.humidity)}%. LAB RH is ${fmt(latest?.humidity)}%.`,
+        text: condensationText,
       }
     : {
         label: room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK",
@@ -1633,7 +1637,15 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
           </div>
           {routineClosed
             ? <div className="closed-period-copy"><strong>ROUTINE ACTIONS PAUSED</strong><p>No operational action step is displayed after CLOSE. The live channels and recent pattern remain visible for trend review.</p></div>
-            : <div className={`action-copy action-${labAction.level} ${condensationWatch ? "action-condensation" : ""}`}><strong>{labAction.label}</strong><p>{labAction.text}</p></div>}
+            : <div className={`action-copy action-${labAction.level} ${condensationPrimary ? "action-condensation" : ""}`}>
+                <strong>{labAction.label}</strong><p>{labAction.text}</p>
+                {condensationPotential && !condensationPrimary ? (
+                  <div className="action-secondary-warning">
+                    <strong>CONDENSATION POTENTIAL HIGH</strong>
+                    <p>{condensationText}</p>
+                  </div>
+                ) : null}
+              </div>}
           <div className={`critical-message critical-message-${criticalDisplay.level}`} role="status" aria-live="polite">
             <strong>{criticalDisplay.label}</strong><span>{criticalDisplay.note}</span>
           </div>
