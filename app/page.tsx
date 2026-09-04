@@ -1719,7 +1719,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
       <div className={`overall-state overall-${room.status}`}>
         <LevelMark status={room.status} />
         <div><strong>{room.statusLabel}</strong><span>{normalCount}/{room.checks.length} monitored conditions currently clear</span></div>
-        <div className="state-detail"><strong>{latest ? `Updated ${berlinClock(latest.timestamp)}` : "Update pending"}</strong><span>latest LAB sample · Europe/Berlin</span>{cycle?.begin ? <span className="cycle-begin-stamp">{beginWording} {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div>
+        <div className="state-detail"><strong>{latest ? `Updated ${berlinClock(latest.timestamp)} · ${berlinCompactDate(latest.timestamp)}` : "Update pending"}</strong><span>latest LAB sample · Europe/Berlin</span>{cycle?.begin ? <span className="cycle-begin-stamp">{beginWording} {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div>
       </div>
       <div className={`critical-grid ${room.checks.length === 7 ? "critical-grid-seven" : room.checks.length === 9 ? "critical-grid-nine" : room.checks.length === 10 ? "critical-grid-ten" : ""}`}>
         {room.checks.map((check) => <article className={`critical-check check-${check.level}`} key={check.label}><span>{checkDisplayLabel(check)}</span><strong>{check.status}</strong></article>)}
