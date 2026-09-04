@@ -1506,7 +1506,7 @@ export default function Home() {
         <OfficeRail room={displayedOfficeRoom} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes} />
       </div>
       <footer className="wallboard-footer">
-        <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently</span>
+        <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 //Corant GmbH | 04229 Leipzig</span>
         <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
       </footer>
     </main>
@@ -1721,8 +1721,8 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
         {room.checks.map((check) => <article className={`critical-check check-${check.level}`} key={check.label}><span>{checkDisplayLabel(check)}</span><strong>{check.status}</strong></article>)}
       </div>
       <div className="metric-grid">
-        <Metric label="Health" value={fmt(latest?.health)} note="air-Q index + raw channels" grade={indexGrade(latest?.health ?? null)} />
-        <Metric label="Performance" value={fmt(latest?.performance)} note={performanceGrade.label === "ADAPT" ? "air-Q workday index; outdoor-driven humidity is the only active condition" : "air-Q workday index"} grade={performanceGrade} />
+        <Metric label="Health" value={fmt(latest?.health)} scale="/100" note="air-Q index + raw channels" grade={indexGrade(latest?.health ?? null)} />
+        <Metric label="Performance" value={fmt(latest?.performance)} scale="/100" note={performanceGrade.label === "ADAPT" ? "air-Q workday index; outdoor-driven humidity is the only active condition" : "air-Q workday index"} grade={performanceGrade} />
         <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="gas-pattern context" grade={tvocGrade(latest?.tvoc ?? null)} />
         <Metric label="PM₁" value={`${fmt(latest?.pm1, 1)} µg/m³`} note="measured fine-particle channel" grade={labPmGrade(latest?.pm1 ?? null)} />
@@ -1784,8 +1784,8 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   );
 }
 
-function Metric({ label, value, comparison, note, grade }: { label: string; value: string; comparison?: string; note: string; grade: Grade }) {
-  return <article className={`metric metric-${grade.level}`} title={`${label}: ${value} — ${grade.label}. ${note}${comparison ? ` Outdoor: ${comparison}.` : ""}`}><div className="metric-label"><span>{label}</span></div><div className={`metric-value-line ${comparison ? "has-comparison" : ""}`}><strong>{value}</strong>{comparison ? <span className="metric-comparison"><small>OUT</small> {comparison}</span> : null}</div><div className="metric-foot"><b className={`grade-word grade-${grade.level}`}><i />{grade.label}</b></div></article>;
+function Metric({ label, value, scale, comparison, note, grade }: { label: string; value: string; scale?: string; comparison?: string; note: string; grade: Grade }) {
+  return <article className={`metric metric-${grade.level}`} title={`${label}: ${value}${scale ?? ""} — ${grade.label}. ${note}${comparison ? ` Outdoor: ${comparison}.` : ""}`}><div className="metric-label"><span>{label}</span></div><div className={`metric-value-line ${comparison ? "has-comparison" : ""}`}><strong>{value}</strong>{scale ? <span className="metric-scale">{scale}</span> : null}{comparison ? <span className="metric-comparison"><small>OUT</small> {comparison}</span> : null}</div><div className="metric-foot"><b className={`grade-word grade-${grade.level}`}><i />{grade.label}</b></div></article>;
 }
 
 function TrendRow({ label, primaryUnit, secondaryUnit, samples, primary, secondary, gradeFor, sampleGrade, climateReference, analysisMinutes, reading, secondaryGrade }: { label: string; primaryUnit: string; secondaryUnit?: string; samples: Sample[]; primary: (sample: Sample) => number | null; secondary?: (sample: Sample) => number | null; gradeFor: (value: number | null) => Grade; sampleGrade?: (sample: Sample) => Grade; climateReference?: ClimateReference; analysisMinutes: number; reading?: string; secondaryGrade?: Grade | null }) {
@@ -1809,8 +1809,8 @@ function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoo
       <div className="office-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h2 id="office-heading">OFFICE</h2></div></div>
       <div className={`office-state overall-${room.status}`}><LevelMark status={room.status} /><div><strong>{room.statusLabel}</strong><span>{room.checks.filter((check) => check.level === "normal").length}/{room.checks.length} checks clear</span>{cycle?.begin ? <span className="cycle-begin-stamp">{beginWording} {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div></div>
       <div className="office-metrics">
-        <Metric label="Health" value={fmt(latest?.health)} note="air-Q index" grade={indexGrade(latest?.health ?? null)} />
-        <Metric label="Performance" value={fmt(latest?.performance)} note="air-Q index" grade={indexGrade(latest?.performance ?? null)} />
+        <Metric label="Health" value={fmt(latest?.health)} scale="/100" note="air-Q index" grade={indexGrade(latest?.health ?? null)} />
+        <Metric label="Performance" value={fmt(latest?.performance)} scale="/100" note="air-Q index" grade={indexGrade(latest?.performance ?? null)} />
         <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="vapour pattern" grade={tvocGrade(latest?.tvoc ?? null)} />
         <Metric label="PM₁" value={`${fmt(latest?.pm1, 1)} µg/m³`} note="measured fine-particle channel" grade={officePmGrade(latest?.pm1 ?? null)} />
