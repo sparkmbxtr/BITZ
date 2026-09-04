@@ -1505,7 +1505,7 @@ export default function Home() {
           <span>{data.live ? (ageMinutes === null ? "age unknown" : `${ageMinutes} min old`) : "recent hour highlighted"}</span>
           <a className="header-export" href="/api/airq?export=1&inline=1&cycle=1" target="_blank" rel="noreferrer" data-testid="data-export">Daily data</a>
           <button type="button" onClick={lockBoard}>Lock</button>
-          <button type="button" onClick={toggleFullscreen}>{presentationMode ? "Exit full screen" : "Full screen"}</button>
+          {!presentationMode ? <button className="fullscreen-button" type="button" onClick={toggleFullscreen}>Full screen</button> : null}
         </div>
       </header>
       {!data.live ? <div className="preview-banner">{data.message ?? "Preview data — live connection pending"}</div> : null}
