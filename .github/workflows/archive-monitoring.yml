@@ -1,0 +1,118 @@
+name: Archive air-Q monitoring cycle
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/archive-monitoring.yml
+      - app/api/airq/route.ts
+      - app/api/context/route.ts
+      - lib/github-actions-oidc.ts
+  schedule:
+    # GitHub cron uses UTC. Running at both candidate hours and applying a
+    # Europe/Berlin gate below keeps the capture at 18:05 across DST changes.
+    - cron: "5 16,17 * * *"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: archive-airq-monitoring-cycle
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Select the 18:05 Europe/Berlin run
+        id: gate
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" != "schedule" || "$(TZ=Europe/Berlin date +%H)" == "18" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Capture protected sensor and context exports
+        if: steps.gate.outputs.run == 'true'
+        id: capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p monitoring-export
+
+          identity_response="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=bitz-monitor-export")"
+          identity_token="$(jq -er '.value' <<<"${identity_response}")"
+          echo "::add-mask::${identity_token}"
+
+          sensor_status=""
+          for attempt in {1..12}; do
+            sensor_status="$(curl --silent --show-error \
+              -o monitoring-export/sensor.json \
+              -w '%{http_code}' \
+              -H "Authorization: Bearer ${identity_token}" \
+              -H 'Accept: application/json' \
+              'https://spark.bioengineering.workers.dev/api/airq?export=1&cycle=1&inline=1')"
+            [[ "${sensor_status}" == "200" ]] && break
+            sleep 30
+          done
+          [[ "${sensor_status}" == "200" ]]
+
+          jq -e '
+            .live == true
+            and .coverage.exact == true
+            and (.coverage.from | type == "number")
+            and (.coverage.to | type == "number")
+            and (.coverage.to > .coverage.from)
+            and (.rooms.lab.history | length > 0)
+            and (.rooms.office.history | length > 0)
+          ' monitoring-export/sensor.json >/dev/null
+
+          cycle_from="$(jq -er '.coverage.from' monitoring-export/sensor.json)"
+          cycle_to="$(jq -er '.coverage.to' monitoring-export/sensor.json)"
+          context_status="$(curl --silent --show-error \
+            -o monitoring-export/context.json \
+            -w '%{http_code}' \
+            -H "Authorization: Bearer ${identity_token}" \
+            -H 'Accept: application/json' \
+            "https://spark.bioengineering.workers.dev/api/context?from=${cycle_from}&to=${cycle_to}")"
+          [[ "${context_status}" == "200" ]]
+
+          jq -e --argjson from "${cycle_from}" --argjson to "${cycle_to}" '
+            .schemaVersion == 1
+            and .timezone == "Europe/Berlin"
+            and .range.from == $from
+            and .range.to == $to
+            and (.entries | type == "array")
+          ' monitoring-export/context.json >/dev/null
+
+          cycle_id="$(TZ=Europe/Berlin date --date="@$((${cycle_to} / 1000))" +%m%d%y%H%M)"
+          sensor_sha256="$(sha256sum monitoring-export/sensor.json | cut -d' ' -f1)"
+          context_sha256="$(sha256sum monitoring-export/context.json | cut -d' ' -f1)"
+          jq -n \
+            --arg cycleId "${cycle_id}" \
+            --arg timezone "Europe/Berlin" \
+            --arg sensorSha256 "${sensor_sha256}" \
+            --arg contextSha256 "${context_sha256}" \
+            --argjson from "${cycle_from}" \
+            --argjson to "${cycle_to}" \
+            --argjson archivedAt "$(date +%s%3N)" \
+            '{schemaVersion: 1, cycleId: $cycleId, timezone: $timezone, coverage: {from: $from, to: $to}, archivedAt: $archivedAt, files: {sensor: {name: "sensor.json", sha256: $sensorSha256}, context: {name: "context.json", sha256: $contextSha256}}}' \
+            > monitoring-export/manifest.json
+          echo "cycle_id=${cycle_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload private monitoring artifact
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: airq-cycle-${{ steps.capture.outputs.cycle_id }}
+          path: monitoring-export/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6

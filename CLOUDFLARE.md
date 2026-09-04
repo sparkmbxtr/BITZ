@@ -32,6 +32,13 @@ The context export is JSON with a stable schema version, Europe/Berlin timezone,
 export timestamp, requested range and append-only entries. Workbook imports
 deduplicate entries by their context ID.
 
+The private GitHub workflow `Archive air-Q monitoring cycle` uses GitHub's
+short-lived OIDC identity to request the same exports without copying any
+long-lived token into GitHub or ChatGPT. The Worker accepts that identity only
+for this repository, this workflow on `main`, the dedicated export audience,
+and scheduled, manual or initial deployment runs. The resulting JSON is kept as
+a private, expiring GitHub Actions artifact for downstream workbook processing.
+
 Optional numerical configuration:
 
 - `LAB_VOLUME_M3`

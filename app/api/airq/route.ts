@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { apiKeyFromRequest, isAuthorized, isBearerAuthorized } from "@/lib/dashboard-auth";
 import { readStoredApiKey } from "@/lib/airq-key-store";
+import { isGitHubActionsExportAuthorized } from "@/lib/github-actions-oidc";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -802,7 +803,10 @@ export async function GET(request: Request) {
   const sessionSecret = runtimeEnv.DASHBOARD_SESSION_SECRET;
   const sessionAuthorized = typeof sessionSecret === "string" && await isAuthorized(request, sessionSecret);
   const monitorExportToken = runtimeEnv.MONITOR_EXPORT_TOKEN;
-  const exportAuthorized = exportRequested && typeof monitorExportToken === "string" && await isBearerAuthorized(request, monitorExportToken);
+  const exportAuthorized = exportRequested && (
+    (typeof monitorExportToken === "string" && await isBearerAuthorized(request, monitorExportToken))
+    || await isGitHubActionsExportAuthorized(request)
+  );
   if (!sessionAuthorized && !exportAuthorized) {
     return Response.json({ error: "Authorization required" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }

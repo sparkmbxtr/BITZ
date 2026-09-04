@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { isAuthorized, isBearerAuthorized } from "@/lib/dashboard-auth";
+import { isGitHubActionsExportAuthorized } from "@/lib/github-actions-oidc";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -40,7 +41,8 @@ async function authorized(request: Request) {
 
 async function exportTokenAuthorized(request: Request) {
   const expected = runtimeBinding<string>("MONITOR_EXPORT_TOKEN");
-  return Boolean(expected && await isBearerAuthorized(request, expected));
+  return Boolean(expected && await isBearerAuthorized(request, expected))
+    || await isGitHubActionsExportAuthorized(request);
 }
 
 async function canReadContext(request: Request) {
