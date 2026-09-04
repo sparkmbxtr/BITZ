@@ -124,6 +124,7 @@ button, input { font: inherit; }
 .environment-context span { min-height: 21px; display: flex; align-items: center; padding: 3px 7px; border: 1px solid rgba(214, 229, 231, .18); border-left: 3px solid rgba(214, 229, 231, .4); background: rgba(214, 229, 231, .05); color: rgba(214, 229, 231, .48); font-size: clamp(.54rem, min(.51vw, .9vh), .68rem); font-weight: 760; line-height: 1.05; letter-spacing: .025em; white-space: nowrap; }
 .header-state button, .header-state .header-export { min-height: 38px; padding: 7px 12px; display: inline-flex; align-items: center; color: var(--foreground); background: var(--panel-strong); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; text-decoration: none; }
 .header-state .fullscreen-button {
+  margin-left: auto;
   border-color: rgba(112, 231, 239, .92);
   border-radius: 999px;
   outline: 2px solid rgba(112, 231, 239, .6);
