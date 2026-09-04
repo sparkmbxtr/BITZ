@@ -19,6 +19,18 @@ deployment. Never commit their values to Git:
 - `AIRQ_OFFICE_DEVICE_ID`
 - `DASHBOARD_PASSWORD_HASH`
 - `DASHBOARD_SESSION_SECRET`
+- `MONITOR_EXPORT_TOKEN`
+
+`MONITOR_EXPORT_TOKEN` is a separate server-to-server secret for importing the
+complete sensor cycle and manual LAB, OFFICE and OUTDOOR observations into the
+monitoring workbook. It is accepted only as a Bearer authorization header for
+explicit exports from `GET /api/airq` and for `GET /api/context`; it is never
+sent to dashboard visitors or stored in the browser. Ordinary dashboard use
+and context submission continue to require the protected dashboard session.
+
+The context export is JSON with a stable schema version, Europe/Berlin timezone,
+export timestamp, requested range and append-only entries. Workbook imports
+deduplicate entries by their context ID.
 
 Optional numerical configuration:
 

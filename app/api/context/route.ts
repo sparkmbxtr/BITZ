@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { isAuthorized } from "@/lib/dashboard-auth";
+import { isAuthorized, isBearerAuthorized } from "@/lib/dashboard-auth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -36,6 +36,15 @@ function runtimeBinding<T>(name: string) {
 async function authorized(request: Request) {
   const secret = runtimeBinding<string>("DASHBOARD_SESSION_SECRET");
   return Boolean(secret && await isAuthorized(request, secret));
+}
+
+async function exportTokenAuthorized(request: Request) {
+  const expected = runtimeBinding<string>("MONITOR_EXPORT_TOKEN");
+  return Boolean(expected && await isBearerAuthorized(request, expected));
+}
+
+async function canReadContext(request: Request) {
+  return await authorized(request) || await exportTokenAuthorized(request);
 }
 
 function contextLog() {
@@ -101,7 +110,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  if (!await authorized(request)) return json({ error: "Unauthorized" }, 401);
+  if (!await canReadContext(request)) return json({ error: "Unauthorized" }, 401);
   const stub = contextLog();
   if (!stub) return json({ error: "Context log is unavailable" }, 503);
 
@@ -119,7 +128,14 @@ export async function GET(request: Request) {
   if (from > to) return json({ error: "Invalid time range" }, 400);
 
   try {
-    return json({ entries: await stub.list(from, to, 5000) });
+    const entries = await stub.list(from, to, 5000);
+    return json({
+      schemaVersion: 1,
+      timezone: "Europe/Berlin",
+      exportedAt: now,
+      range: { from, to },
+      entries,
+    });
   } catch {
     return json({ error: "Context log could not be read" }, 503);
   }

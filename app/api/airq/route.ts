@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { apiKeyFromRequest, isAuthorized } from "@/lib/dashboard-auth";
+import { apiKeyFromRequest, isAuthorized, isBearerAuthorized } from "@/lib/dashboard-auth";
 import { readStoredApiKey } from "@/lib/airq-key-store";
 
 export const runtime = "edge";
@@ -800,13 +800,19 @@ export async function GET(request: Request) {
   const inlineExport = requestUrl.searchParams.get("inline") === "1";
   const runtimeEnv = env as unknown as Record<string, unknown>;
   const sessionSecret = runtimeEnv.DASHBOARD_SESSION_SECRET;
-  if (typeof sessionSecret !== "string" || !await isAuthorized(request, sessionSecret)) {
+  const sessionAuthorized = typeof sessionSecret === "string" && await isAuthorized(request, sessionSecret);
+  const monitorExportToken = runtimeEnv.MONITOR_EXPORT_TOKEN;
+  const exportAuthorized = exportRequested && typeof monitorExportToken === "string" && await isBearerAuthorized(request, monitorExportToken);
+  if (!sessionAuthorized && !exportAuthorized) {
     return Response.json({ error: "Authorization required" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
   const environmentKey = runtimeEnv.AIRQ_API_KEY;
+  const storedApiKey = sessionAuthorized && typeof sessionSecret === "string"
+    ? await readStoredApiKey(sessionSecret).catch(() => null) ?? await apiKeyFromRequest(request, sessionSecret)
+    : null;
   const apiKey = typeof environmentKey === "string"
     ? environmentKey
-    : await readStoredApiKey(sessionSecret).catch(() => null) ?? await apiKeyFromRequest(request, sessionSecret);
+    : storedApiKey;
   const labId = runtimeEnv.AIRQ_LAB_DEVICE_ID;
   const officeId = runtimeEnv.AIRQ_OFFICE_DEVICE_ID;
   if (typeof apiKey !== "string" || typeof labId !== "string" || typeof officeId !== "string") {

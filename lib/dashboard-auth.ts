@@ -79,6 +79,14 @@ export async function isAuthorized(request: Request, sessionSecret: string) {
   return safeEqual(suppliedSignature, await signature(sessionSecret, expires));
 }
 
+export async function isBearerAuthorized(request: Request, expectedToken: string) {
+  const expected = expectedToken.trim();
+  const match = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i);
+  const supplied = match?.[1]?.trim() ?? "";
+  if (!expected || !supplied) return false;
+  return safeEqual(await sha256(supplied), await sha256(expected));
+}
+
 export async function sessionCookie(sessionSecret: string) {
   const maxAge = SESSION_DAYS * 24 * 60 * 60;
   const expires = String(Date.now() + maxAge * 1000);
