@@ -332,7 +332,7 @@ line.activity-close { stroke: var(--amber); }
 .office-metrics .metric-foot { gap: 4px; }
 .office-metrics .grade-word { font-size: clamp(.61rem, .55vw, .71rem); }
 .office-metrics .metric-foot small { font-size: .61rem; }
-.office-trends { min-height: 610px; display: grid; grid-template-rows: auto repeat(4, minmax(128px, 1fr)); padding: 10px 11px; }
+.office-trends { min-height: 720px; display: grid; grid-template-rows: auto repeat(5, minmax(128px, 1fr)); padding: 10px 11px; }
 .office-trend-title, .office-trend-row > div:first-child { display: flex; justify-content: space-between; gap: 8px; }
 .office-trend-title { min-height: 24px; font-size: clamp(.82rem, .76vw, .98rem); }
 .office-trend-title span, .office-trend-row span { color: var(--muted); }
@@ -340,13 +340,13 @@ line.activity-close { stroke: var(--amber); }
 .office-trend-row > div { font-size: clamp(.76rem, .68vw, .9rem); }
 .office-series-name { display: grid; gap: 1px; color: var(--cyan); line-height: 1.1; }
 .office-series-name small { color: inherit; font-size: .72em; font-weight: 620; letter-spacing: .035em; opacity: .78; }
-.office-climate-heading { align-items: flex-start; flex-wrap: wrap; }
+.office-pair-heading { align-items: flex-start; flex-wrap: wrap; }
 .office-series-pair { display: flex; align-items: center; gap: 5px; }
 .office-series-pair > span { display: grid; gap: 1px; }
 .office-series-pair > i { width: 2px; height: 2.2em; flex: 0 0 auto; border-radius: 2px; background: var(--muted); opacity: .7; }
 .office-series-pair .trend-label-primary { color: var(--cyan); }
 .office-series-pair .trend-label-secondary { color: var(--amber); }
-.office-climate-heading .climate-outdoor-reading { width: 100%; flex: 1 0 100%; color: #d6e5e7; font-size: clamp(.54rem, .5vw, .66rem); line-height: 1.15; text-align: right; }
+.office-pair-heading .climate-outdoor-reading { width: 100%; flex: 1 0 100%; color: #d6e5e7; font-size: clamp(.54rem, .5vw, .66rem); line-height: 1.15; text-align: right; }
 .office-trend-row > div > span { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
 .office-trend-row .trend-chart { width: 100%; min-width: 0; height: 100%; min-height: 66px; }
 .office-trend-row .trend-chart-with-left-axis { grid-template-columns: 42px minmax(0, 1fr) 54px; }
@@ -381,7 +381,7 @@ line.activity-close { stroke: var(--amber); }
   .meaning-panel.meaning-with-hepa { grid-template-rows: auto minmax(82px, .8fr) minmax(62px, .55fr) minmax(122px, 1.1fr) minmax(78px, .75fr) minmax(58px, auto); }
   .meaning-evidence { min-height: 0; grid-template-rows: repeat(3, minmax(44px, 1fr)); }
   .office-rail { grid-template-rows: auto auto auto minmax(0, 1fr) auto minmax(112px, auto); }
-  .office-trends { min-height: 0; grid-template-rows: auto repeat(4, minmax(0, 1fr)); }
+  .office-trends { min-height: 0; grid-template-rows: auto repeat(5, minmax(0, 1fr)); }
 }
 
 /* Android tablets can expose a 1280-1600px desktop-style viewport. Stack the
@@ -460,7 +460,7 @@ line.activity-close { stroke: var(--amber); }
 .wallboard-compact .meaning-panel.meaning-with-hepa { grid-template-rows: repeat(5, auto); }
 .wallboard-compact .meaning-panel.meaning-with-hepa { grid-template-rows: repeat(6, auto); }
 .wallboard-compact .meaning-evidence { min-height: 210px; grid-template-rows: repeat(3, minmax(62px, 1fr)); }
-.wallboard-compact .office-trends { min-height: 610px; grid-template-rows: auto repeat(4, minmax(128px, 1fr)); }
+.wallboard-compact .office-trends { min-height: 720px; grid-template-rows: auto repeat(5, minmax(128px, 1fr)); }
 
 @media (max-width: 1450px), (max-height: 920px) {
   .wallboard-header { min-height: 60px; padding-block: 8px; }
@@ -672,7 +672,7 @@ html[data-dashboard-fullscreen="true"] body {
 
 .wallboard-fullscreen .office-trends {
   min-height: 0;
-  grid-template-rows: auto repeat(4, minmax(0, 1fr));
+  grid-template-rows: auto repeat(5, minmax(0, 1fr));
   padding: 10px 11px;
 }
 .wallboard-fullscreen .office-trend-title,
