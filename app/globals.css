@@ -176,7 +176,7 @@ button, input { font: inherit; }
 .text-normal { color: var(--green) !important; }
 
 .metric-grid { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 6px; }
-.metric { min-width: 0; min-height: 84px; padding: 7px 10px; border: 1px solid rgba(112, 216, 237, .14); border-bottom-width: 4px; background: var(--panel-strong); }
+.metric { min-width: 0; min-height: 84px; padding: 7px 10px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; align-content: stretch; border: 1px solid rgba(112, 216, 237, .14); border-bottom-width: 4px; background: var(--panel-strong); }
 .metric-great { border-color: rgba(98, 228, 160, .35); border-bottom-color: var(--green); background: linear-gradient(135deg, rgba(24, 86, 59, .72), var(--panel-strong) 76%); }
 .metric-good { border-color: rgba(88, 222, 212, .34); border-bottom-color: var(--teal); background: linear-gradient(135deg, rgba(19, 70, 72, .72), var(--panel-strong) 76%); }
 .metric-watch { border-color: rgba(255, 196, 87, .4); border-bottom-color: var(--amber); background: linear-gradient(135deg, rgba(92, 62, 10, .78), var(--panel-strong) 76%); }
@@ -196,7 +196,7 @@ button, input { font: inherit; }
 .metric-value-line > strong { min-width: 0; flex: 0 1 auto; font: inherit; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .metric-comparison { min-width: 0; flex: 0 1 auto; color: rgba(214, 229, 231, .48); font: inherit; font-weight: 580; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .metric-comparison small { color: rgba(214, 229, 231, .4); font-size: .63em; font-weight: 760; letter-spacing: .055em; }
-.metric-foot { min-width: 0; margin-top: 3px; display: flex; align-items: center; gap: 7px; }
+.metric-foot { min-width: 0; min-height: 17px; margin-top: 5px; display: flex; align-self: end; align-items: center; gap: 7px; }
 .metric-foot small { min-width: 0; color: var(--muted); font-size: clamp(.66rem, .57vw, .76rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grade-word { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; font-size: clamp(.68rem, .62vw, .82rem); font-weight: 850; letter-spacing: .04em; white-space: nowrap; }
 .grade-word i { width: 9px; height: 9px; display: inline-block; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
@@ -221,7 +221,10 @@ button, input { font: inherit; }
 .trend-label-primary { color: var(--cyan); }
 .trend-label-secondary { color: var(--amber); }
 .trend-label-separator { align-self: stretch; width: 2px; min-height: 2.35em; margin-inline: .16em; border-radius: 2px; background: var(--muted); opacity: .72; }
-.trend-reading { min-width: 0; display: grid; justify-items: end; gap: 6px; text-align: right; }
+.trend-reading { width: 112px; min-width: 112px; display: grid; justify-items: stretch; align-content: center; gap: 6px; text-align: center; }
+.trend-reading .grade-pill { width: 100%; justify-content: center; }
+.trend-secondary-grade { margin-top: 1px; }
+.trend-secondary-grade.grade-action { color: var(--red); background: rgba(72, 28, 26, .9); }
 .trend-reading small { color: #d7e7e9; font-size: clamp(.61rem, min(.57vw, 1.02vh), .76rem); font-weight: 720; line-height: 1.15; white-space: nowrap; }
 .trend-reading .climate-fill-key { max-width: 112px; color: var(--muted); font-size: clamp(.5rem, min(.46vw, .82vh), .61rem); line-height: 1.15; white-space: normal; }
 .trend-chart { position: relative; width: 100%; height: 100%; min-height: 78px; display: grid; grid-template-rows: minmax(0, 1fr) 20px; }
