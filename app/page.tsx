@@ -1533,7 +1533,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   const condensationWatch = room.status === "normal" && outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined && outdoorLatest.humidity > 90;
   const labAction = condensationWatch
     ? {
-        label: "HIGH OUTDOOR HUMIDITY",
+        label: "CONDENSATION POTENTIAL",
         level: "watch",
         text: `Outdoor RH is ${fmt(outdoorLatest.humidity)}%. LAB RH is ${fmt(latest?.humidity)}%.`,
       }
