@@ -1,9 +1,11 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
+import { DurableObject } from "cloudflare:workers";
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 
 interface Env {
   ASSETS: Fetcher;
+  CONTEXT_LOG: DurableObjectNamespace;
   DB: D1Database;
   IMAGES: {
     input(stream: ReadableStream): {
@@ -17,6 +19,80 @@ interface Env {
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
   passThroughOnException(): void;
+}
+
+export type StoredContextEntry = {
+  id: string;
+  createdAt: number;
+  area: "LAB" | "OFFICE" | "OUTDOOR";
+  note: string;
+};
+
+type StoredContextRow = {
+  id: string;
+  created_at: number;
+  area: "LAB" | "OFFICE" | "OUTDOOR";
+  note: string;
+};
+
+/**
+ * One SQLite-backed object keeps the manual observation stream ordered and
+ * append-only. It is private to this Worker; browser requests reach it only
+ * through the session-protected /api/context route.
+ */
+export class ContextLog extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS context_entries (
+        id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        area TEXT NOT NULL CHECK (area IN ('LAB', 'OFFICE', 'OUTDOOR')),
+        note TEXT NOT NULL CHECK (length(note) BETWEEN 1 AND 500)
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_context_entries_created_at
+      ON context_entries(created_at)
+    `);
+  }
+
+  async add(entry: StoredContextEntry): Promise<StoredContextEntry> {
+    const recent = this.ctx.storage.sql
+      .exec<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM context_entries WHERE created_at >= ?",
+        Date.now() - 60_000,
+      )
+      .one();
+    if (recent.count >= 20) throw new Error("CONTEXT_RATE_LIMIT");
+
+    this.ctx.storage.sql.exec(
+      "INSERT OR IGNORE INTO context_entries (id, created_at, area, note) VALUES (?, ?, ?, ?)",
+      entry.id,
+      entry.createdAt,
+      entry.area,
+      entry.note,
+    );
+    return entry;
+  }
+
+  async list(from: number, to: number, limit = 5000): Promise<StoredContextEntry[]> {
+    const boundedLimit = Math.max(1, Math.min(5000, Math.floor(limit)));
+    return this.ctx.storage.sql
+      .exec<StoredContextRow>(
+        "SELECT id, created_at, area, note FROM context_entries WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC LIMIT ?",
+        from,
+        to,
+        boundedLimit,
+      )
+      .toArray()
+      .map((row) => ({
+        id: row.id,
+        createdAt: row.created_at,
+        area: row.area,
+        note: row.note,
+      }));
+  }
 }
 
 // Image security config. SVG sources with .svg extension auto-skip the

@@ -73,6 +73,7 @@ type DashboardData = {
 
 type GradeLevel = "great" | "good" | "watch" | "action" | "unknown";
 type Grade = { label: string; level: GradeLevel };
+type ContextArea = "LAB" | "OFFICE" | "OUTDOOR";
 type ActivityCycle = {
   dayKey: string;
   begin: number | null;
@@ -288,6 +289,11 @@ function berlinShortTime(timestamp: number) {
 function berlinCompactDate(timestamp: number) {
   const [year, month, day] = berlinCalendar(timestamp).dayKey.split("-");
   return `${month}${day}${year.slice(-2)}`;
+}
+
+function berlinContextStamp(timestamp: number) {
+  const [year, month, day] = berlinCalendar(timestamp).dayKey.split("-");
+  return `${day}.${month}.${year.slice(-2)} · ${berlinClock(timestamp)} · EUROPE/BERLIN`;
 }
 
 function median(values: number[]) {
@@ -1232,6 +1238,12 @@ export default function Home() {
   const [connectionChecking, setConnectionChecking] = useState(false);
   const [compactViewport, setCompactViewport] = useState(false);
   const [presentationMode, setPresentationMode] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
+  const [contextArea, setContextArea] = useState<ContextArea>("LAB");
+  const [contextNote, setContextNote] = useState("");
+  const [contextTimestamp, setContextTimestamp] = useState<number | null>(null);
+  const [contextState, setContextState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [contextError, setContextError] = useState("");
 
   useEffect(() => {
     const syncViewportLayout = () => {
@@ -1303,6 +1315,15 @@ export default function Home() {
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
+
+  useEffect(() => {
+    if (!contextOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && contextState !== "sending") setContextOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [contextOpen, contextState]);
 
   const loadData = useCallback(async () => {
     setRefreshing(true);
@@ -1482,6 +1503,38 @@ export default function Home() {
     setApiConnected(null);
   }
 
+  function openContextInput() {
+    setContextTimestamp(Date.now());
+    setContextNote("");
+    setContextState("idle");
+    setContextError("");
+    setContextOpen(true);
+  }
+
+  async function sendContext(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const note = contextNote.trim();
+    if (!note || contextState === "sending") return;
+    setContextState("sending");
+    setContextError("");
+    try {
+      const response = await fetch("/api/context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ area: contextArea, note, observedAt: contextTimestamp }),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Context could not be sent");
+      setContextState("sent");
+      setContextNote("");
+      window.setTimeout(() => setContextOpen(false), 900);
+    } catch (error) {
+      setContextState("error");
+      setContextError(error instanceof Error ? error.message : "Context could not be sent");
+    }
+  }
+
   if (authorized !== true) return <AccessGate checking={authorized === null} verifierReady={passwordVerifierReady} onGranted={() => { setApiConnected(null); setAuthorized(true); }} />;
   if (apiConnected !== true) {
     if (ownerSetup && apiConnected === false) return <ApiKeySetup checking={false} onConnected={() => setApiConnected(true)} />;
@@ -1514,8 +1567,35 @@ export default function Home() {
         <OfficeRail room={displayedOfficeRoom} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes} />
       </div>
       <footer className="wallboard-footer">
+        <button className="context-trigger" type="button" onClick={openContextInput} aria-haspopup="dialog">CONTEXT</button>
         <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 | Corant GmbH | 04229 Leipzig</span>
         <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
+        {contextOpen ? (
+          <section className="context-popover" role="dialog" aria-modal="true" aria-labelledby="context-title">
+            <div className="context-popover-heading">
+              <div>
+                <strong id="context-title">INPUT CONTEXT</strong>
+                <time dateTime={new Date(contextTimestamp ?? clock).toISOString()}>{berlinContextStamp(contextTimestamp ?? clock)}</time>
+              </div>
+              <button type="button" onClick={() => setContextOpen(false)} disabled={contextState === "sending"} aria-label="Close context input">×</button>
+            </div>
+            <div className="context-area-selector" aria-label="Assign area">
+              {([
+                ["LAB", "LAB"],
+                ["OFC", "OFFICE"],
+                ["OUT", "OUTDOOR"],
+              ] as const).map(([label, area]) => (
+                <button key={area} type="button" className={contextArea === area ? "is-selected" : ""} onClick={() => setContextArea(area)} aria-pressed={contextArea === area}>{label}</button>
+              ))}
+            </div>
+            <form className="context-input-row" onSubmit={sendContext}>
+              <input autoFocus type="text" maxLength={500} value={contextNote} onChange={(event) => setContextNote(event.target.value)} aria-label="Context note" />
+              <button type="submit" disabled={!contextNote.trim() || contextState === "sending"}>{contextState === "sending" ? "…" : "SEND"}</button>
+            </form>
+            {contextState === "sent" ? <small className="context-result is-sent">SENT</small> : null}
+            {contextState === "error" ? <small className="context-result is-error">{contextError}</small> : null}
+          </section>
+        ) : null}
       </footer>
     </main>
   );

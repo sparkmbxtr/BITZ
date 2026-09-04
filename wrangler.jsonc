@@ -12,6 +12,20 @@
   "images": {
     "binding": "IMAGES"
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CONTEXT_LOG",
+        "class_name": "ContextLog"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "context-log-v1",
+      "new_sqlite_classes": ["ContextLog"]
+    }
+  ],
   "observability": {
     "enabled": true
   }
