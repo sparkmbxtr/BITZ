@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { isAuthorized, isBearerAuthorized } from "@/lib/dashboard-auth";
+import { expiredContextEntryCookie, isAuthorized, isBearerAuthorized, isContextEntryAuthorized } from "@/lib/dashboard-auth";
 import { isGitHubActionsExportAuthorized } from "@/lib/github-actions-oidc";
 
 export const runtime = "edge";
@@ -23,21 +23,16 @@ type ContextLogNamespace = {
   getByName(name: string): ContextLogStub;
 };
 
-function json(body: unknown, status = 200) {
-  return Response.json(body, {
-    status,
-    headers: { "Cache-Control": "no-store, max-age=0" },
-  });
+function json(body: unknown, status = 200, extraHeaders?: HeadersInit) {
+  const headers = new Headers(extraHeaders);
+  headers.set("Cache-Control", "no-store, max-age=0");
+  return Response.json(body, { status, headers });
 }
 
 function runtimeBinding<T>(name: string) {
   return (env as unknown as Record<string, unknown>)[name] as T | undefined;
 }
 
-async function authorized(request: Request) {
-  const secret = runtimeBinding<string>("DASHBOARD_SESSION_SECRET");
-  return Boolean(secret && await isAuthorized(request, secret));
-}
 
 async function exportTokenAuthorized(request: Request) {
   const expected = runtimeBinding<string>("MONITOR_EXPORT_TOKEN");
@@ -46,7 +41,16 @@ async function exportTokenAuthorized(request: Request) {
 }
 
 async function canReadContext(request: Request) {
-  return await authorized(request) || await exportTokenAuthorized(request);
+  return await exportTokenAuthorized(request);
+}
+
+async function canWriteContext(request: Request) {
+  const secret = runtimeBinding<string>("DASHBOARD_SESSION_SECRET");
+  return Boolean(
+    secret
+    && await isAuthorized(request, secret)
+    && await isContextEntryAuthorized(request, secret)
+  );
 }
 
 function contextLog() {
@@ -75,7 +79,7 @@ function validArea(value: unknown): value is ContextArea {
 }
 
 export async function POST(request: Request) {
-  if (!await authorized(request)) return json({ error: "Unauthorized" }, 401);
+  if (!await canWriteContext(request)) return json({ error: "Context password required" }, 401);
   if (!sameOrigin(request)) return json({ error: "Origin rejected" }, 403);
 
   const payload = await request.json().catch(() => null) as { area?: unknown; note?: unknown; observedAt?: unknown } | null;
@@ -102,7 +106,11 @@ export async function POST(request: Request) {
 
   try {
     await stub.add(entry);
-    return json({ saved: true, entry: { id: entry.id, createdAt: entry.createdAt, area: entry.area } }, 201);
+    return json(
+      { saved: true, entry: { id: entry.id, createdAt: entry.createdAt, area: entry.area } },
+      201,
+      { "Set-Cookie": expiredContextEntryCookie() },
+    );
   } catch (error) {
     if (error instanceof Error && error.message.includes("CONTEXT_RATE_LIMIT")) {
       return json({ error: "Too many entries; wait one minute" }, 429);

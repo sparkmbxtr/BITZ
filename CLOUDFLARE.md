@@ -19,7 +19,10 @@ deployment. Never commit their values to Git:
 - `AIRQ_OFFICE_DEVICE_ID`
 - `DASHBOARD_PASSWORD_HASH`
 - `DASHBOARD_SESSION_SECRET`
+- `CONTEXT_ENTRY_PASSWORD_HASH`
 - `MONITOR_EXPORT_TOKEN`
+
+`CONTEXT_ENTRY_PASSWORD_HASH` is the SHA-256 verifier for the separate context-entry password. A successful check issues a five-minute, HttpOnly, same-origin capability that is consumed after one saved entry. Context submission therefore requires both the main dashboard session and the separate context password; ordinary dashboard sessions cannot read the stored context log.
 
 `MONITOR_EXPORT_TOKEN` is a separate server-to-server secret for importing the
 complete sensor cycle and manual LAB, OFFICE and OUTDOOR observations into the

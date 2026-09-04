@@ -431,11 +431,11 @@ line.activity-close { stroke: var(--amber); }
 .context-area-selector { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .context-area-selector button { min-width: 0; height: 34px; padding: 5px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); background: var(--panel); font-size: .78rem; font-weight: 800; letter-spacing: .1em; }
 .context-area-selector button.is-selected { border-color: var(--teal); color: var(--foreground); background: rgba(88, 222, 212, .17); box-shadow: inset 0 -3px var(--teal); }
-.context-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 76px; gap: 7px; }
-.context-input-row input { width: 100%; min-width: 0; height: 38px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 4px; outline: none; color: var(--foreground); background: #081719; font: inherit; }
-.context-input-row input:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgba(88, 222, 212, .13); }
-.context-input-row button { height: 38px; border: 1px solid var(--teal); border-radius: 4px; color: #041010; background: var(--teal); font-size: .76rem; font-weight: 850; letter-spacing: .08em; }
-.context-input-row button:disabled { opacity: .45; }
+.context-input-row, .context-password-row { display: grid; grid-template-columns: minmax(0, 1fr) 76px; gap: 7px; }
+.context-input-row input, .context-password-row input { width: 100%; min-width: 0; height: 38px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 4px; outline: none; color: var(--foreground); background: #081719; font: inherit; }
+.context-input-row input:focus, .context-password-row input:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgba(88, 222, 212, .13); }
+.context-input-row button, .context-password-row button { height: 38px; border: 1px solid var(--teal); border-radius: 4px; color: #041010; background: var(--teal); font-size: .76rem; font-weight: 850; letter-spacing: .08em; }
+.context-input-row button:disabled, .context-password-row button:disabled { opacity: .45; }
 .context-result { min-height: 14px; font-size: .7rem; font-weight: 800; letter-spacing: .06em; }
 .context-result.is-sent { color: var(--green); }
 .context-result.is-error { color: var(--red); }

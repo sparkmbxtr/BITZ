@@ -2,6 +2,8 @@ const COOKIE_NAME = "airq_wallboard_session";
 const API_COOKIE_NAME = "airq_api_credential";
 const SESSION_DAYS = 90;
 const API_KEY_DAYS = 120;
+const CONTEXT_COOKIE_NAME = "airq_context_entry";
+const CONTEXT_AUTH_MINUTES = 5;
 
 function hex(bytes: ArrayBuffer) {
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -27,6 +29,17 @@ async function signature(secret: string, expires: string) {
     ["sign"],
   );
   return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`airq-wallboard:${expires}`)));
+}
+
+async function contextEntrySignature(secret: string, expires: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`airq-context-entry:${expires}`)));
 }
 
 function cookieValue(request: Request, cookieName = COOKIE_NAME) {
@@ -79,6 +92,15 @@ export async function isAuthorized(request: Request, sessionSecret: string) {
   return safeEqual(suppliedSignature, await signature(sessionSecret, expires));
 }
 
+export async function isContextEntryAuthorized(request: Request, sessionSecret: string) {
+  const value = cookieValue(request, CONTEXT_COOKIE_NAME);
+  if (!value) return false;
+  const [expires, suppliedSignature, extra] = value.split(".");
+  if (!expires || !suppliedSignature || extra || !/^\d+$/.test(expires)) return false;
+  if (Number(expires) <= Date.now()) return false;
+  return safeEqual(suppliedSignature, await contextEntrySignature(sessionSecret, expires));
+}
+
 export async function isBearerAuthorized(request: Request, expectedToken: string) {
   const expected = expectedToken.trim();
   const match = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i);
@@ -96,6 +118,17 @@ export async function sessionCookie(sessionSecret: string) {
 
 export function expiredSessionCookie() {
   return `${COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
+}
+
+export async function contextEntryCookie(sessionSecret: string) {
+  const maxAge = CONTEXT_AUTH_MINUTES * 60;
+  const expires = String(Date.now() + maxAge * 1000);
+  const value = `${expires}.${await contextEntrySignature(sessionSecret, expires)}`;
+  return `${CONTEXT_COOKIE_NAME}=${value}; Path=/api/context; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
+}
+
+export function expiredContextEntryCookie() {
+  return `${CONTEXT_COOKIE_NAME}=; Path=/api/context; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
 }
 
 export async function encryptApiKey(apiKey: string, sessionSecret: string) {
