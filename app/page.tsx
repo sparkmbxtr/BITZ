@@ -779,8 +779,8 @@ function humidityGrade(value: number | null): Grade {
 }
 
 function labHumidityGrade(value: number | null, outdoorValue: number | null | undefined): Grade {
-  if (value !== null && value > 70 && outdoorValue !== null && outdoorValue !== undefined && outdoorValue > 70) {
-    return { label: "OUTDOOR HIGH", level: "good" };
+  if (value !== null && outdoorValue !== null && outdoorValue !== undefined && outdoorValue >= 80) {
+    return { label: "OUT HIGH", level: "good" };
   }
   return humidityGrade(value);
 }
@@ -1553,7 +1553,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
         <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} comparison={outdoorParticles?.pm25 !== null && outdoorParticles?.pm25 !== undefined ? `≈${fmt(outdoorParticles.pm25, 1)}` : undefined} note="measured fine-particle channel; outdoor comparison is CAMS model context via Open-Meteo rather than a local outdoor sensor" grade={labPmGrade(latest?.pm25 ?? null)} />
         <Metric label="Oxygen" value={`${fmt(latest?.oxygen, 2)}%`} note="displacement proxy" grade={oxygenGrade(latest?.oxygen ?? null)} />
         <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} comparison={outdoorLatest?.temperature !== null && outdoorLatest?.temperature !== undefined ? `${fmt(outdoorLatest.temperature, 1)}°C` : undefined} note="LAB thermal band" grade={temperatureGrade(latest?.temperature ?? null, "LAB")} />
-        <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} comparison={outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined ? `${fmt(outdoorLatest.humidity)}%` : undefined} note="LAB supply has no dehumidification; high indoor RH is shown as outdoor-linked when outdoor RH is also above 70%" grade={labHumidityGrade(latest?.humidity ?? null, outdoorLatest?.humidity)} />
+        <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} comparison={outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined ? `${fmt(outdoorLatest.humidity)}%` : undefined} note="LAB supply has no dehumidification; OUT HIGH appears from 80% outdoor RH because indoor RH may rise afterward" grade={labHumidityGrade(latest?.humidity ?? null, outdoorLatest?.humidity)} />
       </div>
       <div className="evidence-layout">
         <section className="evidence-panel" aria-labelledby="evidence-heading">
