@@ -388,14 +388,17 @@ line.activity-close { stroke: var(--amber); }
 .office-trend-row > div { font-size: clamp(.76rem, .68vw, .9rem); }
 .office-series-name { display: grid; gap: 1px; color: var(--cyan); line-height: 1.1; }
 .office-series-name small { color: inherit; font-size: .72em; font-weight: 620; letter-spacing: .035em; opacity: .78; }
-.office-pair-heading { align-items: flex-start; flex-wrap: wrap; }
+.office-pair-heading { display: grid !important; grid-template-columns: minmax(0, 1fr) clamp(168px, 58%, 238px); align-items: flex-start; gap: 5px 8px; }
 .office-series-pair { display: flex; align-items: center; gap: 5px; }
 .office-series-pair > span { display: grid; gap: 1px; }
 .office-series-pair > i { width: 2px; height: 2.2em; flex: 0 0 auto; border-radius: 2px; background: var(--muted); opacity: .7; }
 .office-series-pair .trend-label-primary { color: var(--cyan); }
 .office-series-pair .trend-label-secondary { color: var(--amber); }
-.office-pair-heading .climate-outdoor-reading { width: 100%; flex: 1 0 100%; color: #d6e5e7; font-size: clamp(.54rem, .5vw, .66rem); line-height: 1.15; text-align: right; }
+.office-pair-heading .climate-outdoor-reading { width: 100%; grid-column: 1 / -1; color: #d6e5e7; font-size: clamp(.54rem, .5vw, .66rem); line-height: 1.15; text-align: right; }
 .office-trend-row > div > span { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
+.office-pair-heading > .office-trend-reading { min-width: 0; width: 100%; display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; justify-self: stretch; gap: 6px; }
+.office-trend-reading .grade-pill { box-sizing: border-box; width: 92px; min-width: 92px; max-width: 92px; justify-content: center; }
+.office-trend-reading > small { min-width: 0; overflow: hidden; color: var(--muted); font-size: inherit; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .office-trend-row .trend-chart { width: 100%; min-width: 0; height: 100%; min-height: 66px; }
 .office-trend-row .trend-chart-with-left-axis { grid-template-columns: 42px minmax(0, 1fr) 54px; }
 .office-trend-row .trend-plot, .office-trend-row .trend-svg { height: 100%; min-height: 45px; }
@@ -810,13 +813,14 @@ html[data-dashboard-fullscreen="true"] body {
 .wallboard-fullscreen .office-trend-row > div:first-child { flex-wrap: nowrap; }
 .wallboard-fullscreen .office-pair-heading {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) clamp(168px, 58%, 238px);
   align-items: start;
   gap: 2px 5px;
 }
-.wallboard-fullscreen .office-pair-heading > span {
+.wallboard-fullscreen .office-pair-heading > .office-trend-reading {
   min-width: 0;
-  justify-self: end;
+  width: 100%;
+  justify-self: stretch;
   white-space: nowrap;
 }
 .wallboard-fullscreen .office-pair-heading .climate-outdoor-reading { display: none; }
