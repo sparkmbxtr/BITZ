@@ -1957,7 +1957,7 @@ function OfficePairTrend({ label, primaryUnit, secondaryUnit, reading, samples, 
     <div className={`office-trend-row office-pair-row trend-row-${grade.level}`}>
       <div className="office-pair-heading">
         <strong className="office-series-name office-series-pair"><span className="trend-label-primary">{primaryLabel}<small>{primaryUnit}</small></span><i aria-hidden="true" /><span className="trend-label-secondary">{secondaryLabel}<small>{secondaryUnit}</small></span></strong>
-        <span className="office-trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}</span>
+        <span className="office-trend-reading"><b className={`grade-pill grade-${grade.level}`}><i /><span>{grade.label}</span></b>{reading ? <small>{reading}</small> : null}</span>
         {climateReading ? <small className="climate-outdoor-reading">{climateReading}</small> : null}
       </div>
       <HistoryTrend

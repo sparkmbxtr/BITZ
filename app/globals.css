@@ -397,7 +397,9 @@ line.activity-close { stroke: var(--amber); }
 .office-pair-heading .climate-outdoor-reading { width: 100%; grid-column: 1 / -1; color: #d6e5e7; font-size: clamp(.54rem, .5vw, .66rem); line-height: 1.15; text-align: right; }
 .office-trend-row > div > span { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
 .office-pair-heading > .office-trend-reading { min-width: 0; width: 100%; display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; justify-self: stretch; gap: 6px; }
-.office-trend-reading .grade-pill { box-sizing: border-box; width: 92px; min-width: 92px; max-width: 92px; justify-content: center; }
+.office-trend-reading .grade-pill { box-sizing: border-box; width: 92px; min-width: 92px; max-width: 92px; display: grid; grid-template-columns: 12px minmax(0, 1fr); align-items: center; justify-self: start; column-gap: 4px; padding-inline: 7px; text-align: center; }
+.office-trend-reading .grade-pill > i { justify-self: center; }
+.office-trend-reading .grade-pill > span { min-width: 0; justify-self: stretch; color: inherit; text-align: center; }
 .office-trend-reading > small { min-width: 0; overflow: hidden; color: var(--muted); font-size: inherit; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .office-trend-row .trend-chart { width: 100%; min-width: 0; height: 100%; min-height: 66px; }
 .office-trend-row .trend-chart-with-left-axis { grid-template-columns: 42px minmax(0, 1fr) 54px; }
