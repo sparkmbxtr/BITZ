@@ -1686,7 +1686,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
         level: room.status,
         text: room.action,
       };
-  const evidenceOrder = ["Propane-associated pattern", "Nitrogen (N₂) displacement pattern", "CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
+  const evidenceOrder = ["Propane-associated pattern", "Nitrogen (N₂) displacement pattern", "CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation"];
   const evidenceLabels: Record<string, string> = {
     "Propane-associated pattern": "PROPANE WARNING",
     "Nitrogen (N₂) displacement pattern": "NITROGEN WARNING",
@@ -1699,12 +1699,8 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
     "Sensor/data integrity": "LIVE SENSOR FEED",
   };
   const evidenceChecks = room.checks
-    .filter((check) => !["Particle signal", "Particle pattern"].includes(check.label))
-    .sort((left, right) => {
-      const priority = { action: 0, watch: 1, unknown: 2, normal: 3 };
-      return priority[left.level] - priority[right.level] || evidenceOrder.indexOf(left.label) - evidenceOrder.indexOf(right.label);
-    })
-    .slice(0, 6);
+    .filter((check) => evidenceOrder.includes(check.label))
+    .sort((left, right) => evidenceOrder.indexOf(left.label) - evidenceOrder.indexOf(right.label));
   const oxygenEmergency = room.checks.some((check) => check.label === "O₂ displacement" && check.level === "action");
   const criticalDisplay = routineClosed
     ? { label: "CLOSED", level: "normal", note: "Routine action prompts are paused after CLOSE; sensor trends remain visible for the next active period." }
