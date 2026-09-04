@@ -70,8 +70,8 @@ jobs:
             and (.coverage.from | type == "number")
             and (.coverage.to | type == "number")
             and (.coverage.to > .coverage.from)
-            and (.rooms.lab.history | length > 0)
-            and (.rooms.office.history | length > 0)
+            and (.rooms.lab.samples | length > 0)
+            and (.rooms.office.samples | length > 0)
           ' monitoring-export/sensor.json >/dev/null
 
           cycle_from="$(jq -er '.coverage.from' monitoring-export/sensor.json)"
