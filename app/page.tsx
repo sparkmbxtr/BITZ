@@ -1530,6 +1530,18 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
     ? beganWording(cycle.begin, latest?.timestamp, currentParticleAvailable && labPmGrade(pmObservation?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")
     : "DAY BEGAN";
   const routineClosed = Boolean(cycle?.close && latest && latest.timestamp >= cycle.close && room.status !== "action" && room.status !== "unknown");
+  const condensationWatch = room.status === "normal" && outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined && outdoorLatest.humidity > 90;
+  const labAction = condensationWatch
+    ? {
+        label: "CONDENSATION WATCH",
+        level: "watch",
+        text: `Outdoor RH is ${fmt(outdoorLatest.humidity)}%. Check electronic equipment, connectors, optics and cooled or air-conditioned surfaces for condensation. Moisture can form where a surface falls below the indoor dew point; avoid bringing cold equipment directly into the humid room.`,
+      }
+    : {
+        label: room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK",
+        level: room.status,
+        text: room.action,
+      };
   const evidenceOrder = ["Propane-associated pattern", "Nitrogen (N₂) displacement pattern", "CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
   const evidenceLabels: Record<string, string> = {
     "Propane-associated pattern": "PROPANE EARLY WARNING",
@@ -1618,7 +1630,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
           </div>
           {routineClosed
             ? <div className="closed-period-copy"><strong>ROUTINE ACTIONS PAUSED</strong><p>No operational action step is displayed after CLOSE. The live channels and recent pattern remain visible for trend review.</p></div>
-            : <div className={`action-copy action-${room.status}`}><strong>{room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK"}</strong><p>{room.action}</p></div>}
+            : <div className={`action-copy action-${labAction.level}`}><strong>{labAction.label}</strong><p>{labAction.text}</p></div>}
           <div className={`critical-message critical-message-${criticalDisplay.level}`} role="status" aria-live="polite">
             <strong>{criticalDisplay.label}</strong><span>{criticalDisplay.note}</span>
           </div>
