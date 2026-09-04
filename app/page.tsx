@@ -1580,11 +1580,11 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
       };
   const evidenceOrder = ["Propane-associated pattern", "Nitrogen (N₂) displacement pattern", "CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
   const evidenceLabels: Record<string, string> = {
-    "Propane-associated pattern": "PROPANE EARLY WARNING",
-    "Nitrogen (N₂) displacement pattern": "NITROGEN EARLY WARNING",
+    "Propane-associated pattern": "PROPANE WARNING",
+    "Nitrogen (N₂) displacement pattern": "NITROGEN WARNING",
     "CO release": "CO SAFETY",
-    "Volatile-gas pattern": "GAS / VAPOUR SAFETY",
-    "O₂ displacement": "OXYGEN SAFETY",
+    "Volatile-gas pattern": "GAS / VAPOUR",
+    "O₂ displacement": "OXYGEN",
     "Formaldehyde elevation": "FORMALDEHYDE",
     "CO₂ accumulation": "CO₂ / VENTILATION",
     "Sound peak >90 dB": "ACOUSTIC PEAK",

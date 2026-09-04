@@ -815,6 +815,54 @@ html[data-dashboard-fullscreen="true"] body {
 }
 .wallboard-fullscreen .wallboard-footer span { display: inline; }
 
+/* Landscape is the limiting one-screen case: keep the narrow 20% action
+   column concise enough for a 1920 × 1080 logical canvas. */
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .meaning-panel,
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .meaning-panel.meaning-with-hepa {
+  grid-template-rows: auto auto auto minmax(112px, 1fr) auto auto !important;
+}
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .meaning-copy { padding: 6px 8px; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .meaning-copy strong { font-size: .82rem; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .meaning-copy p,
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .action-copy > p,
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .closed-period-copy p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .meaning-copy p { font-size: .72rem; line-height: 1.18; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .meaning-copy span { margin-top: 4px; font-size: .62rem; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .hepa-status { min-height: 46px; padding: 5px 8px; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .hepa-status span { font-size: .72rem; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .hepa-status strong { font-size: .82rem; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .hepa-status small { font-size: .58rem; line-height: 1.12; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .meaning-evidence {
+  min-height: 112px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(48px, 1fr));
+  padding: 4px;
+}
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .meaning-evidence > div { padding: 4px 5px; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .meaning-evidence span { font-size: .61rem; line-height: 1.08; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .meaning-evidence b { font-size: .66rem; line-height: 1.08; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .action-copy,
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .closed-period-copy { padding: 6px 8px; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .action-copy > strong,
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .closed-period-copy strong { font-size: .84rem; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .action-copy > p,
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .closed-period-copy p { font-size: .68rem; line-height: 1.18; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .action-secondary-warning { margin-top: 5px; padding-top: 5px; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .action-secondary-warning strong { font-size: .72rem; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .action-secondary-warning p { margin-top: 3px; font-size: .64rem; line-height: 1.12; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .critical-message {
+  min-height: 36px;
+  grid-template-columns: minmax(82px, auto) 1fr;
+  padding: 5px 8px;
+}
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .critical-message strong { font-size: 1rem; }
+html[data-dashboard-fullscreen-orientation="landscape"] .wallboard-fullscreen .critical-message span { font-size: .62rem; line-height: 1.12; }
+
 /* In portrait presentation mode the same fixed canvas gains extra logical
    height, allowing both complete room panels to share one screen vertically. */
 html[data-dashboard-fullscreen-orientation="portrait"] .wallboard-fullscreen .room-layout {
