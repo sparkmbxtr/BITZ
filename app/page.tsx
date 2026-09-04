@@ -814,24 +814,41 @@ function humidityGrade(value: number | null): Grade {
   return { label: "ACT", level: "action" };
 }
 
-function labHumidityGrade(value: number | null, outdoorValue: number | null | undefined): Grade {
-  if (value !== null && outdoorValue !== null && outdoorValue !== undefined && outdoorValue >= 80) {
-    return { label: "OUT HIGH", level: "good" };
-  }
+function labHumidityAdaptation(room: RoomData, outdoor: OutdoorData | null) {
+  const latest = room.latest;
+  const outdoorLatest = outdoor?.latest ?? null;
+  if (!latest || !outdoor || outdoorLatest?.humidity === null || outdoorLatest?.humidity === undefined) return false;
+
+  const dayKey = berlinCalendar(latest.timestamp).dayKey;
+  const cycle = activityCycles(room.samples, "LAB").find((candidate) => candidate.dayKey === dayKey) ?? null;
+  if (cycle?.close && latest.timestamp >= cycle.close) return false;
+
+  const currentOutdoorHigh = outdoorLatest.humidity > 70;
+  const indoorIsTenLower = latest.humidity !== null && outdoorLatest.humidity - latest.humidity >= 10;
+  const outdoorWasVeryHighToday = outdoor.samples.some((sample) =>
+    sample.timestamp <= latest.timestamp &&
+    berlinCalendar(sample.timestamp).dayKey === dayKey &&
+    sample.humidity !== null &&
+    sample.humidity > 80
+  );
+  return currentOutdoorHigh || indoorIsTenLower || outdoorWasVeryHighToday;
+}
+
+function labHumidityGrade(value: number | null, adaptationActive: boolean): Grade {
+  if (value !== null && adaptationActive) return { label: "ADAPT", level: "watch" };
   return humidityGrade(value);
 }
 
 function labPerformanceGrade(
   value: number | null,
   sample: Sample | null,
-  outdoorHumidity: number | null | undefined,
+  humidityAdaptationActive: boolean,
   checks: Check[],
 ): Grade {
   const base = indexGrade(value);
-  if (base.level !== "action" || !sample || outdoorHumidity === null || outdoorHumidity === undefined || outdoorHumidity < 80) {
+  if ((base.level !== "watch" && base.level !== "action") || !sample || !humidityAdaptationActive) {
     return base;
   }
-  const indoorHumidityIsHigh = sample.humidity !== null && sample.humidity > 70;
   const independentChecksClear = checks.every((check) => check.level === "normal");
   const independentGrades = [
     indexGrade(sample.health),
@@ -843,7 +860,7 @@ function labPerformanceGrade(
     labPmGrade(sample.pm25),
   ];
   const independentMetricsClear = independentGrades.every((grade) => grade.level === "great" || grade.level === "good");
-  return indoorHumidityIsHigh && independentChecksClear && independentMetricsClear
+  return independentChecksClear && independentMetricsClear
     ? { label: "ADAPT", level: "watch" }
     : base;
 }
@@ -1179,6 +1196,16 @@ function OutdoorWeather({ outdoor }: { outdoor: OutdoorData }) {
   );
 }
 
+function PersistentEnvironmentNotices({ now }: { now: number }) {
+  const dayKey = berlinCalendar(now).dayKey;
+  const notices = [
+    dayKey <= "2026-12-15" ? "PERSISTENT · ROAD CONSTRUCTION" : null,
+    dayKey <= "2027-08-08" ? "PERSISTENT · MAIN LAB BUILDING CONSTRUCTION" : null,
+  ].filter((notice): notice is string => notice !== null);
+  if (!notices.length) return null;
+  return <div className="environment-context" aria-label="Persistent external activity context">{notices.map((notice) => <span key={notice}>{notice}</span>)}</div>;
+}
+
 export default function Home() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [passwordVerifierReady, setPasswordVerifierReady] = useState<boolean | null>(null);
@@ -1452,6 +1479,7 @@ export default function Home() {
         <div className="identity"><strong>BITZ LAB AIR MONITORING</strong><span>LIVE READINGS · 24-HOUR HISTORY · LATEST 60-MINUTE ANALYSIS</span></div>
         <div className="header-state" aria-live="polite">
           {data.outdoor ? <OutdoorWeather outdoor={data.outdoor} /> : null}
+          <PersistentEnvironmentNotices now={clock} />
           {bioengineeringDayStatus ? (
             <div className="day-end-stamps" aria-label="Earliest computed LAB or OFFICE workday transitions">
               <span>{bioengineeringDayStatus}</span>
@@ -1618,7 +1646,8 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
   const outdoorLatest = outdoor?.latest ?? null;
   const outdoorParticles = outdoor?.particleLatest ?? null;
-  const performanceGrade = labPerformanceGrade(latest?.performance ?? null, latest, outdoorLatest?.humidity, room.checks);
+  const humidityAdaptationActive = labHumidityAdaptation(room, outdoor);
+  const performanceGrade = labPerformanceGrade(latest?.performance ?? null, latest, humidityAdaptationActive, room.checks);
   const hepa = hepaAssessment(room.samples, latest);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
   const cycle = latestCycle(room.samples, "LAB");
@@ -1693,7 +1722,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
         <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} comparison={outdoorParticles?.pm25 !== null && outdoorParticles?.pm25 !== undefined ? `≈${fmt(outdoorParticles.pm25, 1)}` : undefined} note="measured fine-particle channel; outdoor comparison is CAMS model context via Open-Meteo rather than a local outdoor sensor" grade={labPmGrade(latest?.pm25 ?? null)} />
         <Metric label="Oxygen" value={`${fmt(latest?.oxygen, 2)}%`} note="displacement proxy" grade={oxygenGrade(latest?.oxygen ?? null)} />
         <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} comparison={outdoorLatest?.temperature !== null && outdoorLatest?.temperature !== undefined ? `${fmt(outdoorLatest.temperature, 1)}°C` : undefined} note="LAB thermal band" grade={temperatureGrade(latest?.temperature ?? null, "LAB")} />
-        <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} comparison={outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined ? `${fmt(outdoorLatest.humidity)}%` : undefined} note="LAB supply has no dehumidification; OUT HIGH appears from 80% outdoor RH because indoor RH may rise afterward" grade={labHumidityGrade(latest?.humidity ?? null, outdoorLatest?.humidity)} />
+        <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} comparison={outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined ? `${fmt(outdoorLatest.humidity)}%` : undefined} note="LAB supply has no dehumidification; ADAPT reflects the current or retained outdoor-humidity context until CLOSE" grade={labHumidityGrade(latest?.humidity ?? null, humidityAdaptationActive)} />
       </div>
       <div className="evidence-layout">
         <section className="evidence-panel" aria-labelledby="evidence-heading">
