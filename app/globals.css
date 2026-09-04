@@ -120,8 +120,8 @@ button, input { font: inherit; }
 .outdoor-weather strong { color: var(--cyan); font-size: clamp(.58rem, min(.56vw, 1vh), .72rem); letter-spacing: .045em; }
 .outdoor-weather span { color: var(--foreground); font-size: clamp(.78rem, min(.74vw, 1.28vh), .96rem); font-weight: 760; font-variant-numeric: tabular-nums; }
 .outdoor-weather small { color: var(--muted); font-size: clamp(.54rem, min(.51vw, .9vh), .66rem); }
-.environment-context { min-width: 230px; display: grid; gap: 3px; }
-.environment-context span { min-height: 21px; display: flex; align-items: center; padding: 3px 7px; border: 1px solid rgba(255, 196, 87, .3); border-left: 3px solid var(--amber); background: rgba(73, 52, 15, .58); color: #ffe2a3; font-size: clamp(.54rem, min(.51vw, .9vh), .68rem); font-weight: 760; line-height: 1.05; letter-spacing: .025em; }
+.environment-context { min-width: 340px; display: grid; gap: 3px; }
+.environment-context span { min-height: 21px; display: flex; align-items: center; padding: 3px 7px; border: 1px solid rgba(255, 196, 87, .3); border-left: 3px solid var(--amber); background: rgba(73, 52, 15, .58); color: #ffe2a3; font-size: clamp(.54rem, min(.51vw, .9vh), .68rem); font-weight: 760; line-height: 1.05; letter-spacing: .025em; white-space: nowrap; }
 .header-state button, .header-state .header-export { min-height: 38px; padding: 7px 12px; display: inline-flex; align-items: center; color: var(--foreground); background: var(--panel-strong); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; text-decoration: none; }
 .connection-dot { width: 12px; height: 12px; flex: 0 0 auto; border-radius: 50%; background: var(--amber); }
 .connection-dot.is-live { background: var(--green); box-shadow: 0 0 14px rgba(105, 221, 162, .65); }
@@ -455,6 +455,7 @@ line.activity-close { stroke: var(--amber); }
 .wallboard-compact .header-state { width: 100%; min-width: 0; justify-content: flex-start; flex-wrap: wrap; white-space: normal; }
 .wallboard-compact .outdoor-weather { min-width: min(100%, 250px); }
 .wallboard-compact .environment-context { min-width: min(100%, 300px); }
+.wallboard-compact .environment-context span { white-space: normal; }
 .wallboard-compact .day-end-stamps { width: 100%; text-align: left; }
 .wallboard-compact .room-layout { grid-template-columns: minmax(0, 1fr); align-items: start; overflow: visible; }
 .wallboard-compact .lab-panel { grid-template-rows: repeat(5, auto); }
@@ -496,6 +497,7 @@ line.activity-close { stroke: var(--amber); }
   .header-state { width: 100%; min-width: 0; justify-content: flex-start; flex-wrap: wrap; gap: 7px; white-space: normal; }
   .outdoor-weather { width: min(100%, 280px); min-width: 0; }
   .environment-context { width: min(100%, 320px); min-width: 0; }
+  .environment-context span { white-space: normal; }
   .day-end-stamps { width: 100%; text-align: left; }
   .header-state button { padding-inline: 8px; }
   .room-layout { padding: 7px 6px; }
