@@ -1533,9 +1533,9 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   const condensationWatch = room.status === "normal" && outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined && outdoorLatest.humidity > 90;
   const labAction = condensationWatch
     ? {
-        label: "CONDENSATION WATCH",
+        label: "HIGH OUTDOOR HUMIDITY",
         level: "watch",
-        text: `Outdoor RH is ${fmt(outdoorLatest.humidity)}%. Check electronics, connectors, optics and cooled surfaces for condensation.`,
+        text: `Outdoor RH is ${fmt(outdoorLatest.humidity)}%. LAB RH is ${fmt(latest?.humidity)}%.`,
       }
     : {
         label: room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK",
