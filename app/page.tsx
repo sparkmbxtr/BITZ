@@ -1173,6 +1173,14 @@ function checkDisplayLabel(check: Check) {
   return check.label.toLowerCase().endsWith(method) ? check.label : `${check.label} · ${method}`;
 }
 
+function meaningEvidenceStatus(check: Check) {
+  if (["Propane-associated pattern", "Nitrogen (N₂) displacement pattern"].includes(check.label) && check.status === "NOT INDICATED") return "NOT INF";
+  if (check.label === "CO release" && check.status === "NO ELEVATION") return "SAFE";
+  if (check.label === "O₂ displacement" && check.status === "NOT INDICATED") return "NORMAL";
+  if (check.label === "Formaldehyde elevation" && check.status === "NOT DETECTED") return "NORMAL";
+  return check.status;
+}
+
 function TrafficLight({ status }: { status: RoomData["status"] }) {
   const active = status === "normal" ? "green" : status === "action" ? "red" : "amber";
   return (
@@ -1762,7 +1770,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
             </div>
           ) : null}
           <div className="meaning-evidence" aria-label="Signals supporting the current interpretation">
-            {evidenceChecks.map((check) => <div className={`meaning-signal meaning-signal-${check.level}`} key={check.label}><span>{evidenceLabels[check.label] ?? check.label}</span><b>{check.status}</b></div>)}
+            {evidenceChecks.map((check) => <div className={`meaning-signal meaning-signal-${check.level}`} key={check.label}><span>{evidenceLabels[check.label] ?? check.label}</span><b aria-label={check.status} title={check.status}>{meaningEvidenceStatus(check)}</b></div>)}
           </div>
           {routineClosed
             ? <div className="closed-period-copy"><strong>ROUTINE ACTIONS PAUSED</strong><p>No operational action step is displayed after CLOSE. The live channels and recent pattern remain visible for trend review.</p></div>

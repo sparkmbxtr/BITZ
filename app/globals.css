@@ -223,7 +223,7 @@ button, input { font: inherit; }
 .trend-label-secondary { color: var(--amber); }
 .trend-label-separator { align-self: stretch; width: 2px; min-height: 2.35em; margin-inline: .16em; border-radius: 2px; background: var(--muted); opacity: .72; }
 .trend-reading { width: 112px; min-width: 112px; display: grid; justify-items: stretch; align-content: center; gap: 6px; text-align: center; }
-.trend-reading .grade-pill { width: 100%; justify-content: center; }
+.trend-reading .grade-pill { box-sizing: border-box; width: 112px; min-width: 112px; max-width: 112px; height: 27px; padding: 0 7px; justify-content: center; }
 .trend-secondary-grade { margin-top: 1px; }
 .trend-secondary-grade.grade-action { color: var(--red); background: rgba(72, 28, 26, .9); }
 .trend-reading small { color: #d7e7e9; font-size: clamp(.61rem, min(.57vw, 1.02vh), .76rem); font-weight: 720; line-height: 1.15; white-space: nowrap; }
