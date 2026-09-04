@@ -1506,7 +1506,7 @@ export default function Home() {
         <OfficeRail room={displayedOfficeRoom} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes} />
       </div>
       <footer className="wallboard-footer">
-        <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 //Corant GmbH | 04229 Leipzig</span>
+        <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 | Corant GmbH | 04229 Leipzig</span>
         <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
       </footer>
     </main>
