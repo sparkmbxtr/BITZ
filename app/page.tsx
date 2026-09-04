@@ -785,6 +785,33 @@ function labHumidityGrade(value: number | null, outdoorValue: number | null | un
   return humidityGrade(value);
 }
 
+function labPerformanceGrade(
+  value: number | null,
+  sample: Sample | null,
+  outdoorHumidity: number | null | undefined,
+  checks: Check[],
+): Grade {
+  const base = indexGrade(value);
+  if (base.level !== "action" || !sample || outdoorHumidity === null || outdoorHumidity === undefined || outdoorHumidity < 80) {
+    return base;
+  }
+  const indoorHumidityIsHigh = sample.humidity !== null && sample.humidity > 70;
+  const independentChecksClear = checks.every((check) => check.level === "normal");
+  const independentGrades = [
+    indexGrade(sample.health),
+    co2Grade(sample.co2),
+    tvocGrade(sample.tvoc),
+    oxygenGrade(sample.oxygen),
+    temperatureGrade(sample.temperature, "LAB"),
+    labPmGrade(sample.pm1),
+    labPmGrade(sample.pm25),
+  ];
+  const independentMetricsClear = independentGrades.every((grade) => grade.level === "great" || grade.level === "good");
+  return indoorHumidityIsHigh && independentChecksClear && independentMetricsClear
+    ? { label: "ADAPT", level: "watch" }
+    : base;
+}
+
 function labPmGrade(value: number | null): Grade {
   if (value === null) return { label: "NO DATA", level: "unknown" };
   if (value <= 1) return { label: "PRISTINE", level: "great" };
@@ -1495,6 +1522,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   const currentParticleAvailable = Boolean(pmObservation && latest && latest.timestamp - pmObservation.timestamp <= 10 * 60_000);
   const outdoorLatest = outdoor?.latest ?? null;
   const outdoorParticles = outdoor?.particleLatest ?? null;
+  const performanceGrade = labPerformanceGrade(latest?.performance ?? null, latest, outdoorLatest?.humidity, room.checks);
   const hepa = hepaAssessment(room.samples, latest);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
   const cycle = latestCycle(room.samples, "LAB");
@@ -1546,7 +1574,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
       </div>
       <div className="metric-grid">
         <Metric label="Health" value={fmt(latest?.health)} note="air-Q index + raw channels" grade={indexGrade(latest?.health ?? null)} />
-        <Metric label="Performance" value={fmt(latest?.performance)} note="air-Q workday index" grade={indexGrade(latest?.performance ?? null)} />
+        <Metric label="Performance" value={fmt(latest?.performance)} note={performanceGrade.label === "ADAPT" ? "air-Q workday index; outdoor-driven humidity is the only active condition" : "air-Q workday index"} grade={performanceGrade} />
         <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="gas-pattern context" grade={tvocGrade(latest?.tvoc ?? null)} />
         <Metric label="PM₁" value={`${fmt(latest?.pm1, 1)} µg/m³`} note="measured fine-particle channel" grade={labPmGrade(latest?.pm1 ?? null)} />
