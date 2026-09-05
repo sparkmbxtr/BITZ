@@ -322,6 +322,17 @@ line.activity-close { stroke: var(--amber); }
 .meaning-evidence > .meaning-signal > span { display: flex; align-items: center; justify-content: center; color: #f2fbf7; font-size: clamp(.94rem, min(.9vw, 1.62vh), 1.18rem); font-weight: 780; letter-spacing: .025em; }
 .meaning-evidence b.meaning-status { display: flex; align-items: center; justify-content: center; height: 2.05em; min-height: 2.05em; font-family: inherit; font-size: clamp(1.12rem, min(1.12vw, 2vh), 1.46rem); font-stretch: normal; font-weight: 850; letter-spacing: .02em; line-height: 1.02; text-align: center; white-space: pre-line; }
 .meaning-status[data-status="SAFE"] { letter-spacing: .09em; }
+.meaning-status > .not-inferred-full,
+.meaning-status > .not-inferred-short {
+  font-family: inherit;
+  font-size: 1em;
+  font-weight: inherit;
+  font-stretch: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  white-space: nowrap;
+}
 .not-inferred-short { display: none; }
 @container (max-width: 9rem) {
   .not-inferred-full { display: none; }
