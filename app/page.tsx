@@ -841,8 +841,16 @@ function labHumidityAdaptation(room: RoomData, outdoor: OutdoorData | null) {
 }
 
 function labHumidityGrade(value: number | null, adaptationActive: boolean): Grade {
-  if (value !== null && adaptationActive) return { label: "ADAPT", level: "watch" };
-  return humidityGrade(value);
+  const indoorGrade = humidityGrade(value);
+  if (
+    value !== null &&
+    value > 65 &&
+    adaptationActive &&
+    (indoorGrade.level === "watch" || indoorGrade.level === "action")
+  ) {
+    return { label: "ADAPT", level: "watch" };
+  }
+  return indoorGrade;
 }
 
 function labPerformanceGrade(
@@ -1180,7 +1188,7 @@ function checkDisplayLabel(check: Check) {
 }
 
 function meaningEvidenceStatus(check: Check) {
-  if (["Propane-associated pattern", "Nitrogen (N₂) displacement pattern"].includes(check.label) && check.status === "NOT INDICATED") return "NOT INF";
+  if (["Propane-associated pattern", "Nitrogen (N₂) displacement pattern"].includes(check.label) && check.status === "NOT INDICATED") return "NOT INFERRED";
   if (check.label === "CO release" && check.status === "NO ELEVATION") return "SAFE";
   if (check.label === "Volatile-gas pattern" && check.status === "VERIFY SOURCE") return "VERIFY\nSOURCE";
   if (check.label === "O₂ displacement" && check.status === "NOT INDICATED") return "NORMAL";
@@ -1873,7 +1881,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
         <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} comparison={outdoorParticles?.pm25 !== null && outdoorParticles?.pm25 !== undefined ? `≈${fmt(outdoorParticles.pm25, 1)}` : undefined} note="measured fine-particle channel; outdoor comparison is CAMS model context via Open-Meteo rather than a local outdoor sensor" grade={labPmGrade(latest?.pm25 ?? null)} />
         <Metric label="Oxygen" value={`${fmt(latest?.oxygen, 2)}%`} note="displacement proxy" grade={oxygenGrade(latest?.oxygen ?? null)} />
         <Metric label="Temperature" value={`${fmt(latest?.temperature, 1)}°C`} comparison={outdoorLatest?.temperature !== null && outdoorLatest?.temperature !== undefined ? `${fmt(outdoorLatest.temperature, 1)}°C` : undefined} note="LAB thermal band" grade={temperatureGrade(latest?.temperature ?? null, "LAB")} />
-        <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} comparison={outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined ? `${fmt(outdoorLatest.humidity)}%` : undefined} note="LAB supply has no dehumidification; ADAPT reflects the current or retained outdoor-humidity context until CLOSE" grade={labHumidityGrade(latest?.humidity ?? null, humidityAdaptationActive)} />
+        <Metric label="Humidity" value={`${fmt(latest?.humidity)}%`} comparison={outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined ? `${fmt(outdoorLatest.humidity)}%` : undefined} note="Indoor RH grade; outdoor RH is context only. ADAPT applies only when LAB RH is above the normal band and outdoor conditions support it" grade={labHumidityGrade(latest?.humidity ?? null, humidityAdaptationActive)} />
       </div>
       <div className="evidence-layout">
         <section className="evidence-panel" aria-labelledby="evidence-heading">
@@ -1919,7 +1927,14 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
                       </>
                     ) : evidenceLabels[check.label] ?? check.label}
                   </span>
-                  <b className="meaning-status" data-status={status} aria-label={check.status} title={check.status}>{status}</b>
+                  <b className="meaning-status" data-status={status} aria-label={check.status} title={check.status}>
+                    {status === "NOT INFERRED" ? (
+                      <>
+                        <span className="not-inferred-full">NOT INFERRED</span>
+                        <span className="not-inferred-short">NOT INF</span>
+                      </>
+                    ) : status}
+                  </b>
                 </div>
               );
             })}
