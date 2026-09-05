@@ -1228,7 +1228,7 @@ function PersistentEnvironmentNotices({ now }: { now: number }) {
   const dayKey = berlinCalendar(now).dayKey;
   const notices = [
     dayKey <= "2026-12-15" ? "PERSISTENT ENVIRONMENT CONTEXT · ROAD CONSTRUCTION · UP TO DEC'26" : null,
-    dayKey <= "2027-08-08" ? "PERSISTENT ENVIRONMENT CONTEXT · LAB BUILDING CONSTRUCTION" : null,
+    dayKey <= "2027-08-08" ? "PERSISTENT ENVIRONMENT CONTEXT · LAB 2 BUILDING CONSTRUCTION" : null,
   ].filter((notice): notice is string => notice !== null);
   if (!notices.length) return null;
   return <div className="environment-context" aria-label="Persistent external activity context">{notices.map((notice) => <span key={notice}>{notice}</span>)}</div>;
