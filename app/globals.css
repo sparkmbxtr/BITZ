@@ -199,8 +199,9 @@ button, input { font: inherit; }
 .metric-watch { border-color: rgba(255, 196, 87, .4); border-bottom-color: var(--amber); background: linear-gradient(135deg, rgba(92, 62, 10, .78), var(--panel-strong) 76%); }
 .metric-action { border-color: rgba(255, 147, 79, .44); border-bottom-color: var(--orange); background: linear-gradient(135deg, rgba(105, 48, 14, .8), var(--panel-strong) 76%); }
 .metric-unknown { border-color: rgba(192, 201, 203, .25); border-bottom-color: var(--unknown); }
-.metric-label { min-width: 0; display: flex; align-items: center; }
+.metric-label { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .metric-label > span { min-width: 0; color: var(--foreground); font-size: clamp(.78rem, min(.7vw, 1.32vh), .94rem); font-weight: 720; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metric-label > .metric-source { flex: 0 0 auto; color: rgba(214, 229, 231, .42); font-size: clamp(.58rem, min(.5vw, .9vh), .7rem); font-weight: 650; letter-spacing: .025em; line-height: 1; white-space: nowrap; }
 .grade-pill { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; padding: 3px 7px; border: 1px solid currentColor; border-radius: 999px; font-size: clamp(.64rem, .57vw, .76rem); font-weight: 820; line-height: 1; letter-spacing: .045em; white-space: nowrap; }
 .grade-pill i { width: 8px; height: 8px; display: inline-block; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
 .grade-great { color: var(--green); background: rgba(19, 71, 48, .72); }
