@@ -168,8 +168,19 @@ jobs:
           [[ -s "${report}" ]]
           [[ "$(head -c 5 "${report}")" == "%PDF-" ]]
           tail -c 2048 "${report}" | grep -q '%%EOF'
-          [[ "$(pdfinfo "${report}" | awk '/^Pages:/ {print $2}')" == "20" ]]
-          pdfinfo "${report}" | grep -q 'Page size:.*A2'
+          python - "${report}" <<'PY'
+          import sys
+          from pypdf import PdfReader
+
+          reader = PdfReader(sys.argv[1], strict=True)
+          assert len(reader.pages) == 20, f"expected 20 pages, found {len(reader.pages)}"
+          for page_number, page in enumerate(reader.pages, start=1):
+              width = float(page.mediabox.width)
+              height = float(page.mediabox.height)
+              assert abs(width - 1683.78) < 1 and abs(height - 1190.55) < 1, (
+                  f"page {page_number} is not A2 landscape: {width} x {height} pt"
+              )
+          PY
 
       - name: Publish verified report atomically
         if: steps.gate.outputs.run == 'true'
