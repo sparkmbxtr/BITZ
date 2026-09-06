@@ -204,6 +204,35 @@ function fmt(value: number | null | undefined, digits = 0) {
   return value.toLocaleString("en-GB", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+function chronologicalByTimestamp<T extends { timestamp: number }>(samples: T[]) {
+  const unique = new Map<number, T>();
+  for (const sample of samples) {
+    if (Number.isFinite(sample.timestamp)) unique.set(sample.timestamp, sample);
+  }
+  return [...unique.values()].sort((left, right) => left.timestamp - right.timestamp);
+}
+
+function normalizeDashboardData(payload: DashboardData): DashboardData {
+  const labSamples = chronologicalByTimestamp(payload.rooms.lab.samples);
+  const officeSamples = chronologicalByTimestamp(payload.rooms.office.samples);
+  const outdoorSamples = payload.outdoor ? chronologicalByTimestamp(payload.outdoor.samples) : [];
+
+  return {
+    ...payload,
+    outdoor: payload.outdoor
+      ? {
+          ...payload.outdoor,
+          samples: outdoorSamples,
+          latest: outdoorSamples.at(-1) ?? payload.outdoor.latest,
+        }
+      : payload.outdoor,
+    rooms: {
+      lab: { ...payload.rooms.lab, samples: labSamples, latest: labSamples.at(-1) ?? payload.rooms.lab.latest },
+      office: { ...payload.rooms.office, samples: officeSamples, latest: officeSamples.at(-1) ?? payload.rooms.office.latest },
+    },
+  };
+}
+
 function berlinClock(timestamp: number) {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Berlin",
@@ -944,6 +973,7 @@ function pointsFor(
   return samples
     .map((sample) => ({ sample, value: selector(sample) }))
     .filter((point): point is { sample: Sample; value: number } => point.value !== null && Number.isFinite(point.value))
+    .sort((left, right) => left.sample.timestamp - right.sample.timestamp)
     .map((point, index) => {
       const x = ((point.sample.timestamp - domainStart) / timeRange) * 100;
       const y = 25 - ((point.value - valueMin) / range) * 18;
@@ -964,7 +994,8 @@ function outdoorValueAt(
 ) {
   const available = samples
     .map((sample) => ({ timestamp: sample.timestamp, value: selector(sample) }))
-    .filter((sample): sample is { timestamp: number; value: number } => sample.value !== null && Number.isFinite(sample.value));
+    .filter((sample): sample is { timestamp: number; value: number } => sample.value !== null && Number.isFinite(sample.value))
+    .sort((left, right) => left.timestamp - right.timestamp);
   if (!available.length) return null;
   let before: { timestamp: number; value: number } | null = null;
   let after: { timestamp: number; value: number } | null = null;
@@ -1012,26 +1043,27 @@ function HistoryTrend({
   climateReference?: ClimateReference;
   sampleGrade?: (sample: Sample) => Grade;
 }) {
+  const orderedSamples = useMemo(() => chronologicalByTimestamp(samples), [samples]);
   const geometry = useMemo(() => {
-    const start = samples[0]?.timestamp ?? 0;
-    const end = samples.at(-1)?.timestamp ?? start + 1;
+    const start = orderedSamples[0]?.timestamp ?? 0;
+    const end = orderedSamples.at(-1)?.timestamp ?? start + 1;
     const recentStart = end - analysisMinutes * 60_000;
     function build(selector?: (sample: Sample) => number | null, referenceSelector?: (sample: OutdoorSample) => number | null) {
       if (!selector) return { all: "", recent: "", current: null as { x: number; y: number } | null, count: 0, scale: null as { min: number; max: number } | null };
-      const indoorValues = samples.map(selector).filter((value): value is number => value !== null && Number.isFinite(value));
+      const indoorValues = orderedSamples.map(selector).filter((value): value is number => value !== null && Number.isFinite(value));
       const outdoorValues = referenceSelector && climateReference
         ? climateReference.samples.map(referenceSelector).filter((value): value is number => value !== null && Number.isFinite(value))
         : [];
       const values = [...indoorValues, ...outdoorValues];
       if (values.length < 2) {
-        const observation = latestObservation(samples, selector);
+        const observation = latestObservation(orderedSamples, selector);
         const x = observation ? ((observation.timestamp - start) / Math.max(end - start, 1)) * 100 : 0;
         return { all: "", recent: "", current: observation ? { x, y: 15 } : null, count: indoorValues.length, scale: observation ? { min: observation.value, max: observation.value } : null };
       }
       const min = Math.min(...values);
       const max = Math.max(...values);
-      const allPoints = pointsFor(samples, selector, start, end, min, max);
-      const recentPoints = pointsFor(samples.filter((sample) => sample.timestamp >= recentStart), selector, start, end, min, max);
+      const allPoints = pointsFor(orderedSamples, selector, start, end, min, max);
+      const recentPoints = pointsFor(orderedSamples.filter((sample) => sample.timestamp >= recentStart), selector, start, end, min, max);
       return {
         all: allPoints.map((point) => `${point.command}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "),
         recent: recentPoints.map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "),
@@ -1046,7 +1078,7 @@ function HistoryTrend({
     ) {
       if (!climateReference || !referenceSelector || !scale) return "";
       const valueRange = scale.max - scale.min || 1;
-      const points = samples.flatMap((sample) => {
+      const points = orderedSamples.flatMap((sample) => {
         const outdoor = outdoorValueAt(climateReference.samples, referenceSelector, sample.timestamp);
         if (outdoor === null || !Number.isFinite(outdoor)) return [];
         return [{
@@ -1060,13 +1092,13 @@ function HistoryTrend({
       return `M${first.x.toFixed(2)},25 L${points.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" L")} L${last.x.toFixed(2)},25 Z`;
     }
     const timeRange = Math.max(end - start, 1);
-    const graded = samples.map((sample, index) => {
+    const graded = orderedSamples.map((sample, index) => {
       const x = ((sample.timestamp - start) / timeRange) * 100;
-      const previousX = index === 0 ? 0 : ((samples[index - 1].timestamp - start) / timeRange) * 100;
-      const nextX = index === samples.length - 1 ? 100 : ((samples[index + 1].timestamp - start) / timeRange) * 100;
+      const previousX = index === 0 ? 0 : ((orderedSamples[index - 1].timestamp - start) / timeRange) * 100;
+      const nextX = index === orderedSamples.length - 1 ? 100 : ((orderedSamples[index + 1].timestamp - start) / timeRange) * 100;
       return {
         from: index === 0 ? 0 : (previousX + x) / 2,
-        to: index === samples.length - 1 ? 100 : (x + nextX) / 2,
+        to: index === orderedSamples.length - 1 ? 100 : (x + nextX) / 2,
         level: (sampleGrade ? sampleGrade(sample) : levelFor(primary(sample))).level,
       };
     });
@@ -1077,7 +1109,7 @@ function HistoryTrend({
       return result;
     }, []);
     const ticks = roundedTimeTicks(start, end);
-    const events: ActivityEvent[] = activityCycles(samples, room).flatMap((cycle) => [
+    const events: ActivityEvent[] = activityCycles(orderedSamples, room).flatMap((cycle) => [
       ...(cycle.begin ? [{ timestamp: cycle.begin, label: "BEGIN" as const, peopleRange: cycle.peopleRange }] : []),
       ...(cycle.close ? [{ timestamp: cycle.close, label: "CLOSE" as const, peopleRange: null }] : []),
     ]).filter((event) => event.timestamp >= start && event.timestamp <= end)
@@ -1094,7 +1126,7 @@ function HistoryTrend({
       events,
       recentBoundary: Math.max(0, ((recentStart - start) / timeRange) * 100),
     };
-  }, [samples, primary, secondary, analysisMinutes, levelFor, room, climateReference, sampleGrade]);
+  }, [orderedSamples, primary, secondary, analysisMinutes, levelFor, room, climateReference, sampleGrade]);
 
   const showPrimaryAxis = Boolean(primaryUnit);
   const showSecondaryAxis = Boolean(secondaryUnit && secondary);
@@ -1127,7 +1159,7 @@ function HistoryTrend({
               style={{ left: `${Math.min(98, Math.max(2, event.x))}%` }}
               title={
                 event.label === "BEGIN"
-                  ? `${beganWording(event.timestamp, samples.at(-1)?.timestamp, room === "LAB" && labPmGrade(pmBalanceObservation(samples)?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")} ${berlinShortTime(event.timestamp)}`
+                  ? `${beganWording(event.timestamp, orderedSamples.at(-1)?.timestamp, room === "LAB" && labPmGrade(pmBalanceObservation(orderedSamples)?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")} ${berlinShortTime(event.timestamp)}`
                   : room === "OFFICE"
                     ? `CLOSE ${berlinShortTime(event.timestamp)} · sustained TVOC-rise onset with departure support`
                     : `CLOSE ${berlinShortTime(event.timestamp)} · coordinated late-day transition`
@@ -1178,7 +1210,7 @@ function TrendScale({ scale, unit, side }: { scale: { min: number; max: number }
 }
 
 function LevelMark({ status }: { status: RoomData["status"] }) {
-  return <span className={`level-mark level-${status}`} aria-hidden="true">{status === "normal" ? "✓" : status === "action" ? "!" : "•"}</span>;
+  return <span className={`level-mark level-${status}`} aria-hidden="true">{status === "normal" ? "" : status === "action" ? "!" : "•"}</span>;
 }
 
 function checkDisplayLabel(check: Check) {
@@ -1228,7 +1260,7 @@ function PersistentEnvironmentNotices({ now }: { now: number }) {
   const dayKey = berlinCalendar(now).dayKey;
   const notices = [
     dayKey <= "2026-12-15" ? "PERSISTENT ENVIRONMENT CONTEXT · ROAD CONSTRUCTION · UP TO DEC'26" : null,
-    dayKey <= "2027-08-08" ? "PERSISTENT ENVIRONMENT CONTEXT · LAB 2 BUILDING CONSTRUCTION" : null,
+    dayKey <= "2027-08-08" ? "PERSISTENT ENVIRONMENT CONTEXT · LAB 2 BUILDING CONSTRUCTION · X'27" : null,
   ].filter((notice): notice is string => notice !== null);
   if (!notices.length) return null;
   return <div className="environment-context" aria-label="Persistent external activity context">{notices.map((notice) => <span key={notice}>{notice}</span>)}</div>;
@@ -1354,7 +1386,7 @@ export default function Home() {
       }
       if (!response.ok) throw new Error("Live feed unavailable");
       const payload = (await response.json()) as DashboardData;
-      if (payload.rooms?.lab && payload.rooms?.office) setData(payload);
+      if (payload.rooms?.lab && payload.rooms?.office) setData(normalizeDashboardData(payload));
     } catch {
       setData((current) => current.live ? { ...current, live: false, message: "Live refresh unavailable — showing last received values" } : current);
     } finally {
@@ -1618,7 +1650,7 @@ export default function Home() {
       </div>
       <footer className="wallboard-footer">
         <button className="context-trigger" type="button" onClick={openContextInput} aria-haspopup="dialog">CODES</button>
-        <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026</span>
+        <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 · If this is not your own device, select Lock (top right) before leaving.</span>
         <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
         {contextOpen ? (
           <section className="context-popover" role="dialog" aria-modal="true" aria-labelledby="context-title">
@@ -1837,7 +1869,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   const evidenceLabels: Record<string, string> = {
     "Propane-associated pattern": "PROPANE WARNING",
     "Nitrogen (N₂) displacement pattern": "NITROGEN WARNING",
-    "CO release": "CO SAFETY",
+    "CO release": "CO SAFETY WARNING",
     "Volatile-gas pattern": "GAS / VAPOUR",
     "O₂ displacement": "OXYGEN",
     "Formaldehyde elevation": "FORMALDEHYDE",
