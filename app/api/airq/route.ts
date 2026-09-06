@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
-import { apiKeyFromRequest, isAuthorized } from "@/lib/dashboard-auth";
+import { apiKeyFromRequest, isAuthorized, isBearerAuthorized } from "@/lib/dashboard-auth";
 import { readStoredApiKey } from "@/lib/airq-key-store";
+import { isGitHubActionsExportAuthorized } from "@/lib/github-actions-oidc";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,6 @@ type Sample = {
   temperature: number | null;
   humidity: number | null;
   humidityAbs: number | null;
-  dewpt: number | null;
   co2: number | null;
   co: number | null;
   oxygen: number | null;
@@ -21,22 +21,114 @@ type Sample = {
   hcho: number | null;
   pm1: number | null;
   pm25: number | null;
+  pm4: number | null;
   pm10: number | null;
+  pressure: number | null;
+  pressureRel: number | null;
+  dewpt: number | null;
+  dco2dt: number | null;
+  dhdt: number | null;
   sound: number | null;
   soundMax: number | null;
   health: number | null;
   performance: number | null;
+  additionalEnvironmental?: Record<string, number>;
 };
 
-type OutdoorConditions = {
+type OutdoorSample = {
+  timestamp: number;
+  temperature: number | null;
   humidity: number | null;
+};
+
+type OutdoorParticleSample = {
+  timestamp: number;
+  pm25: number | null;
+};
+
+type OutdoorData = {
+  location: "Oberschneiding";
+  source: "DWD via Bright Sky";
+  station: string | null;
+  samples: OutdoorSample[];
+  latest: OutdoorSample | null;
+  particleLatest: OutdoorParticleSample | null;
 };
 
 const API_ROOT = "https://air-q-cloud.de/open_api/v3";
 const HISTORY_HOURS = 24;
+const MAX_EXPORT_HOURS = 48;
 const ANALYSIS_MINUTES = 60;
-const OUTDOOR_LATITUDE = 48.7933;
-const OUTDOOR_LONGITUDE = 12.6433;
+const BRIGHT_SKY_ROOT = "https://api.brightsky.dev";
+const OPEN_METEO_AIR_ROOT = "https://air-quality-api.open-meteo.com/v1/air-quality";
+const OBERSCHNEIDING_LATITUDE = "48.7957";
+const OBERSCHNEIDING_LONGITUDE = "12.6420";
+const OUTDOOR_CACHE_MS = 10 * 60_000;
+
+let outdoorCache: { expiresAt: number; data: OutdoorData } | null = null;
+
+const BERLIN_CLOCK = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Berlin",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+const BERLIN_DATE_TIME = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Berlin",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+type LocalDate = { year: number; month: number; day: number };
+
+function berlinParts(timestamp: number) {
+  const values: Record<string, number> = {};
+  for (const part of BERLIN_DATE_TIME.formatToParts(timestamp)) {
+    if (["year", "month", "day", "hour", "minute", "second"].includes(part.type)) {
+      values[part.type] = Number(part.value);
+    }
+  }
+  return values;
+}
+
+function shiftLocalDate(date: LocalDate, days: number): LocalDate {
+  const shifted = new Date(Date.UTC(date.year, date.month - 1, date.day + days));
+  return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate() };
+}
+
+function berlinEpoch(date: LocalDate, hour: number) {
+  const targetAsUtc = Date.UTC(date.year, date.month - 1, date.day, hour, 0, 0);
+  let guess = targetAsUtc;
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    const parts = berlinParts(guess);
+    const representedAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    guess += targetAsUtc - representedAsUtc;
+  }
+  return guess;
+}
+
+function completedBerlinCycle(now = Date.now()): TimeRange {
+  const parts = berlinParts(now);
+  const today = { year: parts.year, month: parts.month, day: parts.day };
+  const todayAt1800 = berlinEpoch(today, 18);
+  const endDate = now >= todayAt1800 ? today : shiftLocalDate(today, -1);
+  const startDate = shiftLocalDate(endDate, -1);
+  return { from: berlinEpoch(startDate, 18), to: berlinEpoch(endDate, 18), exact: true };
+}
+
+function berlinMinuteOfDay(timestamp: number) {
+  const values: Record<string, number> = {};
+  for (const part of BERLIN_CLOCK.formatToParts(timestamp)) {
+    if (part.type === "hour" || part.type === "minute") values[part.type] = Number(part.value);
+  }
+  return (values.hour ?? 0) * 60 + (values.minute ?? 0);
+}
 
 function numericScalar(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -61,6 +153,27 @@ function numericScalar(value: unknown): number | null {
 
 function normalizedFieldName(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+const KNOWN_ENVIRONMENTAL_FIELDS = new Set([
+  "timestamp", "temperature", "humidity", "humidityabs", "co2", "co", "oxygen", "tvoc",
+  "ch2om10", "hcho", "pm1", "pm1m10", "pm1sps30", "pm25", "pm25m10", "pm25sps30",
+  "pm4", "pm4m10", "pm4sps30", "pm10", "pm10m10", "pm10sps30", "pressure",
+  "pressurerel", "dewpt", "dewpoint", "dco2dt", "dhdt", "sound", "soundmax", "health",
+  "performance",
+]);
+
+const OPERATIONAL_FIELD = /(?:device|uptime|interval|serial|firmware|version|battery|status|rssi|wifi|ssid|mac|(?:^|_)ip|account|token|key|latitude|longitude|location|gps)/i;
+
+function additionalEnvironmentalFields(record: RawRecord) {
+  const fields: Record<string, number> = {};
+  for (const [key, rawValue] of Object.entries(record)) {
+    const normalized = normalizedFieldName(key);
+    if (KNOWN_ENVIRONMENTAL_FIELDS.has(normalized) || OPERATIONAL_FIELD.test(key)) continue;
+    const value = numericScalar(rawValue);
+    if (value !== null) fields[key] = value;
+  }
+  return fields;
 }
 
 function numberValue(record: RawRecord, ...keys: string[]) {
@@ -92,30 +205,40 @@ function sensorRecords(payload: unknown): RawRecord[] {
   return [];
 }
 
-function normalize(record: RawRecord): Sample | null {
+function normalize(record: RawRecord, includeAdditionalEnvironmental = false): Sample | null {
   const timestamp = numberValue(record, "timestamp");
   if (!timestamp) return null;
   const healthRaw = numberValue(record, "health");
   const performanceRaw = numberValue(record, "performance");
-  return {
+  const sample: Sample = {
     timestamp,
     temperature: numberValue(record, "temperature"),
     humidity: numberValue(record, "humidity"),
     humidityAbs: numberValue(record, "humidity_abs"),
-    dewpt: numberValue(record, "dewpt", "dew_point"),
     co2: numberValue(record, "co2"),
     co: numberValue(record, "co"),
     oxygen: numberValue(record, "oxygen"),
     tvoc: numberValue(record, "tvoc"),
     hcho: numberValue(record, "ch2o_m10", "hcho"),
-    pm1: numberValue(record, "pm1", "pm_1", "pm1_m10"),
-    pm25: numberValue(record, "pm2_5", "pm25", "pm_2_5", "pm2_5_m10"),
-    pm10: numberValue(record, "pm10", "pm_10", "pm10_m10"),
+    pm1: numberValue(record, "pm1", "pm_1", "pm1_m10", "pm1_sps30"),
+    pm25: numberValue(record, "pm2_5", "pm25", "pm_2_5", "pm2_5_m10", "pm2_5_sps30"),
+    pm4: numberValue(record, "pm4", "pm_4", "pm4_m10", "pm4_sps30"),
+    pm10: numberValue(record, "pm10", "pm_10", "pm10_m10", "pm10_sps30"),
+    pressure: numberValue(record, "pressure"),
+    pressureRel: numberValue(record, "pressure_rel"),
+    dewpt: numberValue(record, "dewpt", "dew_point"),
+    dco2dt: numberValue(record, "dco2dt"),
+    dhdt: numberValue(record, "dhdt"),
     sound: numberValue(record, "sound"),
     soundMax: numberValue(record, "sound_max"),
     health: healthRaw === null ? null : healthRaw / 10,
     performance: performanceRaw === null ? null : performanceRaw / 10,
   };
+  if (includeAdditionalEnvironmental) {
+    const additionalEnvironmental = additionalEnvironmentalFields(record);
+    if (Object.keys(additionalEnvironmental).length) sample.additionalEnvironmental = additionalEnvironmental;
+  }
+  return sample;
 }
 
 function values(samples: Sample[], selector: (sample: Sample) => number | null) {
@@ -137,8 +260,46 @@ function delta(samples: Sample[], selector: (sample: Sample) => number | null) {
   return list.length > 1 ? list.at(-1)! - list[0] : null;
 }
 
+function latestValue(samples: Sample[], selector: (sample: Sample) => number | null) {
+  const list = values(samples, selector);
+  return list.length ? list.at(-1)! : null;
+}
+
+function median(list: number[]) {
+  if (!list.length) return null;
+  const ordered = [...list].sort((left, right) => left - right);
+  const middle = Math.floor(ordered.length / 2);
+  return ordered.length % 2 ? ordered[middle] : (ordered[middle - 1] + ordered[middle]) / 2;
+}
+
+function recentMedianShift(samples: Sample[], selector: (sample: Sample) => number | null) {
+  if (samples.length < 6) return null;
+  const current = median(values(samples.slice(-3), selector));
+  const reference = median(values(samples.slice(-15, -3), selector));
+  return current === null || reference === null ? null : current - reference;
+}
+
+function shareMatching(
+  samples: Sample[],
+  selector: (sample: Sample) => number | null,
+  predicate: (value: number) => boolean,
+) {
+  const list = values(samples, selector);
+  if (!list.length) return null;
+  return list.filter(predicate).length / list.length;
+}
+
 function particleValue(sample: Sample) {
-  return sample.pm25 ?? sample.pm10 ?? sample.pm1;
+  const channels = [sample.pm1, sample.pm25, sample.pm4, sample.pm10]
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  if (!channels.length) return null;
+  return channels.reduce((sum, value) => sum + value, 0) / channels.length;
+}
+
+function particlePeakValue(sample: Sample) {
+  const channels = [sample.pm1, sample.pm25, sample.pm4, sample.pm10]
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  return channels.length ? Math.max(...channels) : null;
 }
 
 function mergeSupplementalSample(history: Sample[], supplemental: Sample | null) {
@@ -150,6 +311,7 @@ function mergeSupplementalSample(history: Sample[], supplemental: Sample | null)
       ...existing,
       pm1: existing.pm1 ?? supplemental.pm1,
       pm25: existing.pm25 ?? supplemental.pm25,
+      pm4: existing.pm4 ?? supplemental.pm4,
       pm10: existing.pm10 ?? supplemental.pm10,
     };
     return history;
@@ -158,7 +320,12 @@ function mergeSupplementalSample(history: Sample[], supplemental: Sample | null)
   return history.sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function check(label: string, method: "DIRECT" | "PROXY" | "PATTERN" | "RAW" | "SYSTEM", status: string, level: Level) {
+function check(
+  label: string,
+  method: "DIRECT" | "PROXY" | "PATTERN" | "RAW" | "SYSTEM" | "COMPUTED UNTIL PROPANE SENSOR IS INSTALLED" | "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED",
+  status: string,
+  level: Level,
+) {
   return { label, method, status, level };
 }
 
@@ -200,15 +367,53 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const coMax = maxValue(recent, (sample) => sample.co);
   const tvocMax = maxValue(recent, (sample) => sample.tvoc);
   const hchoMax = maxValue(recent, (sample) => sample.hcho);
-  const particleMax = maxValue(recent, particleValue);
+  const particleMax = maxValue(recent, particlePeakValue);
   const particleLatest = [...recent].reverse().find((sample) => particleValue(sample) !== null) ?? null;
   const currentParticleAvailable = Boolean(latest && particleLatest && latest.timestamp - particleLatest.timestamp <= 10 * 60_000);
-  const soundMax = maxValue(recent, (sample) => sample.soundMax);
+  // Acoustic checks are a rolling wall-clock event window. Basing this on the
+  // latest returned sample would let an old peak remain active indefinitely if
+  // the feed paused, even though sensor/data freshness is reported separately.
+  const acousticRecent = history.filter((sample) => sample.timestamp > Date.now() - ANALYSIS_MINUTES * 60_000);
+  const soundMax = maxValue(acousticRecent, (sample) => sample.soundMax);
+  const hasHistoricalSound = latestValue(history, (sample) => sample.soundMax) !== null;
   const co2Max = maxValue(recent, (sample) => sample.co2);
   const tvocDelta = delta(recent, (sample) => sample.tvoc);
+  const hchoDelta = delta(recent, (sample) => sample.hcho);
+  const coDelta = delta(recent, (sample) => sample.co);
   const co2Delta = delta(recent, (sample) => sample.co2);
+  const o2Delta = delta(recent, (sample) => sample.oxygen);
   const pmDelta = delta(recent, particleValue);
   const humidityDelta = delta(recent, (sample) => sample.humidityAbs);
+  const soundDelta = delta(recent, (sample) => sample.sound);
+  const temperatureDelta = delta(recent, (sample) => sample.temperature);
+  const recentO2Shift = recentMedianShift(recent, (sample) => sample.oxygen);
+  const recentCo2Shift = recentMedianShift(recent, (sample) => sample.co2);
+  const recentTvocShift = recentMedianShift(recent, (sample) => sample.tvoc);
+  const recentHchoShift = recentMedianShift(recent, (sample) => sample.hcho);
+  const recentCoShift = recentMedianShift(recent, (sample) => sample.co);
+  const recentTvocValues = values(recent, (sample) => sample.tvoc);
+  const tvocRise = recentTvocValues.length > 0 && tvocMax !== null ? tvocMax - recentTvocValues[0] : null;
+  const finalTwenty = recent.filter((sample) => sample.timestamp >= (latest?.timestamp ?? 0) - 20 * 60_000);
+  const tvocNow = latestValue(recent, (sample) => sample.tvoc);
+  const hchoNow = latestValue(recent, (sample) => sample.hcho);
+  const coNow = latestValue(recent, (sample) => sample.co);
+  const co2Now = latestValue(recent, (sample) => sample.co2);
+  const o2Now = latestValue(recent, (sample) => sample.oxygen);
+  const pmNow = latestValue(recent, particleValue);
+  const tvocPersistent = (shareMatching(finalTwenty, (sample) => sample.tvoc, (value) => value > 1_000) ?? 0) >= .5;
+  const hchoPersistent = (shareMatching(finalTwenty, (sample) => sample.hcho, (value) => value > 100) ?? 0) >= .5;
+  const particlePersistent = currentParticleAvailable &&
+    (shareMatching(finalTwenty, particlePeakValue, (value) => value > 35) ?? 0) >= .5;
+  const co2Persistent = (shareMatching(finalTwenty, (sample) => sample.co2, (value) => value > 1_400) ?? 0) >= .5;
+  const localMinute = latest ? berlinMinuteOfDay(latest.timestamp) : -1;
+  const officeClosePattern = name === "OFFICE" &&
+    localMinute >= 16 * 60 + 20 &&
+    localMinute <= 18 * 60 &&
+    (tvocRise ?? 0) >= 25 &&
+    (
+      (soundDelta ?? 0) <= -2 ||
+      ((co2Delta ?? Infinity) <= 15 && (humidityDelta ?? Infinity) <= .08)
+    );
 
   const freshness = dataAge <= 8 * 60_000
     ? check("Sensor/data integrity", "SYSTEM", "CURRENT", "normal")
@@ -248,18 +453,70 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
       ? check("CO₂ accumulation", "PATTERN", "VENTILATE/CHECK", "watch")
       : check("CO₂ accumulation", "PATTERN", "STABLE", "normal");
   const acoustics = soundMax === null
-    ? check("Sound peak >90 dB", "RAW", "UNAVAILABLE", "unknown")
+    ? hasHistoricalSound
+      ? check("Sound peak >90 dB", "RAW", "NONE", "normal")
+      : check("Sound peak >90 dB", "RAW", "UNAVAILABLE", "unknown")
     : soundMax > 90
       ? check("Sound peak >90 dB", "RAW", `${soundMax.toFixed(0)} dB EVENT`, "watch")
       : check("Sound peak >90 dB", "RAW", "NONE", "normal");
 
+  const displacementComputable = recentO2Shift !== null && recentCo2Shift !== null;
+  const coordinatedDisplacement = displacementComputable && recentO2Shift <= -0.08 && recentCo2Shift <= -75;
+  const propaneCorroboration = recentTvocShift !== null && recentTvocShift >= 100;
+  const inertPatternComputable = recentTvocShift !== null && recentHchoShift !== null && recentCoShift !== null;
+  const noGasChannelRise = inertPatternComputable && recentTvocShift < 100 && recentHchoShift < 20 && recentCoShift < 0.08;
+  const propanePattern = name === "LAB"
+    ? !displacementComputable || recentTvocShift === null
+      ? check("Propane-associated pattern", "COMPUTED UNTIL PROPANE SENSOR IS INSTALLED", "TREND FORMING", "unknown")
+      : coordinatedDisplacement && propaneCorroboration
+        ? check("Propane-associated pattern", "COMPUTED UNTIL PROPANE SENSOR IS INSTALLED", "POSSIBLE PATTERN — CHECK", "watch")
+        : check("Propane-associated pattern", "COMPUTED UNTIL PROPANE SENSOR IS INSTALLED", "NOT INDICATED", "normal")
+    : null;
+  const nitrogenPattern = name === "LAB"
+    ? !displacementComputable || !inertPatternComputable
+      ? check("Nitrogen (N₂) displacement pattern", "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED", "TREND FORMING", "unknown")
+      : coordinatedDisplacement && noGasChannelRise
+        ? check("Nitrogen (N₂) displacement pattern", "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED", "POSSIBLE N₂ / INERT-GAS PATTERN", "watch")
+        : check("Nitrogen (N₂) displacement pattern", "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED", "NOT INDICATED", "normal")
+    : null;
+
   const checks = [carbonMonoxide, oxygen, vapour, formaldehyde, carbonDioxide, acoustics, freshness];
   if (particles) checks.splice(4, 0, particles);
+  if (name === "LAB" && propanePattern && nitrogenPattern) checks.splice(2, 0, propanePattern, nitrogenPattern);
   const rawStatus = worst(checks.map((item) => item.level));
   const status = rawStatus === "unknown" && freshness.level === "normal" ? "normal" : rawStatus;
   const gasDominant = currentParticleAvailable && pmDelta !== null && (tvocDelta ?? 0) > 150 && pmDelta < 5;
   const occupancyPattern = (co2Delta ?? 0) > 80 && (humidityDelta ?? 0) > 0.15;
+  const metabolicPattern = occupancyPattern && (o2Delta ?? 0) < -0.025;
   const ventilationPattern = name === "OFFICE" && (co2Delta ?? 0) < -80 && ((pmDelta ?? 0) > 3 || (tvocDelta ?? 0) > 100);
+  const directCritical = oxygen.level === "action" || carbonMonoxide.level === "action";
+  const gasSignals = Number(vapour.level !== "normal" && vapour.level !== "unknown") +
+    Number(formaldehyde.level !== "normal" && formaldehyde.level !== "unknown") +
+    Number(carbonMonoxide.level !== "normal" && carbonMonoxide.level !== "unknown");
+  const multiGasPattern = gasSignals >= 2 ||
+    ((tvocDelta ?? 0) > 150 && (hchoDelta ?? 0) > 20) ||
+    ((tvocDelta ?? 0) > 150 && (coDelta ?? 0) > .08);
+  const particleGasPattern = currentParticleAvailable && (pmDelta ?? 0) > 3 &&
+    ((tvocDelta ?? 0) > 100 || (coDelta ?? 0) > .08);
+  const particleOnly = currentParticleAvailable && (pmDelta ?? 0) > 3 &&
+    Math.abs(tvocDelta ?? 0) < 100 && Math.abs(hchoDelta ?? 0) < 20 && (coDelta ?? 0) < .08;
+  const coOnly = carbonMonoxide.level === "watch" && vapour.level === "normal" && formaldehyde.level === "normal" &&
+    (!particles || particles.level === "normal");
+  const oxygenProxyPattern = oxygen.level === "watch" && (co2Delta ?? 0) < 50;
+  const humidityLinkedFormaldehyde = (hchoDelta ?? 0) > 20 && Math.abs(humidityDelta ?? 0) > .35 &&
+    vapour.level === "normal" && carbonMonoxide.level === "normal";
+  const isolatedFormaldehyde = formaldehyde.level === "watch" && vapour.level === "normal" && carbonMonoxide.level === "normal";
+  const isolatedVapour = vapour.level === "watch" && formaldehyde.level === "normal" && carbonMonoxide.level === "normal";
+  const isolatedGasPersistent = (isolatedFormaldehyde && hchoPersistent) || (isolatedVapour && tvocPersistent);
+  const acousticOnly = acoustics.level === "watch" &&
+    [oxygen, carbonMonoxide, vapour, formaldehyde, carbonDioxide, ...(particles ? [particles] : [])]
+      .every((item) => item.level === "normal" || item.level === "unknown");
+  const recoveringGas = tvocMax !== null && tvocNow !== null && tvocMax - tvocNow > 250 &&
+    (tvocDelta ?? 0) <= 0 && (hchoDelta ?? 0) <= 0 && (coDelta ?? 0) <= .03;
+  const thermalMoisturePattern = Math.abs(temperatureDelta ?? 0) >= 1 && Math.abs(humidityDelta ?? 0) >= .35 &&
+    Math.abs(co2Delta ?? 0) < 80 && Math.abs(tvocDelta ?? 0) < 100 && Math.abs(hchoDelta ?? 0) < 20;
+  const propanePatternActive = propanePattern?.level === "watch";
+  const nitrogenPatternActive = nitrogenPattern?.level === "watch";
 
   let summary = "The recent pattern is stable across the available channels.";
   if (freshness.level !== "normal") {
@@ -268,9 +525,30 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
       ? "Current interpretation is paused because a recent validated sample is unavailable; displayed values are last known."
       : `The newest validated sample is ${ageMinutes} minutes old; displayed values are last known, not current.`;
   }
+  else if (directCritical) summary = `A direct safety channel requires dedicated verification: ${oxygen.level === "action" ? `oxygen reached ${o2Now?.toFixed(2) ?? "a low value"}%` : `carbon monoxide reached ${coNow?.toFixed(2) ?? "an elevated value"} mg/m³`}. Other channels may provide context but do not cancel the direct reading.`;
+  else if (propanePatternActive) summary = "Oxygen and CO₂ fell together while TVOC rose in the same recent window. This is a computed propane-associated early-warning pattern, not compound identification; the dedicated propane system remains decisive.";
+  else if (nitrogenPatternActive) summary = "Oxygen and CO₂ fell together without a matching TVOC, formaldehyde or CO rise. This is a computed nitrogen/inert-gas displacement pattern; the dedicated oxygen and nitrogen systems remain decisive.";
+  else if (oxygenProxyPattern) summary = `Oxygen moved into the watch range without a matching CO₂ rise. This is an oxygen-displacement proxy pattern, not confirmation of nitrogen or another gas; a dedicated oxygen measurement is the deciding check.`;
+  else if (officeClosePattern) summary = "A late-day TVOC rise with the occupancy transition matches the established OFFICE window-closing and synchronized departure signature.";
+  else if (coOnly) summary = `The CO channel rose without matching TVOC, formaldehyde or particle movement. A combustion/exhaust input, electrochemical cross-response or local instrument effect remain distinct possibilities.`;
+  else if (multiGasPattern) summary = `Two or more gas-related channels moved together within the recent window${tvocPersistent || hchoPersistent ? " and remained elevated through much of the latest 20 minutes" : ""}. This supports a real mixed vapour/process or airflow event, while the sensor set cannot identify a compound.`;
+  else if (particleGasPattern) summary = name === "LAB"
+    ? `Particles${pmNow === null ? "" : ` (latest ${pmNow.toFixed(1)} µg/m³)`} and gas-related channels rose together${particlePersistent ? " and the particle rise persisted" : ""}. Check whether a process, door or pressure/airflow transition occurred; the combined pattern is not specific to one source.`
+    : `Particles${pmNow === null ? "" : ` (latest ${pmNow.toFixed(1)} µg/m³)`} and a gas-related channel rose together${particlePersistent ? " and the particle rise persisted" : ""}. Outdoor-air import and an indoor mixed-source event remain competing explanations; window and construction timing are decisive.`;
   else if (gasDominant && name === "LAB") summary = "Gas channels changed without matching particles, supporting a vapour, process or airflow event; identity remains unresolved.";
   else if (ventilationPattern) summary = "Falling CO₂ with rising PM or VOC supports recent outdoor-air exchange; window state would strengthen the attribution.";
+  else if (humidityLinkedFormaldehyde) summary = "The formaldehyde signal moved with absolute humidity while TVOC and CO remained comparatively stable. A climatic influence or cross-response is plausible; persistence after humidity stabilizes would support a separate source.";
+  else if (isolatedFormaldehyde) summary = "The formaldehyde channel changed without matching TVOC or CO support. Treat it as an isolated mixture/cross-sensitivity signal until persistence or a second channel corroborates it.";
+  else if (isolatedVapour) summary = "TVOC changed without matching formaldehyde, CO or particle support. An intermittent vapour source, airflow change or sensor cross-response remains possible; identity is unresolved.";
+  else if (particleOnly) summary = name === "LAB"
+    ? `Particles rose without a matching gas pattern. A local particle-generating process, door/pressure transition or delayed filtered-air response is more plausible than a vapour event.`
+    : `Particles rose without a matching gas pattern. Open-window outdoor import, nearby road work and a local dust event remain competing explanations.`;
+  else if (co2Persistent) summary = `CO₂ remained elevated through most of the latest 20 minutes${co2Now === null ? "" : ` and is ${co2Now.toFixed(0)} ppm`}, supporting sustained occupancy or limited air exchange rather than a brief spike.`;
+  else if (metabolicPattern) summary = "CO₂ and absolute humidity rose together while oxygen eased slightly, a coordinated occupancy pattern rather than evidence for an inert-gas release.";
   else if (occupancyPattern) summary = "CO₂ and absolute humidity rose together, supporting an occupancy-related change rather than a single chemical event.";
+  else if (acousticOnly) summary = "A brief raw sound-max event occurred without a matching gas, oxygen, CO₂ or particle pattern. It is retained as an acoustic event, not interpreted as an air-quality event.";
+  else if (recoveringGas) summary = "An earlier gas-channel excursion is declining toward the recent reference and has not gained CO, formaldehyde or particle support.";
+  else if (thermalMoisturePattern) summary = "Temperature and absolute humidity moved together while gas, CO₂ and particle channels remained comparatively stable. This is a room-condition or airflow pattern, not a supported gas event.";
   else if ((co2Delta ?? 0) > 80) summary = currentParticleAvailable
     ? "CO₂ rose gradually while the other available gas and particle channels stayed comparatively stable; routine occupancy is plausible."
     : "CO₂ rose gradually while the other available gas channels stayed comparatively stable; routine occupancy is plausible.";
@@ -281,8 +559,40 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const flaggedText = flaggedLabels.length ? flaggedLabels.join(" and ") : "the highlighted condition";
   const action = freshness.level !== "normal"
     ? "Latest readings are last known; connection status merits review."
-    : status === "action"
-      ? `Room procedure and dedicated verification are appropriate for ${flaggedText}.`
+    : directCritical
+      ? `Use the room procedure and a dedicated instrument to verify ${oxygen.level === "action" ? "oxygen" : "carbon monoxide"} now; do not rely on the dashboard alone.`
+      : propanePatternActive
+        ? "Check the dedicated propane alarm and LAB gas system now. Treat this dashboard result as an early-warning correlation until the direct propane sensor is installed in air-Q."
+      : nitrogenPatternActive
+        ? "Check the dedicated oxygen/nitrogen alarm and LAB gas system now. Treat this dashboard result as an early-warning displacement correlation until the direct nitrogen sensor is installed in air-Q."
+      : oxygenProxyPattern
+        ? "Verify oxygen with a dedicated instrument and check nitrogen/process timing. Escalate only if the low reading persists or another independent channel changes."
+      : officeClosePattern
+        ? "Treat this as CLOSE while TVOC falls toward the OFFICE night reference; check ventilation or another source only if it persists or gains CO, formaldehyde, or PM support."
+      : coOnly
+        ? "Check combustion, vehicle/exhaust and instrument context; use a dedicated CO measurement if the rise persists or increases."
+      : multiGasPattern
+        ? `Match the onset to process, hood, pump, door and airflow timestamps. A source check becomes useful if the pattern persists for two more samples or continues rising.`
+      : particleGasPattern
+        ? `Check the active process and air-path state. Reassess after 10–20 minutes; persistence across both particle and gas channels strengthens the need for intervention.`
+      : isolatedFormaldehyde || isolatedVapour
+        ? isolatedGasPersistent
+          ? "The isolated signal has persisted; check the nearest process, material or window/airflow event and seek an independent channel before assigning a cause."
+          : "Record the nearest process or window event and watch two more samples. Act only if the signal persists, rises sharply or gains an independent gas/particle channel."
+      : particleOnly
+        ? name === "LAB"
+          ? "Match the onset to local particle work, doors and pressure/airflow. Review HEPA performance only if the elevation persists or clearance is slower than the LAB's own history."
+          : "Check window and road-work timing. Indoor action is useful only if particles stay elevated after the suspected outdoor or local dust event ends."
+      : co2Persistent
+        ? `Review occupancy and air exchange. A ventilation adjustment becomes useful if CO₂ remains elevated for another 20–30 minutes or continues rising.`
+      : acousticOnly
+        ? "Retain the event timestamp for equipment or activity review; no air-quality action follows from an isolated sound peak."
+      : recoveringGas
+        ? "No immediate change is suggested while the decline continues; review only if the trend reverses or gains an independent channel."
+      : thermalMoisturePattern
+        ? "No gas action is indicated. Observe whether the room-condition change settles with the next ventilation or occupancy transition."
+      : status === "action"
+        ? `Room procedure and dedicated verification are appropriate for ${flaggedText}.`
       : status === "watch"
         ? `A source check becomes useful if ${flaggedText} persists for 10–30 minutes or gains a second signal.`
         : "No immediate change is suggested; review again if the pattern persists or gains a second signal.";
@@ -300,85 +610,247 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   };
 }
 
-async function fetchRoom(deviceId: string, apiKey: string) {
-  const to = Date.now();
-  const from = to - HISTORY_HOURS * 60 * 60_000;
+type TimeRange = { from: number; to: number; exact: boolean };
+
+function requestedRange(url: URL, exportRequested: boolean): TimeRange {
+  const fromValue = url.searchParams.get("f");
+  const toValue = url.searchParams.get("t");
+  const cycleRequested = url.searchParams.get("cycle") === "1";
+  if (cycleRequested) {
+    if (!exportRequested || fromValue !== null || toValue !== null) throw new RangeError("Invalid export range");
+    return completedBerlinCycle();
+  }
+  if (fromValue === null && toValue === null) {
+    const to = Date.now();
+    return { from: to - HISTORY_HOURS * 60 * 60_000, to, exact: false };
+  }
+  if (!exportRequested || fromValue === null || toValue === null) throw new RangeError("Invalid export range");
+  const from = Number(fromValue);
+  const to = Number(toValue);
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from <= 0 || to <= from) {
+    throw new RangeError("Invalid export range");
+  }
+  if (to - from > MAX_EXPORT_HOURS * 60 * 60_000) throw new RangeError("Export range is too large");
+  return { from, to, exact: true };
+}
+
+async function fetchRoom(
+  deviceId: string,
+  apiKey: string,
+  range: TimeRange,
+  includeAdditionalEnvironmental: boolean,
+) {
+  const { from, to } = range;
   const url = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/timerange`);
   url.searchParams.set("f", String(from));
   url.searchParams.set("t", String(to));
-  const latestUrl = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/latest`);
-  const [response, latestResponse] = await Promise.all([
-    fetch(url, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" }),
-    fetch(latestUrl, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" }).catch(() => null),
-  ]);
+  const response = await fetch(url, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" });
   if (!response.ok) throw new Error("air-Q request failed");
   const payload = await response.json();
   const records = sensorRecords(payload);
   if (!records.length) throw new Error("Unexpected air-Q response");
   const history = records
-    .map((record) => normalize(record as RawRecord))
+    .map((record) => normalize(record as RawRecord, includeAdditionalEnvironmental))
     .filter((sample): sample is Sample => sample !== null)
+    .filter((sample) => sample.timestamp >= from && sample.timestamp <= to)
     .sort((a, b) => a.timestamp - b.timestamp)
     .filter((sample, index, list) => index === 0 || sample.timestamp !== list[index - 1].timestamp);
+  if (range.exact) return history;
+
+  const latestUrl = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/latest`);
+  const latestResponse = await fetch(latestUrl, {
+    headers: { "Api-Key": apiKey, Accept: "application/json" },
+    cache: "no-store",
+  }).catch(() => null);
   const latestPayload = latestResponse?.ok ? await latestResponse.json().catch(() => null) : null;
   const supplemental = sensorRecords(latestPayload)
-    .map((record) => normalize(record))
+    .map((record) => normalize(record, includeAdditionalEnvironmental))
     .filter((sample): sample is Sample => sample !== null)
     .sort((a, b) => a.timestamp - b.timestamp)
     .at(-1) ?? null;
   return mergeSupplementalSample(history, supplemental);
 }
 
-async function fetchOutdoorConditions(): Promise<OutdoorConditions | null> {
-  const url = new URL("https://api.open-meteo.com/v1/forecast");
-  url.searchParams.set("latitude", String(OUTDOOR_LATITUDE));
-  url.searchParams.set("longitude", String(OUTDOOR_LONGITUDE));
-  url.searchParams.set("current", "relative_humidity_2m");
-  url.searchParams.set("timezone", "Europe/Berlin");
+function weatherTimestamp(record: RawRecord) {
+  const raw = record.timestamp;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw !== "string") return null;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) return null;
-  const payload = await response.json().catch(() => null);
+function weatherRecords(payload: unknown): RawRecord[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const weather = (payload as RawRecord).weather;
+  if (Array.isArray(weather)) {
+    return weather.filter((item): item is RawRecord => Boolean(item) && typeof item === "object" && !Array.isArray(item));
+  }
+  return weather && typeof weather === "object" && !Array.isArray(weather) ? [weather as RawRecord] : [];
+}
+
+function weatherSources(payload: unknown): RawRecord[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const sources = (payload as RawRecord).sources;
+  return Array.isArray(sources)
+    ? sources.filter((item): item is RawRecord => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+}
+
+function normalizeWeather(record: RawRecord): OutdoorSample | null {
+  const timestamp = weatherTimestamp(record);
+  if (timestamp === null) return null;
+  return {
+    timestamp,
+    temperature: numberValue(record, "temperature"),
+    humidity: numberValue(record, "relative_humidity"),
+  };
+}
+
+function brightSkyTime(timestamp: number) {
+  return new Date(timestamp).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+async function weatherPayload(url: URL) {
+  const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" }).catch(() => null);
+  if (!response?.ok) return null;
+  return response.json().catch(() => null);
+}
+
+function openMeteoParticle(payload: unknown): OutdoorParticleSample | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const current = (payload as RawRecord).current;
   if (!current || typeof current !== "object" || Array.isArray(current)) return null;
-  const humidity = numberValue(current as RawRecord, "relative_humidity_2m");
-  return humidity === null ? null : { humidity };
+  const record = current as RawRecord;
+  const rawTime = record.time;
+  if (typeof rawTime !== "string") return null;
+  const timestamp = Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(rawTime) ? rawTime : `${rawTime}Z`);
+  if (!Number.isFinite(timestamp)) return null;
+  return { timestamp, pm25: numberValue(record, "pm2_5") };
+}
+
+function latestOutdoorValues(samples: OutdoorSample[]): OutdoorSample | null {
+  const newest = samples.at(-1);
+  if (!newest) return null;
+  const newestTemperature = [...samples].reverse().find((sample) => sample.temperature !== null);
+  const newestHumidity = [...samples].reverse().find((sample) => sample.humidity !== null);
+  return {
+    timestamp: Math.max(newestTemperature?.timestamp ?? newest.timestamp, newestHumidity?.timestamp ?? newest.timestamp),
+    temperature: newestTemperature?.temperature ?? null,
+    humidity: newestHumidity?.humidity ?? null,
+  };
+}
+
+async function fetchOutdoor(range: TimeRange): Promise<OutdoorData | null> {
+  const now = Date.now();
+  if (!range.exact && outdoorCache && outdoorCache.expiresAt > now) return outdoorCache.data;
+
+  const historyUrl = new URL(`${BRIGHT_SKY_ROOT}/weather`);
+  historyUrl.searchParams.set("lat", OBERSCHNEIDING_LATITUDE);
+  historyUrl.searchParams.set("lon", OBERSCHNEIDING_LONGITUDE);
+  historyUrl.searchParams.set("date", brightSkyTime(range.from));
+  historyUrl.searchParams.set("last_date", brightSkyTime(range.to));
+  historyUrl.searchParams.set("tz", "Europe/Berlin");
+
+  const currentUrl = new URL(`${BRIGHT_SKY_ROOT}/current_weather`);
+  currentUrl.searchParams.set("lat", OBERSCHNEIDING_LATITUDE);
+  currentUrl.searchParams.set("lon", OBERSCHNEIDING_LONGITUDE);
+
+  const airQualityUrl = new URL(OPEN_METEO_AIR_ROOT);
+  airQualityUrl.searchParams.set("latitude", OBERSCHNEIDING_LATITUDE);
+  airQualityUrl.searchParams.set("longitude", OBERSCHNEIDING_LONGITUDE);
+  airQualityUrl.searchParams.set("current", "pm2_5");
+  airQualityUrl.searchParams.set("timezone", "UTC");
+
+  const [historyPayload, currentPayload, airQualityPayload] = await Promise.all([
+    weatherPayload(historyUrl),
+    range.exact ? Promise.resolve(null) : weatherPayload(currentUrl),
+    range.exact ? Promise.resolve(null) : weatherPayload(airQualityUrl),
+  ]);
+  const payloads = [historyPayload, currentPayload].filter((payload) => payload !== null);
+  const samples = payloads
+    .flatMap(weatherRecords)
+    .map(normalizeWeather)
+    .filter((sample): sample is OutdoorSample => sample !== null)
+    .filter((sample) => sample.timestamp >= range.from - 2 * 60 * 60_000 && sample.timestamp <= range.to + 2 * 60 * 60_000)
+    .sort((left, right) => left.timestamp - right.timestamp)
+    .filter((sample, index, list) => index === list.length - 1 || sample.timestamp !== list[index + 1].timestamp);
+  if (!samples.length) return null;
+
+  const source = payloads
+    .flatMap(weatherSources)
+    .sort((left, right) => (numberValue(left, "distance") ?? Infinity) - (numberValue(right, "distance") ?? Infinity))[0];
+  const station = source && typeof source.station_name === "string" ? source.station_name : null;
+  const data: OutdoorData = {
+    location: "Oberschneiding",
+    source: "DWD via Bright Sky",
+    station,
+    samples,
+    // DWD observations can occasionally publish temperature and relative
+    // humidity in different newest records. Keep each card on the newest
+    // valid observation for its own channel instead of hiding the other one.
+    latest: latestOutdoorValues(samples),
+    particleLatest: openMeteoParticle(airQualityPayload),
+  };
+  if (!range.exact) outdoorCache = { expiresAt: now + OUTDOOR_CACHE_MS, data };
+  return data;
 }
 
 export async function GET(request: Request) {
+  const requestUrl = new URL(request.url);
+  const exportRequested = requestUrl.searchParams.get("export") === "1";
+  const inlineExport = requestUrl.searchParams.get("inline") === "1";
   const runtimeEnv = env as unknown as Record<string, unknown>;
   const sessionSecret = runtimeEnv.DASHBOARD_SESSION_SECRET;
-  if (typeof sessionSecret !== "string" || !await isAuthorized(request, sessionSecret)) {
+  const sessionAuthorized = typeof sessionSecret === "string" && await isAuthorized(request, sessionSecret);
+  const monitorExportToken = runtimeEnv.MONITOR_EXPORT_TOKEN;
+  const exportAuthorized = exportRequested && (
+    (typeof monitorExportToken === "string" && await isBearerAuthorized(request, monitorExportToken))
+    || await isGitHubActionsExportAuthorized(request)
+  );
+  if (!sessionAuthorized && !exportAuthorized) {
     return Response.json({ error: "Authorization required" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
   const environmentKey = runtimeEnv.AIRQ_API_KEY;
+  const storedApiKey = sessionAuthorized && typeof sessionSecret === "string"
+    ? await readStoredApiKey(sessionSecret).catch(() => null) ?? await apiKeyFromRequest(request, sessionSecret)
+    : null;
   const apiKey = typeof environmentKey === "string"
     ? environmentKey
-    : await readStoredApiKey(sessionSecret).catch(() => null) ?? await apiKeyFromRequest(request, sessionSecret);
+    : storedApiKey;
   const labId = runtimeEnv.AIRQ_LAB_DEVICE_ID;
   const officeId = runtimeEnv.AIRQ_OFFICE_DEVICE_ID;
   if (typeof apiKey !== "string" || typeof labId !== "string" || typeof officeId !== "string") {
     return Response.json({ error: "Live air-Q connection is not configured" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
+  let range: TimeRange;
+  try {
+    range = requestedRange(requestUrl, exportRequested);
+  } catch {
+    return Response.json({ error: "Invalid export time range" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  }
   try {
     const [labHistory, officeHistory, outdoor] = await Promise.all([
-      fetchRoom(labId, apiKey),
-      fetchRoom(officeId, apiKey),
-      fetchOutdoorConditions().catch(() => null),
+      fetchRoom(labId, apiKey, range, exportRequested),
+      fetchRoom(officeId, apiKey, range, exportRequested),
+      fetchOutdoor(range).catch(() => null),
     ]);
     if (!labHistory.length || !officeHistory.length) throw new Error("No recent records returned");
+    const headers = new Headers({ "Cache-Control": "no-store, max-age=0" });
+    if (exportRequested && !inlineExport) {
+      headers.set("Content-Disposition", 'attachment; filename="airq-dashboard-data.json"');
+    }
     return Response.json({
       live: true,
       fetchedAt: Date.now(),
-      historyHours: HISTORY_HOURS,
+      coverage: { from: range.from, to: range.to, exact: range.exact },
+      historyHours: (range.to - range.from) / (60 * 60_000),
       analysisMinutes: ANALYSIS_MINUTES,
       outdoor,
       rooms: {
         lab: analyseRoom("LAB", labHistory, positiveNumber(runtimeEnv.LAB_VOLUME_M3), positiveNumber(runtimeEnv.LAB_ACH)),
         office: analyseRoom("OFFICE", officeHistory, positiveNumber(runtimeEnv.OFFICE_VOLUME_M3), positiveNumber(runtimeEnv.OFFICE_ACH)),
       },
-    }, { headers: { "Cache-Control": "no-store, max-age=0" } });
+    }, { headers });
   } catch {
     return Response.json({ error: "Recent air-Q readings are temporarily unavailable" }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
