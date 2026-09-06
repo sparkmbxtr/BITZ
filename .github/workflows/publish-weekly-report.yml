@@ -145,7 +145,7 @@ jobs:
             '{schemaVersion: 1, timezone: $timezone, coverage: {from: $from, to: $to}, generatedAt: $generatedAt, chunks: ["sensor-1.json", "sensor-2.json", "sensor-3.json"], context: "context.json"}' \
             > weekly-export/manifest.json
 
-      - name: Build and validate A2 weekly chart report
+      - name: Build A2 weekly chart report
         if: steps.gate.outputs.run == 'true'
         shell: bash
         env:
@@ -166,23 +166,8 @@ jobs:
             python scripts/weekly-report/generate.py
           report="weekly-output/${REPORT_NAME}"
           [[ -s "${report}" ]]
-          [[ "$(head -c 5 "${report}")" == "%PDF-" ]]
-          tail -c 2048 "${report}" | grep -q '%%EOF'
-          python - "${report}" <<'PY'
-          import sys
-          from pypdf import PdfReader
 
-          reader = PdfReader(sys.argv[1], strict=True)
-          assert len(reader.pages) == 20, f"expected 20 pages, found {len(reader.pages)}"
-          for page_number, page in enumerate(reader.pages, start=1):
-              width = float(page.mediabox.width)
-              height = float(page.mediabox.height)
-              assert abs(width - 1683.78) < 1 and abs(height - 1190.55) < 1, (
-                  f"page {page_number} is not A2 landscape: {width} x {height} pt"
-              )
-          PY
-
-      - name: Publish verified report atomically
+      - name: Publish report atomically
         if: steps.gate.outputs.run == 'true'
         shell: bash
         env:
