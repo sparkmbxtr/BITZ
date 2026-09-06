@@ -1761,7 +1761,7 @@ export default function Home() {
       </div>
       <footer className="wallboard-footer">
         <button className="context-trigger" type="button" onClick={openContextInput} aria-haspopup="dialog">CODES</button>
-        <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 · If this is not your own device, select Lock (top right) before leaving.</span>
+        <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 · Code Engine: https://github.com/sparkmbxtr/BITZ · If this is not your own device, select Lock (top right) before leaving.</span>
         <div className="footer-report-cluster">
           <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
           <button className="report-trigger" type="button" onClick={openReportInput} aria-haspopup="dialog">REPORT</button>
