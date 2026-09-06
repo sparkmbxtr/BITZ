@@ -1770,7 +1770,7 @@ export default function Home() {
           <section className="context-popover" role="dialog" aria-modal="true" aria-labelledby="context-title">
             <div className="context-popover-heading">
               <div>
-                <strong id="context-title">{contextUnlocked ? "INPUT CONTEXT" : "CONTEXT ACCESS"}</strong>
+                <strong id="context-title">{contextUnlocked ? "INPUT CONTEXT" : "CONTEXT ENGINE ACCESS"}</strong>
                 <time dateTime={new Date(contextTimestamp ?? clock).toISOString()}>{berlinContextStamp(contextTimestamp ?? clock)}</time>
               </div>
               <button type="button" onClick={closeContextInput} disabled={contextState === "sending" || contextState === "unlocking"} aria-label="Close context input">×</button>
