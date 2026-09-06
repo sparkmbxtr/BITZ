@@ -213,6 +213,19 @@ function fmt(value: number | null | undefined, digits = 0) {
 }
 
 function chronologicalByTimestamp<T extends { timestamp: number }>(samples: T[]) {
+  // The live API already returns strictly ordered, deduplicated records. Keep
+  // that array identity so all charts share one cached BEGIN/CLOSE analysis.
+  let previousTimestamp = Number.NEGATIVE_INFINITY;
+  let alreadyChronological = true;
+  for (const sample of samples) {
+    if (!Number.isFinite(sample.timestamp) || sample.timestamp <= previousTimestamp) {
+      alreadyChronological = false;
+      break;
+    }
+    previousTimestamp = sample.timestamp;
+  }
+  if (alreadyChronological) return samples;
+
   const unique = new Map<number, T>();
   for (const sample of samples) {
     if (Number.isFinite(sample.timestamp)) unique.set(sample.timestamp, sample);
@@ -1407,12 +1420,20 @@ export default function Home() {
     try {
       const response = await fetch("/api/airq", { cache: "no-store" });
       if (response.status === 401) {
+        setApiConnected(null);
         setAuthorized(false);
+        return;
+      }
+      if (response.status === 503) {
+        setApiConnected(false);
         return;
       }
       if (!response.ok) throw new Error("Live feed unavailable");
       const payload = (await response.json()) as DashboardData;
-      if (payload.rooms?.lab && payload.rooms?.office) setData(normalizeDashboardData(payload));
+      if (payload.rooms?.lab && payload.rooms?.office) {
+        setData(normalizeDashboardData(payload));
+        setApiConnected(true);
+      }
     } catch {
       setData((current) => current.live ? { ...current, live: false, message: "Live refresh unavailable — showing last received values" } : current);
     } finally {
@@ -1426,8 +1447,12 @@ export default function Home() {
       .then((response) => response.json())
       .then((payload: { authorized?: boolean; passwordVerifierReady?: boolean }) => {
         if (active) {
-          setAuthorized(payload.authorized === true);
+          const sessionAuthorized = payload.authorized === true;
+          setAuthorized(sessionAuthorized);
           setPasswordVerifierReady(payload.passwordVerifierReady === true);
+          // The protected live-data route performs the same session check, so
+          // begin loading immediately instead of adding a separate round trip.
+          if (sessionAuthorized) setApiConnected(true);
         }
       })
       .catch(() => {
@@ -1728,7 +1753,7 @@ export default function Home() {
     }
   }
 
-  if (authorized !== true) return <AccessGate checking={authorized === null} verifierReady={passwordVerifierReady} onGranted={() => { setApiConnected(null); setAuthorized(true); }} />;
+  if (authorized !== true) return <AccessGate checking={authorized === null} verifierReady={passwordVerifierReady} onGranted={() => { setApiConnected(true); setAuthorized(true); }} />;
   if (apiConnected !== true) {
     if (ownerSetup && apiConnected === false) return <ApiKeySetup checking={false} onConnected={() => setApiConnected(true)} />;
     return <ConnectionPending checking={apiConnected === null || connectionChecking} onRetry={checkConnection} />;
