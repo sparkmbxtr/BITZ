@@ -84,6 +84,10 @@ type ActivityCycle = {
 type ActivityEvent = { timestamp: number; label: "BEGIN" | "CLOSE"; x: number; peopleRange: string | null };
 
 const ACOUSTIC_CHECK_LABEL = "Sound peak >90 dB";
+const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis";
+const REPORT_PENDING_MESSAGE = "The latest weekly report has not been generated yet.";
+
+type ReportAvailability = { available: boolean; fileName?: string; periodLabel?: string; message?: string };
 
 function latestAcousticEventAt(samples: Sample[]) {
   for (let index = samples.length - 1; index >= 0; index -= 1) {
@@ -1285,6 +1289,11 @@ export default function Home() {
   const [contextTimestamp, setContextTimestamp] = useState<number | null>(null);
   const [contextState, setContextState] = useState<"idle" | "unlocking" | "sending" | "sent" | "error">("idle");
   const [contextError, setContextError] = useState("");
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportName, setReportName] = useState("");
+  const [reportState, setReportState] = useState<"idle" | "checking" | "ready" | "unavailable" | "sending" | "sent" | "error">("idle");
+  const [reportError, setReportError] = useState("");
+  const [reportAvailability, setReportAvailability] = useState<ReportAvailability | null>(null);
 
   const closeContextInput = useCallback(() => {
     setContextOpen(false);
@@ -1294,6 +1303,14 @@ export default function Home() {
     setContextState("idle");
     setContextError("");
     void fetch("/api/context-auth", { method: "DELETE", credentials: "same-origin" }).catch(() => undefined);
+  }, []);
+
+  const closeReportInput = useCallback(() => {
+    setReportOpen(false);
+    setReportName("");
+    setReportState("idle");
+    setReportError("");
+    setReportAvailability(null);
   }, []);
 
   useEffect(() => {
@@ -1368,13 +1385,15 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!contextOpen) return;
+    if (!contextOpen && !reportOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && contextState !== "sending" && contextState !== "unlocking") closeContextInput();
+      if (event.key !== "Escape") return;
+      if (reportOpen && reportState !== "sending") closeReportInput();
+      if (contextOpen && contextState !== "sending" && contextState !== "unlocking") closeContextInput();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [contextOpen, contextState, closeContextInput]);
+  }, [contextOpen, contextState, closeContextInput, reportOpen, reportState, closeReportInput]);
 
   const loadData = useCallback(async () => {
     setRefreshing(true);
@@ -1555,6 +1574,7 @@ export default function Home() {
   }
 
   function openContextInput() {
+    closeReportInput();
     setContextTimestamp(Date.now());
     setContextUnlocked(false);
     setContextPassword("");
@@ -1563,6 +1583,88 @@ export default function Home() {
     setContextState("idle");
     setContextError("");
     setContextOpen(true);
+  }
+
+  async function openReportInput() {
+    closeContextInput();
+    setReportName("");
+    setReportState("checking");
+    setReportError("");
+    setReportAvailability(null);
+    setReportOpen(true);
+    try {
+      const response = await fetch(`/api/report?availability=${Date.now()}`, {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      const payload = await response.json().catch(() => ({})) as ReportAvailability & { error?: string };
+      if (response.status === 401) {
+        setAuthorized(false);
+        return;
+      }
+      if (response.ok && payload.available === true) {
+        setReportAvailability(payload);
+        setReportState("ready");
+        return;
+      }
+      setReportAvailability({ available: false, message: payload.message ?? REPORT_PENDING_MESSAGE });
+      setReportState("unavailable");
+    } catch {
+      setReportAvailability({ available: false, message: REPORT_PENDING_MESSAGE });
+      setReportState("unavailable");
+    }
+  }
+
+  async function downloadWeeklyReport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (reportState === "sending") return;
+    const firstName = reportName
+      .normalize("NFKC")
+      .replace(/[\u0000-\u001f\u007f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const validName = /^[\p{L}\p{M}][\p{L}\p{M}.'’ -]{0,79}$/u.test(firstName);
+    if (!validName || firstName.localeCompare(REPORT_INPUT_GUIDE, undefined, { sensitivity: "accent" }) === 0) {
+      setReportState("error");
+      setReportError("Enter your first name");
+      return;
+    }
+
+    setReportState("sending");
+    setReportError("");
+    try {
+      const response = await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ firstName }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({})) as { error?: string };
+        if (response.status === 401) setAuthorized(false);
+        if (response.status === 404) {
+          setReportAvailability((current) => ({ ...(current ?? { available: false }), available: false, message: payload.error ?? REPORT_PENDING_MESSAGE }));
+          setReportState("unavailable");
+          return;
+        }
+        throw new Error(payload.error ?? "Weekly report could not be downloaded");
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = reportAvailability?.fileName ?? "airq_monitoring_weekly_report.pdf";
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 2_000);
+      setReportState("sent");
+      window.setTimeout(closeReportInput, 1_200);
+    } catch (error) {
+      setReportState("error");
+      setReportError(error instanceof Error ? error.message : "Weekly report could not be downloaded");
+    }
   }
 
   async function unlockContext(event: FormEvent<HTMLFormElement>) {
@@ -1651,7 +1753,10 @@ export default function Home() {
       <footer className="wallboard-footer">
         <button className="context-trigger" type="button" onClick={openContextInput} aria-haspopup="dialog">CODES</button>
         <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 · If this is not your own device, select Lock (top right) before leaving.</span>
-        <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
+        <div className="footer-report-cluster">
+          <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
+          <button className="report-trigger" type="button" onClick={openReportInput} aria-haspopup="dialog">REPORT</button>
+        </div>
         {contextOpen ? (
           <section className="context-popover" role="dialog" aria-modal="true" aria-labelledby="context-title">
             <div className="context-popover-heading">
@@ -1693,6 +1798,41 @@ export default function Home() {
             )}
             {contextState === "sent" ? <small className="context-result is-sent">SENT</small> : null}
             {contextState === "error" ? <small className="context-result is-error">{contextError}</small> : null}
+          </section>
+        ) : null}
+        {reportOpen ? (
+          <section className="report-popover" role="dialog" aria-modal="true" aria-labelledby="report-title">
+            <div className="report-popover-heading">
+              <div>
+                <strong id="report-title">WEEKLY REPORT</strong>
+                <small>{reportAvailability?.periodLabel ?? "LATEST COMPLETED WEEK"}</small>
+              </div>
+              <button type="button" onClick={closeReportInput} disabled={reportState === "sending"} aria-label="Close weekly report download">×</button>
+            </div>
+            {reportState === "checking" ? <p className="report-pending">CHECKING REPORT…</p> : null}
+            {reportState === "unavailable" ? <p className="report-pending">{reportAvailability?.message ?? REPORT_PENDING_MESSAGE}</p> : null}
+            {reportState !== "checking" && reportState !== "unavailable" ? (
+              <>
+                <p>Input your first name to download weekly report</p>
+                <form className="report-input-row" onSubmit={downloadWeeklyReport}>
+                  <div className="report-name-field">
+                    <input
+                      autoFocus
+                      type="text"
+                      autoComplete="given-name"
+                      maxLength={80}
+                      value={reportName}
+                      onChange={(event) => setReportName(event.target.value)}
+                      aria-label="First name for weekly report download"
+                    />
+                    {!reportName ? <span className="report-name-guide" aria-hidden="true">{REPORT_INPUT_GUIDE}</span> : null}
+                  </div>
+                  <button type="submit" disabled={!reportName.trim() || reportState === "sending"}>{reportState === "sending" ? "…" : "DOWNLOAD"}</button>
+                </form>
+              </>
+            ) : null}
+            {reportState === "sent" ? <small className="report-result is-sent">DOWNLOAD STARTED</small> : null}
+            {reportState === "error" ? <small className="report-result is-error">{reportError}</small> : null}
           </section>
         ) : null}
       </footer>

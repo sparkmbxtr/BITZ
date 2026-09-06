@@ -35,6 +35,20 @@ type StoredContextRow = {
   note: string;
 };
 
+export type StoredReportDownload = {
+  id: string;
+  createdAt: number;
+  firstName: string;
+  reportName: string;
+};
+
+type StoredReportDownloadRow = {
+  id: string;
+  created_at: number;
+  first_name: string;
+  report_name: string;
+};
+
 /**
  * One SQLite-backed object keeps the manual observation stream ordered and
  * append-only. It is private to this Worker; browser requests reach it only
@@ -54,6 +68,18 @@ export class ContextLog extends DurableObject<Env> {
     ctx.storage.sql.exec(`
       CREATE INDEX IF NOT EXISTS idx_context_entries_created_at
       ON context_entries(created_at)
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS report_downloads (
+        id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        first_name TEXT NOT NULL CHECK (length(first_name) BETWEEN 1 AND 80),
+        report_name TEXT NOT NULL CHECK (length(report_name) BETWEEN 1 AND 180)
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_report_downloads_created_at
+      ON report_downloads(created_at)
     `);
   }
 
@@ -91,6 +117,43 @@ export class ContextLog extends DurableObject<Env> {
         createdAt: row.created_at,
         area: row.area,
         note: row.note,
+      }));
+  }
+
+  async addReportDownload(entry: StoredReportDownload): Promise<StoredReportDownload> {
+    const recent = this.ctx.storage.sql
+      .exec<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM report_downloads WHERE created_at >= ?",
+        Date.now() - 60_000,
+      )
+      .one();
+    if (recent.count >= 30) throw new Error("REPORT_RATE_LIMIT");
+
+    this.ctx.storage.sql.exec(
+      "INSERT OR IGNORE INTO report_downloads (id, created_at, first_name, report_name) VALUES (?, ?, ?, ?)",
+      entry.id,
+      entry.createdAt,
+      entry.firstName,
+      entry.reportName,
+    );
+    return entry;
+  }
+
+  async listReportDownloads(from: number, to: number, limit = 5000): Promise<StoredReportDownload[]> {
+    const boundedLimit = Math.max(1, Math.min(5000, Math.floor(limit)));
+    return this.ctx.storage.sql
+      .exec<StoredReportDownloadRow>(
+        "SELECT id, created_at, first_name, report_name FROM report_downloads WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC LIMIT ?",
+        from,
+        to,
+        boundedLimit,
+      )
+      .toArray()
+      .map((row) => ({
+        id: row.id,
+        createdAt: row.created_at,
+        firstName: row.first_name,
+        reportName: row.report_name,
       }));
   }
 }

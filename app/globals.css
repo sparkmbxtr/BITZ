@@ -437,8 +437,11 @@ line.activity-close { stroke: var(--amber); }
 .wallboard-footer { position: relative; min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 7px 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: clamp(.76rem, .68vw, .9rem); line-height: 1.2; }
 .wallboard-footer > span { min-width: 0; flex: 1 1 auto; }
 .wallboard-footer strong { color: var(--foreground); font-weight: 650; letter-spacing: .05em; }
-.context-trigger { flex: 0 0 auto; min-height: 24px; padding: 3px 8px; border: 1px solid rgba(169, 189, 193, .22); border-radius: 4px; color: rgba(169, 189, 193, .42); background: rgba(169, 189, 193, .035); font-size: .68rem; font-weight: 750; letter-spacing: .09em; }
-.context-trigger:hover, .context-trigger:focus-visible { color: var(--foreground); border-color: var(--teal); background: rgba(88, 222, 212, .1); }
+.footer-report-cluster { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 9px; white-space: nowrap; }
+.context-trigger, .report-trigger { flex: 0 0 auto; min-height: 24px; padding: 3px 8px; border-radius: 4px; font-size: .68rem; font-weight: 750; letter-spacing: .09em; }
+.context-trigger { border: 1px solid rgba(169, 189, 193, .22); color: rgba(169, 189, 193, .42); background: rgba(169, 189, 193, .035); }
+.report-trigger { border: 1px solid rgba(169, 189, 193, .31); color: rgba(203, 216, 219, .66); background: rgba(169, 189, 193, .075); }
+.context-trigger:hover, .context-trigger:focus-visible, .report-trigger:hover, .report-trigger:focus-visible { color: var(--foreground); border-color: var(--teal); background: rgba(88, 222, 212, .1); }
 .context-popover { position: absolute; z-index: 1600; left: 18px; bottom: calc(100% + 8px); width: min(540px, calc(100vw - 36px)); padding: 12px; display: grid; gap: 9px; border: 1px solid rgba(88, 222, 212, .48); border-top: 4px solid var(--teal); border-radius: 7px; color: var(--foreground); background: rgba(10, 27, 30, .985); box-shadow: 0 18px 52px rgba(0, 0, 0, .58); }
 .context-popover-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .context-popover-heading > div { display: grid; gap: 3px; }
@@ -456,6 +459,25 @@ line.activity-close { stroke: var(--amber); }
 .context-result { min-height: 14px; font-size: .7rem; font-weight: 800; letter-spacing: .06em; }
 .context-result.is-sent { color: var(--green); }
 .context-result.is-error { color: var(--red); }
+
+.report-popover { position: absolute; z-index: 1600; right: 18px; bottom: calc(100% + 8px); width: min(620px, calc(100vw - 36px)); padding: 13px; display: grid; gap: 9px; border: 1px solid rgba(169, 189, 193, .4); border-top: 4px solid rgba(169, 189, 193, .7); border-radius: 7px; color: var(--foreground); background: rgba(10, 27, 30, .985); box-shadow: 0 18px 52px rgba(0, 0, 0, .58); }
+.report-popover-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.report-popover-heading > div { display: grid; gap: 3px; }
+.report-popover-heading strong { font-size: .98rem; letter-spacing: .08em; }
+.report-popover-heading small { color: var(--muted); font-size: .72rem; letter-spacing: .045em; }
+.report-popover-heading > button { width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); background: transparent; font-size: 1.15rem; line-height: 1; }
+.report-popover > p { margin: 0; color: var(--foreground); font-size: .84rem; line-height: 1.3; }
+.report-popover > .report-pending { min-height: 42px; display: flex; align-items: center; color: rgba(203, 216, 219, .8); font-weight: 750; letter-spacing: .04em; }
+.report-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 7px; }
+.report-name-field { position: relative; min-width: 0; }
+.report-name-field input { width: 100%; min-width: 0; height: 46px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 4px; outline: none; color: var(--foreground); background: #081719; font: inherit; }
+.report-name-field input:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgba(88, 222, 212, .13); }
+.report-name-guide { position: absolute; inset: 0; padding: 7px 9px; display: flex; align-items: center; color: rgba(169, 189, 193, .48); font-size: clamp(.58rem, 1.65vw, .7rem); line-height: 1.15; letter-spacing: .015em; overflow-wrap: anywhere; pointer-events: none; user-select: none; }
+.report-input-row > button { height: 46px; border: 1px solid rgba(169, 189, 193, .54); border-radius: 4px; color: var(--foreground); background: rgba(169, 189, 193, .15); font-size: .72rem; font-weight: 850; letter-spacing: .065em; }
+.report-input-row > button:disabled { opacity: .42; }
+.report-result { min-height: 14px; font-size: .7rem; font-weight: 800; letter-spacing: .06em; }
+.report-result.is-sent { color: var(--green); }
+.report-result.is-error { color: var(--red); }
 
 /* True wallboard mode is reserved for viewports with enough height. Shorter or
    squarer windows keep the two-room layout but grow vertically, so content is
@@ -623,6 +645,10 @@ line.activity-close { stroke: var(--amber); }
   .metric-grid, .office-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .colour-key { width: 100%; flex-wrap: wrap; }
   .context-popover { left: 6px; width: calc(100vw - 12px); }
+  .report-popover { right: 6px; width: calc(100vw - 12px); }
+  .report-input-row { grid-template-columns: minmax(0, 1fr); }
+  .report-input-row > button { width: 100%; }
+  .footer-report-cluster { gap: 6px; }
 }
 
 /* The Full screen control guarantees a minimum logical canvas and expands its
@@ -899,6 +925,7 @@ html[data-dashboard-fullscreen="true"] body {
 }
 .wallboard-fullscreen .wallboard-footer span { display: inline; }
 .wallboard-fullscreen .context-popover { width: 540px; max-width: calc(100vw - 36px); }
+.wallboard-fullscreen .report-popover { width: 620px; max-width: calc(100vw - 36px); }
 
 /* Landscape is the limiting one-screen case: keep the narrow 20% action
    column concise enough for a 1920 × 1080 logical canvas. */
