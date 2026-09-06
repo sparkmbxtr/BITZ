@@ -48,7 +48,11 @@ def weekly_rho(df15, first, second):
     values = df15[[first, second]].apply(pd.to_numeric, errors="coerce").dropna()
     if len(values) < 3:
         return float("nan"), len(values)
-    return float(values[first].corr(values[second], method="spearman")), len(values)
+    # Spearman's rho is Pearson correlation applied to ranks. Computing it
+    # explicitly keeps the workflow self-contained instead of making pandas
+    # import SciPy only for this one statistic.
+    ranked = values.rank(method="average")
+    return float(ranked[first].corr(ranked[second])), len(values)
 
 
 def stat_text(room, field, side):
