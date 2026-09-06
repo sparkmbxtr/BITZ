@@ -1,0 +1,97 @@
+name: Export first monitoring week
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/export-first-week.yml
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  export-first-week:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Capture protected six-day export
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p weekly-export
+
+          identity_response="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=bitz-monitor-export")"
+          identity_token="$(jq -er '.value' <<<"${identity_response}")"
+          echo "::add-mask::${identity_token}"
+
+          ranges=(
+            "1788127200000 1788300000000"
+            "1788300000000 1788472800000"
+            "1788472800000 1788645600000"
+          )
+
+          index=1
+          for range in "${ranges[@]}"; do
+            read -r from to <<<"${range}"
+            output="weekly-export/sensor-${index}.json"
+            status="$(curl --silent --show-error \
+              -o "${output}" \
+              -w '%{http_code}' \
+              -H "Authorization: Bearer ${identity_token}" \
+              -H 'Accept: application/json' \
+              "https://spark.bioengineering.workers.dev/api/airq?export=1&inline=1&f=${from}&t=${to}")"
+            [[ "${status}" == "200" ]]
+            jq -e --argjson from "${from}" --argjson to "${to}" '
+              .live == true
+              and .coverage.exact == true
+              and .coverage.from == $from
+              and .coverage.to == $to
+              and (.rooms.lab.samples | type == "array" and length > 0)
+              and (.rooms.office.samples | type == "array" and length > 0)
+            ' "${output}" >/dev/null
+            index=$((index + 1))
+          done
+
+          context_status="$(curl --silent --show-error \
+            -o weekly-export/context.json \
+            -w '%{http_code}' \
+            -H "Authorization: Bearer ${identity_token}" \
+            -H 'Accept: application/json' \
+            'https://spark.bioengineering.workers.dev/api/context?from=1788127200000&to=1788645600000')"
+          [[ "${context_status}" == "200" ]]
+          jq -e '
+            .schemaVersion == 1
+            and .timezone == "Europe/Berlin"
+            and .range.from == 1788127200000
+            and .range.to == 1788645600000
+            and (.entries | type == "array")
+            and (.entries | all(
+              (.id | type == "string" and length > 0)
+              and (.createdAt | type == "number" and . >= 1788127200000 and . <= 1788645600000)
+              and (.area == "LAB" or .area == "OFFICE" or .area == "OUTDOOR")
+              and (.note | type == "string" and length > 0 and length <= 500)
+            ))
+          ' weekly-export/context.json >/dev/null
+
+          sha256sum weekly-export/sensor-1.json weekly-export/sensor-2.json weekly-export/sensor-3.json weekly-export/context.json > weekly-export/SHA256SUMS
+          jq -n \
+            --arg timezone "Europe/Berlin" \
+            --arg coverage "2026-08-31 00:00 through 2026-09-06 00:00" \
+            --argjson from 1788127200000 \
+            --argjson to 1788645600000 \
+            --argjson contextCount "$(jq '.entries | length' weekly-export/context.json)" \
+            '{schemaVersion: 1, reportWindow: "2026-08-31 through 2026-09-05", timezone: $timezone, coverageLabel: $coverage, coverage: {from: $from, to: $to}, contextEntryCount: $contextCount, chunks: ["sensor-1.json", "sensor-2.json", "sensor-3.json"]}' \
+            > weekly-export/manifest.json
+
+      - name: Upload private first-week export
+        uses: actions/upload-artifact@v4
+        with:
+          name: airq-week-083126-090526
+          path: weekly-export/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
