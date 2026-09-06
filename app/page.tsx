@@ -1618,7 +1618,7 @@ export default function Home() {
       </div>
       <footer className="wallboard-footer">
         <button className="context-trigger" type="button" onClick={openContextInput} aria-haspopup="dialog">CODES</button>
-        <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 | Corant GmbH | 04229 Leipzig</span>
+        <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026</span>
         <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
         {contextOpen ? (
           <section className="context-popover" role="dialog" aria-modal="true" aria-labelledby="context-title">
