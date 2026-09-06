@@ -1,0 +1,212 @@
+name: Publish weekly airQ report
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-weekly-report.yml
+  schedule:
+    # GitHub cron is UTC. The local-time gate keeps publication at 08:15
+    # Europe/Berlin across daylight-saving changes.
+    - cron: "15 6,7 * * 0"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-weekly-airq-report
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Select the Sunday Europe/Berlin run
+        id: gate
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" != "schedule" || "$(TZ=Europe/Berlin date +%H)" == "08" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out report generator
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/weekly-report/requirements.txt
+
+      - name: Install report dependencies
+        if: steps.gate.outputs.run == 'true'
+        run: python -m pip install --disable-pip-version-check -r scripts/weekly-report/requirements.txt
+
+      - name: Resolve completed Monday-Saturday period
+        if: steps.gate.outputs.run == 'true'
+        id: period
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$(TZ=Europe/Berlin date +%u)" == "7" ]]; then
+            end_date="$(TZ=Europe/Berlin date +%F)"
+          else
+            end_date="$(TZ=Europe/Berlin date --date='last sunday' +%F)"
+          fi
+          start_date="$(TZ=Europe/Berlin date --date="${end_date} -6 days" +%F)"
+          start_ms="$(( $(TZ=Europe/Berlin date --date="${start_date} 00:00:00" +%s) * 1000 ))"
+          end_ms="$(( $(TZ=Europe/Berlin date --date="${end_date} 00:00:00" +%s) * 1000 ))"
+          range="$(TZ=Europe/Berlin date --date="${start_date}" +%m%d%y)-$(TZ=Europe/Berlin date --date="${end_date} -1 day" +%m%d%y)"
+          report_name="airq_monitoring_weekly_${range}.pdf"
+          echo "start_date=${start_date}" >> "$GITHUB_OUTPUT"
+          echo "end_date=${end_date}" >> "$GITHUB_OUTPUT"
+          echo "start_ms=${start_ms}" >> "$GITHUB_OUTPUT"
+          echo "end_ms=${end_ms}" >> "$GITHUB_OUTPUT"
+          echo "range=${range}" >> "$GITHUB_OUTPUT"
+          echo "report_name=${report_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Allow the deployment triggered by this workflow change to settle
+        if: steps.gate.outputs.run == 'true' && github.event_name == 'push'
+        run: sleep 240
+
+      - name: Capture protected weekly sensor and context exports
+        if: steps.gate.outputs.run == 'true'
+        shell: bash
+        env:
+          PERIOD_START_DATE: ${{ steps.period.outputs.start_date }}
+          PERIOD_START_MS: ${{ steps.period.outputs.start_ms }}
+          PERIOD_END_MS: ${{ steps.period.outputs.end_ms }}
+        run: |
+          set -euo pipefail
+          mkdir -p weekly-export weekly-analysis weekly-output
+
+          identity_response="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=bitz-monitor-export")"
+          identity_token="$(jq -er '.value' <<<"${identity_response}")"
+          echo "::add-mask::${identity_token}"
+
+          for index in 0 1 2; do
+            chunk_start_date="$(TZ=Europe/Berlin date --date="${PERIOD_START_DATE} +$((index * 2)) days" +%F)"
+            chunk_end_date="$(TZ=Europe/Berlin date --date="${PERIOD_START_DATE} +$(((index + 1) * 2)) days" +%F)"
+            chunk_from="$(( $(TZ=Europe/Berlin date --date="${chunk_start_date} 00:00:00" +%s) * 1000 ))"
+            chunk_to="$(( $(TZ=Europe/Berlin date --date="${chunk_end_date} 00:00:00" +%s) * 1000 ))"
+            output="weekly-export/sensor-$((index + 1)).json"
+            status="$(curl --silent --show-error -o "${output}" -w '%{http_code}' \
+              -H "Authorization: Bearer ${identity_token}" \
+              -H 'Accept: application/json' \
+              "https://spark.bioengineering.workers.dev/api/airq?export=1&inline=1&f=${chunk_from}&t=${chunk_to}")"
+            [[ "${status}" == "200" ]]
+            jq -e --argjson from "${chunk_from}" --argjson to "${chunk_to}" '
+              .live == true
+              and .coverage.exact == true
+              and .coverage.from == $from
+              and .coverage.to == $to
+              and (.rooms.lab.samples | type == "array" and length > 0)
+              and (.rooms.office.samples | type == "array" and length > 0)
+            ' "${output}" >/dev/null
+          done
+
+          context_status="$(curl --silent --show-error -o weekly-export/context.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${identity_token}" \
+            -H 'Accept: application/json' \
+            "https://spark.bioengineering.workers.dev/api/context?from=${PERIOD_START_MS}&to=${PERIOD_END_MS}")"
+          [[ "${context_status}" == "200" ]]
+          jq -e --argjson from "${PERIOD_START_MS}" --argjson to "${PERIOD_END_MS}" '
+            .schemaVersion == 1
+            and .timezone == "Europe/Berlin"
+            and .range.from == $from
+            and .range.to == $to
+            and (.entries | type == "array")
+            and ((.entries | map(.id) | unique | length) == (.entries | length))
+            and (.entries | all(
+              (.id | type == "string" and length > 0)
+              and (.createdAt | type == "number" and . >= $from and . <= $to)
+              and (.area == "LAB" or .area == "OFFICE" or .area == "OUTDOOR")
+              and (.note | type == "string" and length > 0 and length <= 500)
+            ))
+          ' weekly-export/context.json >/dev/null
+
+          sha256sum weekly-export/sensor-*.json weekly-export/context.json > weekly-export/SHA256SUMS
+          jq -n \
+            --arg timezone "Europe/Berlin" \
+            --argjson from "${PERIOD_START_MS}" \
+            --argjson to "${PERIOD_END_MS}" \
+            --argjson generatedAt "$(date +%s%3N)" \
+            '{schemaVersion: 1, timezone: $timezone, coverage: {from: $from, to: $to}, generatedAt: $generatedAt, chunks: ["sensor-1.json", "sensor-2.json", "sensor-3.json"], context: "context.json"}' \
+            > weekly-export/manifest.json
+
+      - name: Build and validate A2 weekly chart report
+        if: steps.gate.outputs.run == 'true'
+        shell: bash
+        env:
+          PERIOD_START_MS: ${{ steps.period.outputs.start_ms }}
+          PERIOD_END_MS: ${{ steps.period.outputs.end_ms }}
+          REPORT_RANGE: ${{ steps.period.outputs.range }}
+          REPORT_NAME: ${{ steps.period.outputs.report_name }}
+        run: |
+          set -euo pipefail
+          python scripts/weekly-report/analyze.py \
+            --source weekly-export \
+            --output weekly-analysis \
+            --start-ms "${PERIOD_START_MS}" \
+            --end-ms "${PERIOD_END_MS}"
+          WEEKLY_ANALYSIS_JSON="${PWD}/weekly-analysis/analysis.json" \
+          WEEKLY_OUTPUT_DIR="${PWD}/weekly-output" \
+          WEEKLY_REPORT_RANGE="${REPORT_RANGE}" \
+            python scripts/weekly-report/generate.py
+          report="weekly-output/${REPORT_NAME}"
+          [[ -s "${report}" ]]
+          [[ "$(head -c 5 "${report}")" == "%PDF-" ]]
+          tail -c 2048 "${report}" | grep -q '%%EOF'
+          [[ "$(pdfinfo "${report}" | awk '/^Pages:/ {print $2}')" == "20" ]]
+          pdfinfo "${report}" | grep -q 'Page size:.*A2'
+
+      - name: Publish verified report atomically
+        if: steps.gate.outputs.run == 'true'
+        shell: bash
+        env:
+          REPORT_NAME: ${{ steps.period.outputs.report_name }}
+        run: |
+          set -euo pipefail
+          report="weekly-output/${REPORT_NAME}"
+          report_sha256="$(sha256sum "${report}" | cut -d' ' -f1)"
+          identity_response="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=bitz-monitor-export")"
+          identity_token="$(jq -er '.value' <<<"${identity_response}")"
+          echo "::add-mask::${identity_token}"
+          curl --fail --silent --show-error \
+            -o weekly-output/publication.json \
+            -X PUT \
+            -H "Authorization: Bearer ${identity_token}" \
+            -H 'Content-Type: application/pdf' \
+            -H "X-Report-Name: ${REPORT_NAME}" \
+            -H "X-Content-SHA256: ${report_sha256}" \
+            --data-binary "@${report}" \
+            'https://spark.bioengineering.workers.dev/api/report'
+          jq -e --arg report "${REPORT_NAME}" '.published == true and .fileName == $report and (.size | type == "number" and . > 0)' weekly-output/publication.json >/dev/null
+
+      - name: Upload private weekly report artifact
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: airq-weekly-${{ steps.period.outputs.range }}
+          path: |
+            weekly-output/${{ steps.period.outputs.report_name }}
+            weekly-analysis/analysis.json
+            weekly-analysis/analysis-summary.json
+            weekly-export/context.json
+            weekly-export/manifest.json
+            weekly-export/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6

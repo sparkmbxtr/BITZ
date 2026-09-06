@@ -49,6 +49,25 @@ type StoredReportDownloadRow = {
   report_name: string;
 };
 
+export type StoredWeeklyReport = {
+  id: string;
+  reportName: string;
+  periodLabel: string;
+  byteSize: number;
+  sha256: string;
+  createdAt: number;
+  chunks: string[];
+};
+
+type StoredWeeklyReportRow = {
+  id: string;
+  report_name: string;
+  period_label: string;
+  byte_size: number;
+  sha256: string;
+  created_at: number;
+};
+
 /**
  * One SQLite-backed object keeps the manual observation stream ordered and
  * append-only. It is private to this Worker; browser requests reach it only
@@ -80,6 +99,30 @@ export class ContextLog extends DurableObject<Env> {
     ctx.storage.sql.exec(`
       CREATE INDEX IF NOT EXISTS idx_report_downloads_created_at
       ON report_downloads(created_at)
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS weekly_reports (
+        id TEXT PRIMARY KEY,
+        report_name TEXT NOT NULL CHECK (length(report_name) BETWEEN 1 AND 180),
+        period_label TEXT NOT NULL CHECK (length(period_label) BETWEEN 1 AND 80),
+        byte_size INTEGER NOT NULL CHECK (byte_size > 0),
+        sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+        created_at INTEGER NOT NULL
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS weekly_report_chunks (
+        report_id TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL CHECK (chunk_index >= 0),
+        payload TEXT NOT NULL,
+        PRIMARY KEY (report_id, chunk_index)
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS weekly_report_state (
+        state_key TEXT PRIMARY KEY CHECK (state_key = 'current'),
+        report_id TEXT NOT NULL
+      )
     `);
   }
 
@@ -155,6 +198,138 @@ export class ContextLog extends DurableObject<Env> {
         firstName: row.first_name,
         reportName: row.report_name,
       }));
+  }
+
+  async stageWeeklyReport(report: StoredWeeklyReport): Promise<StoredWeeklyReportRow> {
+    if (!report.id || !report.reportName || !report.periodLabel || report.byteSize <= 0
+      || !/^[a-f0-9]{64}$/.test(report.sha256) || !Number.isFinite(report.createdAt)
+      || !Array.isArray(report.chunks) || report.chunks.length < 1 || report.chunks.length > 128
+      || report.chunks.some((chunk) => typeof chunk !== "string" || !chunk || chunk.length > 700_000)) {
+      throw new Error("INVALID_WEEKLY_REPORT");
+    }
+
+    this.ctx.storage.sql.exec("DELETE FROM weekly_report_chunks WHERE report_id = ?", report.id);
+    this.ctx.storage.sql.exec("DELETE FROM weekly_reports WHERE id = ?", report.id);
+    this.ctx.storage.sql.exec(
+      "INSERT INTO weekly_reports (id, report_name, period_label, byte_size, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      report.id,
+      report.reportName,
+      report.periodLabel,
+      report.byteSize,
+      report.sha256,
+      report.createdAt,
+    );
+    report.chunks.forEach((payload, chunkIndex) => {
+      this.ctx.storage.sql.exec(
+        "INSERT INTO weekly_report_chunks (report_id, chunk_index, payload) VALUES (?, ?, ?)",
+        report.id,
+        chunkIndex,
+        payload,
+      );
+    });
+    return {
+      id: report.id,
+      report_name: report.reportName,
+      period_label: report.periodLabel,
+      byte_size: report.byteSize,
+      sha256: report.sha256,
+      created_at: report.createdAt,
+    };
+  }
+
+  async getStagedWeeklyReport(reportId: string): Promise<StoredWeeklyReport | null> {
+    const rows = this.ctx.storage.sql
+      .exec<StoredWeeklyReportRow>(
+        "SELECT id, report_name, period_label, byte_size, sha256, created_at FROM weekly_reports WHERE id = ? LIMIT 1",
+        reportId,
+      )
+      .toArray();
+    const row = rows[0];
+    if (!row) return null;
+    const chunks = this.ctx.storage.sql
+      .exec<{ payload: string }>(
+        "SELECT payload FROM weekly_report_chunks WHERE report_id = ? ORDER BY chunk_index ASC",
+        reportId,
+      )
+      .toArray()
+      .map((entry) => entry.payload);
+    return {
+      id: row.id,
+      reportName: row.report_name,
+      periodLabel: row.period_label,
+      byteSize: row.byte_size,
+      sha256: row.sha256,
+      createdAt: row.created_at,
+      chunks,
+    };
+  }
+
+  async activateWeeklyReport(reportId: string): Promise<StoredWeeklyReportRow> {
+    const rows = this.ctx.storage.sql
+      .exec<StoredWeeklyReportRow>(
+        "SELECT id, report_name, period_label, byte_size, sha256, created_at FROM weekly_reports WHERE id = ? LIMIT 1",
+        reportId,
+      )
+      .toArray();
+    const report = rows[0];
+    if (!report) throw new Error("WEEKLY_REPORT_NOT_STAGED");
+    const chunkCount = this.ctx.storage.sql
+      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM weekly_report_chunks WHERE report_id = ?", reportId)
+      .one().count;
+    if (chunkCount < 1) throw new Error("WEEKLY_REPORT_CHUNKS_MISSING");
+
+    // This single pointer write is the activation boundary. The previously
+    // downloadable PDF remains current until the replacement has been stored
+    // and verified by the route.
+    this.ctx.storage.sql.exec(
+      "INSERT INTO weekly_report_state (state_key, report_id) VALUES ('current', ?) ON CONFLICT(state_key) DO UPDATE SET report_id = excluded.report_id",
+      reportId,
+    );
+
+    const oldIds = this.ctx.storage.sql
+      .exec<{ id: string }>("SELECT id FROM weekly_reports WHERE id != ?", reportId)
+      .toArray()
+      .map((row) => row.id);
+    oldIds.forEach((oldId) => {
+      this.ctx.storage.sql.exec("DELETE FROM weekly_report_chunks WHERE report_id = ?", oldId);
+      this.ctx.storage.sql.exec("DELETE FROM weekly_reports WHERE id = ?", oldId);
+    });
+    return report;
+  }
+
+  async discardStagedWeeklyReport(reportId: string): Promise<void> {
+    const current = this.ctx.storage.sql
+      .exec<{ report_id: string }>("SELECT report_id FROM weekly_report_state WHERE state_key = 'current' LIMIT 1")
+      .toArray()[0]?.report_id;
+    if (current === reportId) return;
+    this.ctx.storage.sql.exec("DELETE FROM weekly_report_chunks WHERE report_id = ?", reportId);
+    this.ctx.storage.sql.exec("DELETE FROM weekly_reports WHERE id = ?", reportId);
+  }
+
+  async headWeeklyReport(reportName: string): Promise<Omit<StoredWeeklyReport, "chunks"> | null> {
+    const rows = this.ctx.storage.sql
+      .exec<StoredWeeklyReportRow>(`
+        SELECT r.id, r.report_name, r.period_label, r.byte_size, r.sha256, r.created_at
+        FROM weekly_report_state s
+        JOIN weekly_reports r ON r.id = s.report_id
+        WHERE s.state_key = 'current' AND r.report_name = ?
+        LIMIT 1
+      `, reportName)
+      .toArray();
+    const row = rows[0];
+    return row ? {
+      id: row.id,
+      reportName: row.report_name,
+      periodLabel: row.period_label,
+      byteSize: row.byte_size,
+      sha256: row.sha256,
+      createdAt: row.created_at,
+    } : null;
+  }
+
+  async getWeeklyReport(reportName: string): Promise<StoredWeeklyReport | null> {
+    const head = await this.headWeeklyReport(reportName);
+    return head ? this.getStagedWeeklyReport(head.id) : null;
   }
 }
 

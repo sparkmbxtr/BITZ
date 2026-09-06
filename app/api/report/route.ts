@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis";
 const REPORT_ALLOWED_NAMES = ["RICHARD", "JEFF", "JESS", "LILIANA", "Dr.Itzel", "Dr.Kaarthik", "Dr.Fidelis"] as const;
 const REPORT_HIDDEN_TEST_NAME = "SPARKMBXTR";
-const REPORT_PENDING_MESSAGE = "Last week’s report has not been generated yet."
+const REPORT_PENDING_MESSAGE = "Recent week’s report has not been generated yet.";
+const REPORT_MAX_BYTES = 25 * 1024 * 1024;
+const REPORT_CHUNK_BYTES = 256 * 1024;
 
 type ReportDownload = {
   id: string;
@@ -20,28 +22,30 @@ type ReportDownload = {
 type ReportLogStub = {
   addReportDownload(entry: ReportDownload): Promise<ReportDownload>;
   listReportDownloads(from: number, to: number, limit?: number): Promise<ReportDownload[]>;
+  stageWeeklyReport(report: StoredWeeklyReport): Promise<unknown>;
+  getStagedWeeklyReport(reportId: string): Promise<StoredWeeklyReport | null>;
+  activateWeeklyReport(reportId: string): Promise<unknown>;
+  discardStagedWeeklyReport(reportId: string): Promise<void>;
+  headWeeklyReport(reportName: string): Promise<StoredWeeklyReportHead | null>;
+  getWeeklyReport(reportName: string): Promise<StoredWeeklyReport | null>;
 };
 
 type ReportLogNamespace = {
   getByName(name: string): ReportLogStub;
 };
 
-type ReportObject = {
-  body: ReadableStream;
-  size?: number;
+type StoredWeeklyReportHead = {
+  id: string;
+  reportName: string;
+  periodLabel: string;
+  byteSize: number;
+  sha256: string;
+  createdAt: number;
 };
 
-type ReportHead = {
-  size?: number;
-};
-
-type ReportsBucket = {
-  head(key: string): Promise<ReportHead | null>;
-  get(key: string): Promise<ReportObject | null>;
-};
+type StoredWeeklyReport = StoredWeeklyReportHead & { chunks: string[] };
 
 type ExpectedReport = {
-  key: string;
   fileName: string;
   periodLabel: string;
 };
@@ -64,11 +68,6 @@ function reportLog() {
   const namespace = runtimeBinding<ReportLogNamespace>("CONTEXT_LOG");
   if (!namespace?.getByName) return null;
   return namespace.getByName("airq-context-log");
-}
-
-function reportsBucket() {
-  const bucket = runtimeBinding<ReportsBucket>("REPORTS_BUCKET");
-  return bucket?.head && bucket?.get ? bucket : null;
 }
 
 function sameOrigin(request: Request) {
@@ -150,21 +149,70 @@ function expectedWeeklyReport(now = Date.now()): ExpectedReport {
   const range = `${compactDate(start)}-${compactDate(end)}`;
   const fileName = `airq_monitoring_weekly_${range}.pdf`;
   return {
-    key: `weekly/${fileName}`,
     fileName,
     periodLabel: range.replace("-", "–"),
   };
 }
 
 async function reportAvailable(report: ExpectedReport) {
-  const bucket = reportsBucket();
-  if (!bucket) return false;
+  const stub = reportLog();
+  if (!stub) return false;
   try {
-    const object = await bucket.head(report.key);
-    return Boolean(object && (object.size === undefined || object.size > 0));
+    const object = await stub.headWeeklyReport(report.fileName);
+    return Boolean(object && object.byteSize > 0);
   } catch {
     return false;
   }
+}
+
+function byteArrayToBase64(bytes: Uint8Array) {
+  let binary = "";
+  const stride = 32_768;
+  for (let offset = 0; offset < bytes.length; offset += stride) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + stride, bytes.length)));
+  }
+  return btoa(binary);
+}
+
+function base64ToByteArray(value: string) {
+  const binary = atob(value);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function splitReport(bytes: Uint8Array) {
+  const chunks: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += REPORT_CHUNK_BYTES) {
+    chunks.push(byteArrayToBase64(bytes.subarray(offset, Math.min(offset + REPORT_CHUNK_BYTES, bytes.length))));
+  }
+  return chunks;
+}
+
+function joinReport(chunks: string[], expectedSize: number) {
+  if (!Array.isArray(chunks) || !chunks.length || expectedSize <= 0 || expectedSize > REPORT_MAX_BYTES) return null;
+  const decoded = chunks.map(base64ToByteArray);
+  const size = decoded.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  if (size !== expectedSize) return null;
+  const output = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of decoded) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+async function sha256Hex(bytes: Uint8Array) {
+  const owned = new Uint8Array(bytes.byteLength);
+  owned.set(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", owned.buffer);
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function validPdf(bytes: Uint8Array) {
+  if (bytes.byteLength < 1024 || bytes.byteLength > REPORT_MAX_BYTES) return false;
+  const prefix = new TextDecoder().decode(bytes.subarray(0, Math.min(8, bytes.length)));
+  const suffix = new TextDecoder().decode(bytes.subarray(Math.max(0, bytes.length - 2048)));
+  return prefix.startsWith("%PDF-") && suffix.includes("%%EOF");
 }
 
 async function exportDownloadLog(request: Request) {
@@ -233,16 +281,16 @@ export async function POST(request: Request) {
 
   const report = expectedWeeklyReport();
   const stub = reportLog();
-  const bucket = reportsBucket();
-  if (!stub || !bucket) return json({ error: REPORT_PENDING_MESSAGE }, 404);
+  if (!stub) return json({ error: REPORT_PENDING_MESSAGE }, 404);
 
-  let object: ReportObject | null = null;
+  let object: StoredWeeklyReport | null = null;
   try {
-    object = await bucket.get(report.key);
+    object = await stub.getWeeklyReport(report.fileName);
   } catch {
     object = null;
   }
-  if (!object?.body || (object.size !== undefined && object.size <= 0)) {
+  const bytes = object ? joinReport(object.chunks, object.byteSize) : null;
+  if (!object || !bytes || object.reportName !== report.fileName) {
     return json({ error: REPORT_PENDING_MESSAGE }, 404);
   }
 
@@ -270,6 +318,59 @@ export async function POST(request: Request) {
     "Cache-Control": "private, no-store, max-age=0",
     "X-Content-Type-Options": "nosniff",
   });
-  if (typeof object.size === "number" && object.size > 0) headers.set("Content-Length", String(object.size));
-  return new Response(object.body, { status: 200, headers });
+  headers.set("Content-Length", String(bytes.byteLength));
+  return new Response(bytes, { status: 200, headers });
+}
+
+export async function PUT(request: Request) {
+  if (!await exportAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/pdf") return json({ error: "PDF content required" }, 415);
+
+  const expected = expectedWeeklyReport();
+  const reportName = request.headers.get("x-report-name")?.trim() ?? "";
+  const suppliedSha256 = request.headers.get("x-content-sha256")?.trim().toLowerCase() ?? "";
+  if (reportName !== expected.fileName || !/^[a-f0-9]{64}$/.test(suppliedSha256)) {
+    return json({ error: "Report identity rejected" }, 400);
+  }
+
+  const contentLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && (contentLength < 1024 || contentLength > REPORT_MAX_BYTES)) {
+    return json({ error: "Report size rejected" }, 413);
+  }
+
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (!validPdf(bytes)) return json({ error: "Report validation failed" }, 400);
+  const calculatedSha256 = await sha256Hex(bytes);
+  if (calculatedSha256 !== suppliedSha256) return json({ error: "Report hash mismatch" }, 400);
+
+  const stub = reportLog();
+  if (!stub) return json({ error: "Report storage is unavailable" }, 503);
+  const reportId = crypto.randomUUID();
+  const staged: StoredWeeklyReport = {
+    id: reportId,
+    reportName,
+    periodLabel: expected.periodLabel,
+    byteSize: bytes.byteLength,
+    sha256: calculatedSha256,
+    createdAt: Date.now(),
+    chunks: splitReport(bytes),
+  };
+
+  try {
+    await stub.stageWeeklyReport(staged);
+    const stored = await stub.getStagedWeeklyReport(reportId);
+    const storedBytes = stored ? joinReport(stored.chunks, stored.byteSize) : null;
+    if (!stored || !storedBytes || stored.reportName !== reportName
+      || stored.byteSize !== bytes.byteLength || stored.sha256 !== calculatedSha256
+      || await sha256Hex(storedBytes) !== calculatedSha256 || !validPdf(storedBytes)) {
+      await stub.discardStagedWeeklyReport(reportId);
+      return json({ error: "Stored report verification failed" }, 500);
+    }
+    await stub.activateWeeklyReport(reportId);
+    return json({ published: true, fileName: reportName, periodLabel: expected.periodLabel, size: bytes.byteLength });
+  } catch {
+    await stub.discardStagedWeeklyReport(reportId).catch(() => undefined);
+    return json({ error: "Report publication failed" }, 503);
+  }
 }

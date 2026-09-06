@@ -8,6 +8,7 @@ const EXPORT_REF = "refs/heads/main";
 const EXPORT_WORKFLOW_REFS = new Set([
   `${EXPORT_REPOSITORY}/.github/workflows/archive-monitoring.yml@${EXPORT_REF}`,
   `${EXPORT_REPOSITORY}/.github/workflows/export-first-week.yml@${EXPORT_REF}`,
+  `${EXPORT_REPOSITORY}/.github/workflows/publish-weekly-report.yml@${EXPORT_REF}`,
 ]);
 const CLOCK_SKEW_SECONDS = 60;
 const MAX_TOKEN_AGE_SECONDS = 15 * 60;

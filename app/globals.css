@@ -210,10 +210,10 @@ button, input { font: inherit; }
 .grade-action { color: var(--orange); background: rgba(91, 42, 12, .82); }
 .grade-unknown { color: var(--unknown); background: rgba(82, 91, 94, .28); }
 .metric-value-line { min-width: 0; margin-top: 3px; display: flex; align-items: baseline; gap: .42em; font-size: clamp(1.1rem, min(1.35vw, 2.35vh), 1.6rem); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
-.metric-value-line.has-comparison { gap: .34em; font-size: clamp(.82rem, min(.92vw, 1.8vh), 1.16rem); }
+.metric-value-line.has-comparison { gap: .34em; }
 .metric-value-line > strong { min-width: 0; flex: 0 1 auto; font: inherit; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .metric-scale { flex: 0 0 auto; color: rgba(214, 229, 231, .48); font-size: .72em; font-weight: 580; white-space: nowrap; }
-.metric-comparison { min-width: 0; flex: 0 1 auto; color: rgba(214, 229, 231, .48); font: inherit; font-weight: 580; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.metric-comparison { min-width: 0; flex: 0 1 auto; color: rgba(214, 229, 231, .48); font-size: .68em; font-weight: 580; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .metric-comparison small { color: rgba(214, 229, 231, .4); font-size: .63em; font-weight: 760; letter-spacing: .055em; }
 .metric-foot { min-width: 0; min-height: 17px; margin-top: 5px; display: flex; align-self: end; align-items: center; gap: 7px; }
 .metric-foot small { min-width: 0; color: var(--muted); font-size: clamp(.66rem, .57vw, .76rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -322,11 +322,11 @@ line.activity-close { stroke: var(--amber); }
 .meaning-evidence > .meaning-signal > span, .meaning-evidence > .meaning-signal > b { width: 100%; overflow-wrap: anywhere; line-height: 1.12; }
 .meaning-evidence > .meaning-signal > span { display: flex; align-items: center; justify-content: center; color: #f2fbf7; font-size: clamp(.94rem, min(.9vw, 1.62vh), 1.18rem); font-weight: 780; letter-spacing: .025em; }
 .meaning-evidence b.meaning-status { display: flex; align-items: center; justify-content: center; height: 2.05em; min-height: 2.05em; font-family: inherit; font-size: clamp(1.12rem, min(1.12vw, 2vh), 1.46rem); font-stretch: normal; font-weight: 850; letter-spacing: .02em; line-height: 1.02; text-align: center; white-space: pre-line; }
-.meaning-status[data-status="SAFE"] { letter-spacing: .09em; }
+.meaning-status[data-status="SAFE"] { letter-spacing: .02em; }
 .meaning-status > .not-inferred-full,
 .meaning-status > .not-inferred-short {
   font-family: inherit;
-  font-size: 1em;
+  font-size: clamp(1.12rem, min(1.12vw, 2vh), 1.46rem);
   font-weight: inherit;
   font-stretch: inherit;
   letter-spacing: inherit;
@@ -393,7 +393,7 @@ line.activity-close { stroke: var(--amber); }
 .office-metrics .metric { min-height: 80px; padding: 7px 8px; }
 .office-metrics .metric-label { align-items: flex-start; }
 .office-metrics .metric-value-line { font-size: clamp(.95rem, .9vw, 1.2rem); }
-.office-metrics .metric-value-line.has-comparison { font-size: clamp(.72rem, .68vw, .9rem); }
+.office-metrics .metric-value-line.has-comparison { font-size: clamp(.95rem, .9vw, 1.2rem); }
 .office-metrics .metric-foot { gap: 4px; }
 .office-metrics .grade-word { font-size: clamp(.61rem, .55vw, .71rem); }
 .office-metrics .metric-foot small { font-size: .61rem; }

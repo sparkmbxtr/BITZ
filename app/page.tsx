@@ -87,7 +87,7 @@ const ACOUSTIC_CHECK_LABEL = "Sound peak >90 dB";
 const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis";
 const REPORT_ALLOWED_NAMES = ["RICHARD", "JEFF", "JESS", "LILIANA", "Dr.Itzel", "Dr.Kaarthik", "Dr.Fidelis"] as const;
 const REPORT_HIDDEN_TEST_NAME = "SPARKMBXTR";
-const REPORT_PENDING_MESSAGE = "Last week’s report has not been generated yet."
+const REPORT_PENDING_MESSAGE = "Recent week’s report has not been generated yet.";
 
 type ReportAvailability = { available: boolean; fileName?: string; periodLabel?: string; message?: string };
 
@@ -839,7 +839,7 @@ function oxygenGrade(value: number | null): Grade {
 
 function temperatureGrade(value: number | null, room: "LAB" | "OFFICE"): Grade {
   if (value === null) return { label: "NO DATA", level: "unknown" };
-  const ideal = room === "LAB" ? value >= 18 && value <= 22 : value >= 20 && value <= 24;
+  const ideal = room === "LAB" ? value >= 18 && value <= 22 : value >= 20 && value <= 25;
   if (ideal) return { label: "GREAT", level: "great" };
   if (value >= 16 && value <= 26) return { label: "GOOD", level: "good" };
   if (value >= 14 && value <= 28) return { label: "CHECK", level: "watch" };
@@ -1812,7 +1812,6 @@ export default function Home() {
             <div className="report-popover-heading">
               <div>
                 <strong id="report-title">WEEKLY REPORT</strong>
-                <small>{reportAvailability?.periodLabel ?? "LATEST COMPLETED WEEK"}</small>
               </div>
               <button type="button" onClick={closeReportInput} disabled={reportState === "sending"} aria-label="Close weekly report download">×</button>
             </div>
@@ -2016,7 +2015,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   const evidenceLabels: Record<string, string> = {
     "Propane-associated pattern": "PROPANE WARNING",
     "Nitrogen (N₂) displacement pattern": "NITROGEN WARNING",
-    "CO release": "CO SAFETY WARNING",
+    "CO release": "CO WARNING",
     "Volatile-gas pattern": "GAS / VAPOUR",
     "O₂ displacement": "OXYGEN",
     "Formaldehyde elevation": "FORMALDEHYDE",

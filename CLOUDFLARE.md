@@ -42,6 +42,17 @@ for this repository, this workflow on `main`, the dedicated export audience,
 and scheduled, manual or initial deployment runs. The resulting JSON is kept as
 a private, expiring GitHub Actions artifact for downstream workbook processing.
 
+
+The `Publish weekly airQ report` workflow runs on Sunday after the completed
+Monday-Saturday period. It retrieves the protected exports, creates the A2
+landscape chart report, validates the PDF and its SHA-256 digest, and uploads it
+through the same short-lived GitHub OIDC trust path. The Worker stores the PDF
+in bounded SQLite chunks inside the existing Durable Object. A single current
+pointer is changed only after a complete read-back and hash verification, so a
+failed replacement leaves the previous report untouched. The dashboard serves
+only the exact most recently completed Monday-Saturday filename and never falls
+back to an older week.
+
 Optional numerical configuration:
 
 - `LAB_VOLUME_M3`
@@ -51,3 +62,4 @@ Optional numerical configuration:
 
 When `AIRQ_API_KEY` is configured as a Worker secret, visitors are never asked
 for the air-Q API key. They see only the dashboard password gate.
+
