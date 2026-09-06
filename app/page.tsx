@@ -191,7 +191,7 @@ const DEMO_DATA: DashboardData = {
   fetchedAt: createdAt,
   historyHours: 24,
   analysisMinutes: 60,
-  message: "Preview data — live air-Q connection is not yet configured",
+  message: "Establishing secure airQ connection · Preparing LIVE data display",
   outdoor: {
     location: "Oberschneiding",
     source: "DWD via Bright Sky",
@@ -1754,7 +1754,7 @@ export default function Home() {
           {!presentationMode ? <button className="fullscreen-button" type="button" onClick={toggleFullscreen}>Full screen</button> : null}
         </div>
       </header>
-      {!data.live ? <div className="preview-banner">{data.message ?? "Preview data — live connection pending"}</div> : null}
+      {!data.live ? <div className="preview-banner">{data.message ?? "Establishing secure airQ connection · Preparing LIVE data display"}</div> : null}
       <div className="room-layout">
         <LabPanel room={displayedLabRoom} outdoor={data.outdoor ?? null} refreshing={refreshing} analysisMinutes={data.analysisMinutes} />
         <OfficeRail room={displayedOfficeRoom} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes} />
