@@ -7,6 +7,7 @@ type Sample = {
   temperature: number | null;
   humidity: number | null;
   humidityAbs: number | null;
+  dewpt: number | null;
   co2: number | null;
   co: number | null;
   oxygen: number | null;
@@ -138,6 +139,7 @@ function demoSeries(room: "LAB" | "OFFICE"): Sample[] {
       temperature: lab ? 18.4 + wave * 0.18 : 24.2 + workday * 1.1 + wave * 0.2,
       humidity: lab ? 56.6 + wave * 0.9 : 48.4 + workday * 2.4 + wave,
       humidityAbs: lab ? 8.9 + wave * 0.12 : 11 + workday * 0.7 + wave * 0.1,
+      dewpt: lab ? 10.0 + wave * 0.2 : 13.0 + workday * 0.7 + wave * 0.2,
       co2: lab ? 690 + workday * 165 + index * 0.4 : 430 + workday * 120 + Math.max(0, index - 136) * 3,
       co: lab ? 0.18 + wave * 0.02 : 0.39 + wave * 0.03,
       oxygen: lab ? 20.53 + wave * 0.015 : 20.44 + wave * 0.012,
@@ -1998,7 +2000,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   const condensationPotential = outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined && outdoorLatest.humidity > 90;
   const condensationPrimary = room.status === "normal" && condensationPotential;
   const condensationText = condensationPotential
-    ? `Outdoor RH is ${fmt(outdoorLatest.humidity)}%. LAB RH is ${fmt(latest?.humidity)}%.`
+    ? `Outdoor RH is ${fmt(outdoorLatest.humidity)}%. LAB RH is ${fmt(latest?.humidity)}%. LAB temperature is ${fmt(latest?.temperature, 1)}°C. LAB dew point is ${fmt(latest?.dewpt, 1)}°C.`
     : "";
   const labAction = condensationPrimary
     ? {
