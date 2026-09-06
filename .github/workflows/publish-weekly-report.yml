@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/publish-weekly-report.yml
+      - scripts/weekly-report/**
   schedule:
     # GitHub cron is UTC. The local-time gate keeps publication at 08:15
     # Europe/Berlin across daylight-saving changes.
