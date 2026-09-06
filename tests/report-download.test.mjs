@@ -33,6 +33,7 @@ test("successful report downloads are attributable, durable and CSV-exportable",
   assert.match(route, /acceptedFirstName/);
   assert.match(route, /REPORT_ALLOWED_NAMES/);
   assert.match(route, /value === REPORT_HIDDEN_TEST_NAME/);
+  assert.match(route, /firstName !== REPORT_HIDDEN_TEST_NAME/);
   assert.match(route, /Use one of the listed names/);
   assert.match(route, /Dashboard login required/);
   assert.match(route, /airq_weekly_report_downloads\.csv/);

@@ -246,20 +246,22 @@ export async function POST(request: Request) {
     return json({ error: REPORT_PENDING_MESSAGE }, 404);
   }
 
-  const entry: ReportDownload = {
-    id: crypto.randomUUID(),
-    createdAt: Date.now(),
-    firstName,
-    reportName: report.fileName,
-  };
+  if (firstName !== REPORT_HIDDEN_TEST_NAME) {
+    const entry: ReportDownload = {
+      id: crypto.randomUUID(),
+      createdAt: Date.now(),
+      firstName,
+      reportName: report.fileName,
+    };
 
-  try {
-    await stub.addReportDownload(entry);
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("REPORT_RATE_LIMIT")) {
-      return json({ error: "Too many downloads; wait one minute" }, 429);
+    try {
+      await stub.addReportDownload(entry);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("REPORT_RATE_LIMIT")) {
+        return json({ error: "Too many downloads; wait one minute" }, 429);
+      }
+      return json({ error: "Download could not be recorded" }, 503);
     }
-    return json({ error: "Download could not be recorded" }, 503);
   }
 
   const headers = new Headers({
