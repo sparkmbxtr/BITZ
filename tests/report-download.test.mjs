@@ -19,7 +19,7 @@ test("weekly report gate checks current availability before requesting attributi
 
 test("only the exact latest Monday-Saturday report can be served", () => {
   assert.match(route, /function expectedWeeklyReport/);
-  assert.match(route, /const daysSinceSaturday = \(weekday - 6 \+ 7\) % 7/);
+  assert.match(route, /const daysSinceSaturday = \(\(weekday - 6 \+ 7\) % 7\) \|\| 7/);
   assert.match(route, /key: \`weekly\/\$\{fileName\}\`/);
   assert.match(route, /REPORTS_BUCKET/);
   assert.match(route, /bucket\.head\(report\.key\)/);

@@ -87,7 +87,7 @@ const ACOUSTIC_CHECK_LABEL = "Sound peak >90 dB";
 const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis";
 const REPORT_ALLOWED_NAMES = ["RICHARD", "JEFF", "JESS", "LILIANA", "Dr.Itzel", "Dr.Kaarthik", "Dr.Fidelis"] as const;
 const REPORT_HIDDEN_TEST_NAME = "SPARKMBXTR";
-const REPORT_PENDING_MESSAGE = "The latest weekly report has not been generated yet.";
+const REPORT_PENDING_MESSAGE = "Last week’s report has not been generated yet."
 
 type ReportAvailability = { available: boolean; fileName?: string; periodLabel?: string; message?: string };
 

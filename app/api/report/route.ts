@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis";
 const REPORT_ALLOWED_NAMES = ["RICHARD", "JEFF", "JESS", "LILIANA", "Dr.Itzel", "Dr.Kaarthik", "Dr.Fidelis"] as const;
 const REPORT_HIDDEN_TEST_NAME = "SPARKMBXTR";
-const REPORT_PENDING_MESSAGE = "The latest weekly report has not been generated yet.";
+const REPORT_PENDING_MESSAGE = "Last week’s report has not been generated yet."
 
 type ReportDownload = {
   id: string;
@@ -144,7 +144,7 @@ function expectedWeeklyReport(now = Date.now()): ExpectedReport {
   const local = berlinCalendarDate(now);
   const localSerial = Date.UTC(local.year, local.month - 1, local.day);
   const weekday = new Date(localSerial).getUTCDay();
-  const daysSinceSaturday = (weekday - 6 + 7) % 7;
+  const daysSinceSaturday = ((weekday - 6 + 7) % 7) || 7;
   const end = new Date(localSerial - daysSinceSaturday * 86_400_000);
   const start = new Date(end.getTime() - 5 * 86_400_000);
   const range = `${compactDate(start)}-${compactDate(end)}`;
