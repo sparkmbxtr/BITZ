@@ -11,6 +11,10 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: export-first-monitoring-week
+  cancel-in-progress: false
+
 jobs:
   export-first-week:
     runs-on: ubuntu-latest
@@ -69,6 +73,7 @@ jobs:
             and .range.from == 1788127200000
             and .range.to == 1788645600000
             and (.entries | type == "array")
+            and ((.entries | map(.id) | unique | length) == (.entries | length))
             and (.entries | all(
               (.id | type == "string" and length > 0)
               and (.createdAt | type == "number" and . >= 1788127200000 and . <= 1788645600000)
