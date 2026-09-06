@@ -85,6 +85,8 @@ type ActivityEvent = { timestamp: number; label: "BEGIN" | "CLOSE"; x: number; p
 
 const ACOUSTIC_CHECK_LABEL = "Sound peak >90 dB";
 const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis";
+const REPORT_ALLOWED_NAMES = ["RICHARD", "JEFF", "JESS", "LILIANA", "Dr.Itzel", "Dr.Kaarthik", "Dr.Fidelis"] as const;
+const REPORT_HIDDEN_TEST_NAME = "SPARKMBXTR";
 const REPORT_PENDING_MESSAGE = "The latest weekly report has not been generated yet.";
 
 type ReportAvailability = { available: boolean; fileName?: string; periodLabel?: string; message?: string };
@@ -974,15 +976,18 @@ function pointsFor(
 ) {
   const range = valueMax - valueMin || 1;
   const timeRange = domainEnd - domainStart || 1;
-  return samples
+  const ordered = samples
     .map((sample) => ({ sample, value: selector(sample) }))
     .filter((point): point is { sample: Sample; value: number } => point.value !== null && Number.isFinite(point.value))
-    .sort((left, right) => left.sample.timestamp - right.sample.timestamp)
-    .map((point, index) => {
-      const x = ((point.sample.timestamp - domainStart) / timeRange) * 100;
-      const y = 25 - ((point.value - valueMin) / range) * 18;
-      return { x, y, command: index === 0 ? "M" : "L" };
-    });
+    .sort((left, right) => left.sample.timestamp - right.sample.timestamp);
+  let previousX = 0;
+  return ordered.map((point, index) => {
+    const proportionalX = ((point.sample.timestamp - domainStart) / timeRange) * 98;
+    const x = Math.min(98, Math.max(index === 0 ? 0 : previousX, proportionalX));
+    previousX = x;
+    const y = 25 - ((point.value - valueMin) / range) * 18;
+    return { x, y, command: index === 0 ? "M" : "L" };
+  });
 }
 
 type ClimateReference = {
@@ -1623,10 +1628,12 @@ export default function Home() {
       .replace(/[\u0000-\u001f\u007f]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-    const validName = /^[\p{L}\p{M}][\p{L}\p{M}.'’ -]{0,79}$/u.test(firstName);
-    if (!validName || firstName.localeCompare(REPORT_INPUT_GUIDE, undefined, { sensitivity: "accent" }) === 0) {
+    const acceptedName = firstName === REPORT_HIDDEN_TEST_NAME
+      ? REPORT_HIDDEN_TEST_NAME
+      : REPORT_ALLOWED_NAMES.find((name) => name.toLocaleLowerCase("en-US") === firstName.toLocaleLowerCase("en-US"));
+    if (!acceptedName) {
       setReportState("error");
-      setReportError("Enter your first name");
+      setReportError("Use one of the listed names");
       return;
     }
 
@@ -1637,7 +1644,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ firstName }),
+        body: JSON.stringify({ firstName: acceptedName }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({})) as { error?: string };

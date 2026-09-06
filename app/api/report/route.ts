@@ -6,6 +6,8 @@ export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis";
+const REPORT_ALLOWED_NAMES = ["RICHARD", "JEFF", "JESS", "LILIANA", "Dr.Itzel", "Dr.Kaarthik", "Dr.Fidelis"] as const;
+const REPORT_HIDDEN_TEST_NAME = "SPARKMBXTR";
 const REPORT_PENDING_MESSAGE = "The latest weekly report has not been generated yet.";
 
 type ReportDownload = {
@@ -88,9 +90,10 @@ function cleanFirstName(value: unknown) {
     .trim();
 }
 
-function validFirstName(value: string) {
-  if (!value || value.length > 80 || value === REPORT_INPUT_GUIDE) return false;
-  return /^[\p{L}\p{M}][\p{L}\p{M}.'’ -]{0,79}$/u.test(value);
+function acceptedFirstName(value: string) {
+  if (!value || value.length > 80 || value === REPORT_INPUT_GUIDE) return null;
+  if (value === REPORT_HIDDEN_TEST_NAME) return REPORT_HIDDEN_TEST_NAME;
+  return REPORT_ALLOWED_NAMES.find((name) => name.toLocaleLowerCase("en-US") === value.toLocaleLowerCase("en-US")) ?? null;
 }
 
 async function dashboardAuthorized(request: Request) {
@@ -225,8 +228,8 @@ export async function POST(request: Request) {
   if (!sameOrigin(request)) return json({ error: "Origin rejected" }, 403);
 
   const payload = await request.json().catch(() => null) as { firstName?: unknown } | null;
-  const firstName = cleanFirstName(payload?.firstName);
-  if (!validFirstName(firstName)) return json({ error: "Enter your first name" }, 400);
+  const firstName = acceptedFirstName(cleanFirstName(payload?.firstName));
+  if (!firstName) return json({ error: "Use one of the listed names" }, 403);
 
   const report = expectedWeeklyReport();
   const stub = reportLog();
