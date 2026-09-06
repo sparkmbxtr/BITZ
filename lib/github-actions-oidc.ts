@@ -5,7 +5,10 @@ const EXPORT_REPOSITORY = "sparkmbxtr/BITZ";
 const EXPORT_REPOSITORY_ID = "1355786577";
 const EXPORT_REPOSITORY_OWNER_ID = "324419950";
 const EXPORT_REF = "refs/heads/main";
-const EXPORT_WORKFLOW_REF = `${EXPORT_REPOSITORY}/.github/workflows/archive-monitoring.yml@${EXPORT_REF}`;
+const EXPORT_WORKFLOW_REFS = new Set([
+  `${EXPORT_REPOSITORY}/.github/workflows/archive-monitoring.yml@${EXPORT_REF}`,
+  `${EXPORT_REPOSITORY}/.github/workflows/export-first-week.yml@${EXPORT_REF}`,
+]);
 const CLOCK_SKEW_SECONDS = 60;
 const MAX_TOKEN_AGE_SECONDS = 15 * 60;
 const JWKS_CACHE_MS = 10 * 60_000;
@@ -71,7 +74,8 @@ function claimsAreAllowed(claims: JwtClaims) {
     && claims.repository_visibility === "private"
     && claims.runner_environment === "github-hosted"
     && claims.ref === EXPORT_REF
-    && claims.workflow_ref === EXPORT_WORKFLOW_REF
+    && typeof claims.workflow_ref === "string"
+    && EXPORT_WORKFLOW_REFS.has(claims.workflow_ref)
     && allowedEvent
     && Number.isFinite(exp)
     && Number.isFinite(iat)
