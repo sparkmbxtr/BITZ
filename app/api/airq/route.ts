@@ -64,8 +64,11 @@ const OPEN_METEO_AIR_ROOT = "https://air-quality-api.open-meteo.com/v1/air-quali
 const OBERSCHNEIDING_LATITUDE = "48.7957";
 const OBERSCHNEIDING_LONGITUDE = "12.6420";
 const OUTDOOR_CACHE_MS = 10 * 60_000;
+const LIVE_CACHE_MS = 90_000;
 
 let outdoorCache: { expiresAt: number; data: OutdoorData } | null = null;
+let liveDashboardCache: { expiresAt: number; data: DashboardPayload } | null = null;
+let liveDashboardRequest: Promise<DashboardPayload> | null = null;
 
 const BERLIN_CLOCK = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Berlin",
@@ -611,6 +614,18 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
 }
 
 type TimeRange = { from: number; to: number; exact: boolean };
+type DashboardPayload = {
+  live: true;
+  fetchedAt: number;
+  coverage: TimeRange;
+  historyHours: number;
+  analysisMinutes: number;
+  outdoor: OutdoorData | null;
+  rooms: {
+    lab: ReturnType<typeof analyseRoom>;
+    office: ReturnType<typeof analyseRoom>;
+  };
+};
 
 function requestedRange(url: URL, exportRequested: boolean): TimeRange {
   const fromValue = url.searchParams.get("f");
@@ -644,6 +659,15 @@ async function fetchRoom(
   const url = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/timerange`);
   url.searchParams.set("f", String(from));
   url.searchParams.set("t", String(to));
+  let latestRequest: Promise<Response | null> | null = null;
+  if (!range.exact) {
+    const latestUrl = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/latest`);
+    latestRequest = fetch(latestUrl, {
+      headers: { "Api-Key": apiKey, Accept: "application/json" },
+      cache: "no-store",
+    }).catch(() => null);
+  }
+
   const response = await fetch(url, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" });
   if (!response.ok) throw new Error("air-Q request failed");
   const payload = await response.json();
@@ -657,11 +681,7 @@ async function fetchRoom(
     .filter((sample, index, list) => index === 0 || sample.timestamp !== list[index - 1].timestamp);
   if (range.exact) return history;
 
-  const latestUrl = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/latest`);
-  const latestResponse = await fetch(latestUrl, {
-    headers: { "Api-Key": apiKey, Accept: "application/json" },
-    cache: "no-store",
-  }).catch(() => null);
+  const latestResponse = latestRequest ? await latestRequest : null;
   const latestPayload = latestResponse?.ok ? await latestResponse.json().catch(() => null) : null;
   const supplemental = sensorRecords(latestPayload)
     .map((record) => normalize(record, includeAdditionalEnvironmental))
@@ -795,6 +815,63 @@ async function fetchOutdoor(range: TimeRange): Promise<OutdoorData | null> {
   return data;
 }
 
+async function buildDashboardPayload(
+  labId: string,
+  officeId: string,
+  apiKey: string,
+  range: TimeRange,
+  includeAdditionalEnvironmental: boolean,
+  requireOutdoor: boolean,
+  labVolumeM3: number | null,
+  labAch: number | null,
+  officeVolumeM3: number | null,
+  officeAch: number | null,
+): Promise<DashboardPayload> {
+  // Outdoor conditions add context, but a slow or unavailable weather service
+  // must never delay the two indoor sensor feeds on the live wallboard.
+  let outdoor = outdoorCache?.data ?? null;
+  let outdoorSettled = false;
+  const outdoorRequest = fetchOutdoor(range).then(
+    (value) => {
+      if (value) outdoor = value;
+      outdoorSettled = true;
+      return value;
+    },
+    () => {
+      outdoorSettled = true;
+      return null;
+    },
+  );
+
+  const [labHistory, officeHistory] = await Promise.all([
+    fetchRoom(labId, apiKey, range, includeAdditionalEnvironmental),
+    fetchRoom(officeId, apiKey, range, includeAdditionalEnvironmental),
+  ]);
+  if (!labHistory.length || !officeHistory.length) throw new Error("No recent records returned");
+
+  if (requireOutdoor) {
+    const requiredOutdoor = await outdoorRequest;
+    if (requiredOutdoor) outdoor = requiredOutdoor;
+  } else if (!outdoorSettled) {
+    // Keep the refresh best-effort for a warm isolate without placing it on the
+    // live response's critical path.
+    void outdoorRequest;
+  }
+
+  return {
+    live: true,
+    fetchedAt: Date.now(),
+    coverage: range,
+    historyHours: (range.to - range.from) / (60 * 60_000),
+    analysisMinutes: ANALYSIS_MINUTES,
+    outdoor,
+    rooms: {
+      lab: analyseRoom("LAB", labHistory, labVolumeM3, labAch),
+      office: analyseRoom("OFFICE", officeHistory, officeVolumeM3, officeAch),
+    },
+  };
+}
+
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const exportRequested = requestUrl.searchParams.get("export") === "1";
@@ -828,29 +905,47 @@ export async function GET(request: Request) {
   } catch {
     return Response.json({ error: "Invalid export time range" }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
+
+  const build = () => buildDashboardPayload(
+    labId,
+    officeId,
+    apiKey,
+    range,
+    exportRequested,
+    exportRequested,
+    positiveNumber(runtimeEnv.LAB_VOLUME_M3),
+    positiveNumber(runtimeEnv.LAB_ACH),
+    positiveNumber(runtimeEnv.OFFICE_VOLUME_M3),
+    positiveNumber(runtimeEnv.OFFICE_ACH),
+  );
+
   try {
-    const [labHistory, officeHistory, outdoor] = await Promise.all([
-      fetchRoom(labId, apiKey, range, exportRequested),
-      fetchRoom(officeId, apiKey, range, exportRequested),
-      fetchOutdoor(range).catch(() => null),
-    ]);
-    if (!labHistory.length || !officeHistory.length) throw new Error("No recent records returned");
+    let payload: DashboardPayload;
+    if (exportRequested) {
+      payload = await build();
+    } else if (liveDashboardCache && liveDashboardCache.expiresAt > Date.now()) {
+      payload = liveDashboardCache.data;
+    } else {
+      let request = liveDashboardRequest;
+      if (!request) {
+        request = build().then((data) => {
+          liveDashboardCache = { expiresAt: Date.now() + LIVE_CACHE_MS, data };
+          return data;
+        });
+        liveDashboardRequest = request;
+        const clearRequest = () => {
+          if (liveDashboardRequest === request) liveDashboardRequest = null;
+        };
+        void request.then(clearRequest, clearRequest);
+      }
+      payload = await request;
+    }
+
     const headers = new Headers({ "Cache-Control": "no-store, max-age=0" });
     if (exportRequested && !inlineExport) {
       headers.set("Content-Disposition", 'attachment; filename="airq-dashboard-data.json"');
     }
-    return Response.json({
-      live: true,
-      fetchedAt: Date.now(),
-      coverage: { from: range.from, to: range.to, exact: range.exact },
-      historyHours: (range.to - range.from) / (60 * 60_000),
-      analysisMinutes: ANALYSIS_MINUTES,
-      outdoor,
-      rooms: {
-        lab: analyseRoom("LAB", labHistory, positiveNumber(runtimeEnv.LAB_VOLUME_M3), positiveNumber(runtimeEnv.LAB_ACH)),
-        office: analyseRoom("OFFICE", officeHistory, positiveNumber(runtimeEnv.OFFICE_VOLUME_M3), positiveNumber(runtimeEnv.OFFICE_ACH)),
-      },
-    }, { headers });
+    return Response.json(payload, { headers });
   } catch {
     return Response.json({ error: "Recent air-Q readings are temporarily unavailable" }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
