@@ -1418,7 +1418,7 @@ export default function Home() {
   const loadData = useCallback(async () => {
     setRefreshing(true);
     try {
-      const response = await fetch("/api/airq", { cache: "no-store" });
+      const response = await fetch("/api/airq", { cache: "no-store", credentials: "same-origin" });
       if (response.status === 401) {
         setApiConnected(null);
         setAuthorized(false);
@@ -1443,7 +1443,7 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/auth", { cache: "no-store" })
+    fetch("/api/auth", { cache: "no-store", credentials: "same-origin" })
       .then((response) => response.json())
       .then((payload: { authorized?: boolean; passwordVerifierReady?: boolean }) => {
         if (active) {
@@ -1468,7 +1468,7 @@ export default function Home() {
     if (authorized !== true) return;
     setConnectionChecking(true);
     try {
-      const response = await fetch(`/api/key?check=${Date.now()}`, { cache: "no-store" });
+      const response = await fetch(`/api/key?check=${Date.now()}`, { cache: "no-store", credentials: "same-origin" });
       if (response.status === 401) {
         setApiConnected(null);
         setAuthorized(false);
@@ -1600,7 +1600,7 @@ export default function Home() {
   async function lockBoard() {
     setPresentationMode(false);
     if (document.fullscreenElement) await document.exitFullscreen?.().catch(() => undefined);
-    await fetch("/api/auth", { method: "DELETE" }).catch(() => undefined);
+    await fetch("/api/auth", { method: "DELETE", credentials: "same-origin" }).catch(() => undefined);
     setAuthorized(false);
     setApiConnected(null);
   }
@@ -1887,6 +1887,7 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
       const response = await fetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ password }),
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };
@@ -1966,6 +1967,7 @@ function ApiKeySetup({ checking, onConnected }: { checking: boolean; onConnected
       const response = await fetch("/api/key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ apiKey }),
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };
