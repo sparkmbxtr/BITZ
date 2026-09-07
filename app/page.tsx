@@ -1234,7 +1234,7 @@ function TrendScale({ scale, unit, side }: { scale: { min: number; max: number }
 }
 
 function LevelMark({ status }: { status: RoomData["status"] }) {
-  return <span className={`level-mark level-${status}`} aria-hidden="true">{status === "normal" ? "" : status === "action" ? "!" : "•"}</span>;
+  return <span className={`level-mark level-${status}`} aria-hidden="true">{status === "action" ? "!" : ""}</span>;
 }
 
 function checkDisplayLabel(check: Check) {
