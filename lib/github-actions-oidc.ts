@@ -72,7 +72,7 @@ function claimsAreAllowed(claims: JwtClaims) {
     && claims.repository === EXPORT_REPOSITORY
     && claims.repository_id === EXPORT_REPOSITORY_ID
     && claims.repository_owner_id === EXPORT_REPOSITORY_OWNER_ID
-    && claims.repository_visibility === "private"
+    && (claims.repository_visibility === "public" || claims.repository_visibility === "private")
     && claims.runner_environment === "github-hosted"
     && claims.ref === EXPORT_REF
     && typeof claims.workflow_ref === "string"
