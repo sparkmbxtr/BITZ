@@ -1878,7 +1878,24 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get("login");
+    if (reason === "incorrect") setError("Password not accepted");
+    if (reason === "unavailable") setError("Connection unavailable — try again");
+  }, []);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
+    const nativeTizenLogin = /Tizen|SMART-TV|TizenBrowser/i.test(window.navigator.userAgent);
+    if (nativeTizenLogin) {
+      if (!password || submitting) {
+        event.preventDefault();
+        return;
+      }
+      setSubmitting(true);
+      setError("");
+      return;
+    }
+
     event.preventDefault();
     if (!password || submitting) return;
     setSubmitting(true);
@@ -1906,7 +1923,7 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
 
   return (
     <main className="access-shell">
-      <form className="access-card" onSubmit={submit}>
+      <form className="access-card" method="post" action="/api/auth" onSubmit={submit}>
         <div className="access-kicker">SPARK RICHARD BIOENGINEERING</div>
         <h1>BITZ LAB AIR MONITORING</h1>
         <p>Protected display access for the LAB and OFFICE wallboard.</p>
@@ -1916,7 +1933,7 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
             <label htmlFor="dashboard-password">Display password</label>
             <input
               id="dashboard-password"
-              name="display-password"
+              name="password"
               type="password"
               inputMode="text"
               value={password}
