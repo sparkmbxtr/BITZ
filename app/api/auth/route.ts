@@ -22,28 +22,70 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const contentType = (request.headers.get("content-type") ?? "").toLowerCase();
+  const nativeForm = contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data");
+  const redirectToGate = (reason: "incorrect" | "unavailable") => {
+    const target = new URL("/", request.url);
+    target.searchParams.set("login", reason);
+    return new Response(null, {
+      status: 303,
+      headers: { "Cache-Control": "no-store", Location: target.toString() },
+    });
+  };
+
   const configured = secrets();
-  if (!configured) return Response.json({ error: "Access protection is unavailable" }, { status: 503 });
-  if (!passwordVerifierReady(configured.passwordHash)) {
-    return Response.json({ error: "Display password configuration needs correction" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  if (!configured) {
+    return nativeForm
+      ? redirectToGate("unavailable")
+      : Response.json({ error: "Access protection is unavailable" }, { status: 503 });
   }
+  if (!passwordVerifierReady(configured.passwordHash)) {
+    return nativeForm
+      ? redirectToGate("unavailable")
+      : Response.json({ error: "Display password configuration needs correction" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
+
   let password = "";
   try {
-    const body = await request.json() as { password?: unknown };
-    if (typeof body.password === "string") {
-      // Shared wall displays use varied Android keyboards. Normalize harmless
-      // keyboard differences while retaining the same stored password verifier.
-      password = body.password.normalize("NFKC").replace(/[\p{Cf}\p{Z}\s]/gu, "").toUpperCase();
+    let supplied: unknown;
+    if (nativeForm) {
+      const body = await request.formData();
+      supplied = body.get("password") ?? body.get("display-password");
+    } else {
+      const body = await request.json() as { password?: unknown };
+      supplied = body.password;
+    }
+    if (typeof supplied === "string") {
+      // Shared wall displays use varied keyboards. Normalize harmless keyboard
+      // differences while retaining the same stored password verifier.
+      password = supplied.normalize("NFKC").replace(/[\p{Cf}\p{Z}\s]/gu, "").toUpperCase();
     }
   } catch {
-    return Response.json({ error: "Invalid request" }, { status: 400 });
+    return nativeForm
+      ? redirectToGate("unavailable")
+      : Response.json({ error: "Invalid request" }, { status: 400 });
   }
+
   if (!password || password.length > 256 || !await verifyPassword(password, configured.passwordHash)) {
-    return Response.json({ error: "Incorrect password" }, { status: 401, headers: { "Cache-Control": "no-store" } });
+    return nativeForm
+      ? redirectToGate("incorrect")
+      : Response.json({ error: "Incorrect password" }, { status: 401, headers: { "Cache-Control": "no-store" } });
+  }
+
+  const cookie = await sessionCookie(configured.sessionSecret);
+  if (nativeForm) {
+    return new Response(null, {
+      status: 303,
+      headers: {
+        "Cache-Control": "no-store",
+        Location: new URL("/", request.url).toString(),
+        "Set-Cookie": cookie,
+      },
+    });
   }
   return Response.json(
     { authorized: true },
-    { headers: { "Cache-Control": "no-store", "Set-Cookie": await sessionCookie(configured.sessionSecret) } },
+    { headers: { "Cache-Control": "no-store", "Set-Cookie": cookie } },
   );
 }
 
