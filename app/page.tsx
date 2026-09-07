@@ -85,8 +85,8 @@ type ActivityCycle = {
 type ActivityEvent = { timestamp: number; label: "BEGIN" | "CLOSE"; x: number; peopleRange: string | null };
 
 const ACOUSTIC_CHECK_LABEL = "Sound peak >90 dB";
-const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis";
-const REPORT_ALLOWED_NAMES = ["RICHARD", "JEFF", "JESS", "LILIANA", "Dr.Itzel", "Dr.Kaarthik", "Dr.Fidelis"] as const;
+const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis//airQ-tech";
+const REPORT_ALLOWED_NAMES = ["RICHARD", "JEFF", "JESS", "LILIANA", "Dr.Itzel", "Dr.Kaarthik", "Dr.Fidelis", "airQ-tech"] as const;
 const REPORT_HIDDEN_TEST_NAME = "SPARKMBXTR";
 const REPORT_PENDING_MESSAGE = "Recent week’s report has not been generated yet.";
 
