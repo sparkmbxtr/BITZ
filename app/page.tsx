@@ -1380,7 +1380,10 @@ export default function Home() {
       // treating that as a device resize made the dashboard reflow mid-gesture.
       const availableWidth = Math.max(320, Math.floor(document.documentElement.clientWidth || window.innerWidth));
       const availableHeight = Math.max(320, Math.floor(document.documentElement.clientHeight || window.innerHeight));
-      const compact = availableWidth <= 900 || availableHeight > availableWidth;
+      const signage = /Tizen|SMART-TV|SmartTV/i.test(window.navigator.userAgent);
+      const desktopInput = window.matchMedia("(pointer: fine)").matches || window.matchMedia("(hover: hover)").matches;
+      const touchFirstViewport = !signage && !desktopInput;
+      const compact = touchFirstViewport && (availableWidth <= 900 || availableHeight > availableWidth);
       setCompactViewport(compact);
       document.documentElement.dataset.dashboardLayout = compact ? "compact" : "wide";
     };

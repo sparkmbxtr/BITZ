@@ -42,7 +42,11 @@ test("lock removes both cookie and kiosk session", () => {
 });
 
 test("landscape laptops retain the two-room wallboard", () => {
-  assert.match(page, /availableWidth <= 900 \|\| availableHeight > availableWidth/);
-  assert.match(css, /@media \(max-width: 900px\), \(orientation: portrait\)/);
+  assert.match(page, /pointer: fine/);
+  assert.match(page, /hover: hover/);
+  assert.match(page, /!signage && !desktopInput/);
+  assert.match(page, /touchFirstViewport && \(availableWidth <= 900 \|\| availableHeight > availableWidth\)/);
+  assert.match(css, /@media \(pointer: coarse\) and \(max-width: 900px\)/);
+  assert.doesNotMatch(css, /@media \(max-width: 900px\), \(orientation: portrait\)/);
   assert.doesNotMatch(css, /@media \(max-width: 1699px\), \(orientation: portrait\)/);
 });
