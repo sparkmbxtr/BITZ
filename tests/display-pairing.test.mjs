@@ -10,17 +10,21 @@ const auth = await readFile(new URL("../lib/dashboard-auth.ts", import.meta.url)
 const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
-test("access screen retains concise password and phone approval choices", () => {
+test("access screen shows only the field and pairing code", () => {
   assert.match(page, /type="password"/);
   assert.doesNotMatch(page, />PASSWORD</);
-  assert.match(page, /pairing-qr/);
-  assert.match(page, /aria-label="Phone approval"/);
+  assert.match(page, /<div className="pairing-code" aria-live="polite">\{pairing \? <b>\{pairing\.code\}<\/b> : null\}<\/div>/);
+  assert.doesNotMatch(page, /pairing-qr/);
+  assert.doesNotMatch(page, /QR code for display code/);
+  assert.doesNotMatch(page, /aria-label="Phone approval"/);
+  assert.doesNotMatch(page, />DISPLAY CODE</);
+  assert.doesNotMatch(page, /Generating secure display code/);
+  assert.doesNotMatch(page, /Generate new code/);
   assert.doesNotMatch(page, /Use when a keyboard is available/);
   assert.doesNotMatch(page, /Scan once when the wall display/);
   assert.doesNotMatch(page, /Open <strong>\{new URL\(pairing\.approvalUrl\)\.host\}/);
   assert.doesNotMatch(page, /This approval remains valid for three months/);
   assert.doesNotMatch(page, /Open with the display password or authorise this screen from a phone/);
-  assert.match(page, /Pairing code expired\. Refreshing/);
 });
 
 test("Tizen password and phone pairing issue the same signed session grant", () => {

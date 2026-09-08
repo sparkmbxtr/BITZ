@@ -1939,8 +1939,6 @@ type DisplayPairing = {
   pollSecret: string;
   code: string;
   expiresAt: number;
-  approvalUrl: string;
-  qrSvg: string;
 };
 
 function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean; verifierReady: boolean | null; onGranted: (sessionToken?: string) => void }) {
@@ -1948,7 +1946,6 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [pairing, setPairing] = useState<DisplayPairing | null>(null);
-  const [pairingError, setPairingError] = useState("");
   const [pairingRefresh, setPairingRefresh] = useState(0);
 
   useEffect(() => {
@@ -1981,21 +1978,17 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
         }
         if (response.status === 410 || payload.status === "expired") {
           setPairing(null);
-          setPairingError("Pairing code expired. Refreshing…");
           pollTimer = window.setTimeout(() => {
             if (active) setPairingRefresh((value) => value + 1);
           }, 1_000);
           return;
         }
-      } catch {
-        if (active) setPairingError("Phone approval is temporarily unavailable.");
-      }
+      } catch {}
       if (active) pollTimer = window.setTimeout(() => void poll(current), 2_000);
     }
 
     async function start() {
       setPairing(null);
-      setPairingError("");
       try {
         const response = await fetch("/api/device-pair", {
           method: "POST",
@@ -2008,9 +2001,8 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
         if (!active) return;
         setPairing(payload);
         void poll(payload);
-      } catch (reason) {
+      } catch {
         if (active) {
-          setPairingError(reason instanceof Error ? `${reason.message}. Retrying…` : "Phone approval could not be started. Retrying…");
           pollTimer = window.setTimeout(() => {
             if (active) setPairingRefresh((value) => value + 1);
           }, 30_000);
@@ -2077,21 +2069,10 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
               enterKeyHint="go"
               autoFocus
             />
+            <div className="pairing-code" aria-live="polite">{pairing ? <b>{pairing.code}</b> : null}</div>
             {error ? <div className="access-error" role="alert">{error}</div> : null}
             <button type="submit" disabled={!password || submitting || verifierReady === false}>{submitting ? "Opening…" : "Open monitor"}</button>
             </form>
-
-            <section className="access-phone-choice" aria-label="Phone approval" aria-live="polite">
-              {pairing ? (
-                <>
-                  <div className="pairing-qr" aria-label={`QR code for display code ${pairing.code}`} dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
-                  <div className="pairing-code"><span>DISPLAY CODE</span><b>{pairing.code}</b></div>
-                </>
-              ) : (
-                <div className="pairing-loading">{pairingError || "Generating secure display code…"}</div>
-              )}
-              {!pairing ? <button type="button" onClick={() => setPairingRefresh((value) => value + 1)}>Generate new code</button> : null}
-            </section>
           </div>
         )}
       </section>
