@@ -10,11 +10,16 @@ const auth = await readFile(new URL("../lib/dashboard-auth.ts", import.meta.url)
 const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
-test("access screen retains password and phone approval choices", () => {
-  assert.match(page, />PASSWORD</);
-  assert.match(page, />PHONE APPROVAL</);
+test("access screen retains concise password and phone approval choices", () => {
+  assert.match(page, /type="password"/);
+  assert.doesNotMatch(page, />PASSWORD</);
   assert.match(page, /pairing-qr/);
-  assert.match(page, /This approval remains valid for three months/);
+  assert.match(page, /aria-label="Phone approval"/);
+  assert.doesNotMatch(page, /Use when a keyboard is available/);
+  assert.doesNotMatch(page, /Scan once when the wall display/);
+  assert.doesNotMatch(page, /Open <strong>\{new URL\(pairing\.approvalUrl\)\.host\}/);
+  assert.doesNotMatch(page, /This approval remains valid for three months/);
+  assert.doesNotMatch(page, /Open with the display password or authorise this screen from a phone/);
   assert.match(page, /Pairing code expired\. Refreshing/);
 });
 
@@ -49,4 +54,20 @@ test("landscape laptops retain the two-room wallboard", () => {
   assert.match(css, /@media \(pointer: coarse\) and \(max-width: 900px\)/);
   assert.doesNotMatch(css, /@media \(max-width: 900px\), \(orientation: portrait\)/);
   assert.doesNotMatch(css, /@media \(max-width: 1699px\), \(orientation: portrait\)/);
+});
+
+test("short landscape laptops fit the complete wallboard into the viewport", () => {
+  assert.match(page, /availableWidth < 1920 \|\| availableHeight < 960/);
+  assert.match(page, /setFitViewport\(fitted\)/);
+  assert.match(page, /presentationMode \|\| fitViewport/);
+  assert.match(page, /presentationMode \? 1080 : 960/);
+  assert.match(page, /wallboard-auto-fit/);
+});
+
+test("PAIR is adjacent to CODES and visible only on phone displays", () => {
+  assert.match(page, /className="footer-context-cluster"/);
+  assert.match(page, /className="pair-trigger" href="\/pair"/);
+  assert.match(page, /Math\.min\(availableWidth, availableHeight\) <= 600/);
+  assert.match(css, /\.pair-trigger \{ display: none;/);
+  assert.match(css, /html\[data-dashboard-device="phone"\] \.pair-trigger \{ display: inline-flex; \}/);
 });

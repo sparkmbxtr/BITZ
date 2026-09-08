@@ -1335,6 +1335,7 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [connectionChecking, setConnectionChecking] = useState(false);
   const [compactViewport, setCompactViewport] = useState(false);
+  const [fitViewport, setFitViewport] = useState(false);
   const [presentationMode, setPresentationMode] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [contextUnlocked, setContextUnlocked] = useState(false);
@@ -1384,8 +1385,14 @@ export default function Home() {
       const desktopInput = window.matchMedia("(pointer: fine)").matches || window.matchMedia("(hover: hover)").matches;
       const touchFirstViewport = !signage && !desktopInput;
       const compact = touchFirstViewport && (availableWidth <= 900 || availableHeight > availableWidth);
+      const fitted = !compact
+        && availableWidth > availableHeight
+        && (availableWidth < 1920 || availableHeight < 960);
+      const phone = touchFirstViewport && Math.min(availableWidth, availableHeight) <= 600;
       setCompactViewport(compact);
+      setFitViewport(fitted);
       document.documentElement.dataset.dashboardLayout = compact ? "compact" : "wide";
+      document.documentElement.dataset.dashboardDevice = phone ? "phone" : signage ? "signage" : desktopInput ? "desktop" : "touch";
     };
 
     syncViewportLayout();
@@ -1395,12 +1402,13 @@ export default function Home() {
       window.removeEventListener("resize", syncViewportLayout);
       window.removeEventListener("orientationchange", syncViewportLayout);
       delete document.documentElement.dataset.dashboardLayout;
+      delete document.documentElement.dataset.dashboardDevice;
     };
   }, []);
 
   useEffect(() => {
     const root = document.documentElement;
-    if (!presentationMode) {
+    if (!presentationMode && !fitViewport) {
       delete root.dataset.dashboardFullscreen;
       delete root.dataset.dashboardFullscreenOrientation;
       root.style.removeProperty("--fullscreen-scale");
@@ -1416,7 +1424,7 @@ export default function Home() {
       const availableHeight = Math.max(320, document.documentElement.clientHeight || window.innerHeight);
       const portrait = availableWidth < availableHeight;
       const minimumCanvasWidth = 1920;
-      const minimumCanvasHeight = portrait ? 2400 : 1080;
+      const minimumCanvasHeight = portrait ? 2400 : presentationMode ? 1080 : 960;
       const scale = Math.min(availableWidth / minimumCanvasWidth, availableHeight / minimumCanvasHeight);
       const canvasWidth = availableWidth / scale;
       const canvasHeight = availableHeight / scale;
@@ -1439,7 +1447,7 @@ export default function Home() {
       root.style.removeProperty("--fullscreen-canvas-width");
       root.style.removeProperty("--fullscreen-canvas-height");
     };
-  }, [presentationMode]);
+  }, [fitViewport, presentationMode]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -1810,8 +1818,10 @@ export default function Home() {
     return <ConnectionPending checking={apiConnected === null || connectionChecking} onRetry={checkConnection} />;
   }
 
+  const fittedWallboard = presentationMode || fitViewport;
+
   return (
-    <main className={`wallboard ${compactViewport && !presentationMode ? "wallboard-compact" : ""} ${presentationMode ? "wallboard-fullscreen" : ""}`} data-live={data.live ? "true" : "false"} data-password-verifier={passwordVerifierReady === false ? "invalid" : passwordVerifierReady === true ? "ready" : "checking"}>
+    <main className={`wallboard ${compactViewport && !fittedWallboard ? "wallboard-compact" : ""} ${fittedWallboard ? "wallboard-fullscreen" : ""} ${fitViewport && !presentationMode ? "wallboard-auto-fit" : ""}`} data-live={data.live ? "true" : "false"} data-password-verifier={passwordVerifierReady === false ? "invalid" : passwordVerifierReady === true ? "ready" : "checking"}>
       <header className="wallboard-header">
         <div className="identity"><strong>BITZ LAB AIR MONITORING</strong><span>LIVE READINGS · 24-HOUR HISTORY · LATEST 60-MINUTE ANALYSIS</span></div>
         <div className="header-state" aria-live="polite">
@@ -1836,7 +1846,10 @@ export default function Home() {
         <OfficeRail room={displayedOfficeRoom} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes} />
       </div>
       <footer className="wallboard-footer">
-        <button className="context-trigger" type="button" onClick={openContextInput} aria-haspopup="dialog">CODES</button>
+        <div className="footer-context-cluster">
+          <button className="context-trigger" type="button" onClick={openContextInput} aria-haspopup="dialog">CODES</button>
+          <a className="pair-trigger" href="/pair" aria-label="Pair a wall display">PAIR</a>
+        </div>
         <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 · Code Engine: https://github.com/sparkmbxtr/BITZ · If this is not your own device, select Lock (top right) before leaving.</span>
         <div className="footer-report-cluster">
           <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
@@ -2047,20 +2060,16 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
   return (
     <main className="access-shell">
       <section className="access-card access-card-paired">
-        <div className="access-kicker">SPARK RICHARD BIOENGINEERING</div>
         <h1>BITZ LAB AIR MONITORING</h1>
-        <p>Open with the display password or authorise this screen from a phone.</p>
         {checking ? <div className="access-checking">Checking saved display session…</div> : (
           <div className="access-choice-grid">
             <form className="access-password-choice" method="post" action="/api/auth" onSubmit={submit}>
-              <strong>PASSWORD</strong>
-              <span>Use when a keyboard is available.</span>
             {verifierReady === false ? <div className="access-config-error" role="alert">Display password configuration needs correction.</div> : null}
-            <label htmlFor="dashboard-password">Display password</label>
             <input
               id="dashboard-password"
               name="password"
               type="password"
+              aria-label="Display password"
               inputMode="text"
               value={password}
               onInput={(event) => setPassword(event.currentTarget.value)}
@@ -2075,14 +2084,11 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
             <button type="submit" disabled={!password || submitting || verifierReady === false}>{submitting ? "Opening…" : "Open monitor"}</button>
             </form>
 
-            <section className="access-phone-choice" aria-live="polite">
-              <strong>PHONE APPROVAL</strong>
-              <span>Scan once when the wall display has no convenient keyboard.</span>
+            <section className="access-phone-choice" aria-label="Phone approval" aria-live="polite">
               {pairing ? (
                 <>
                   <div className="pairing-qr" aria-label={`QR code for display code ${pairing.code}`} dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
                   <div className="pairing-code"><span>DISPLAY CODE</span><b>{pairing.code}</b></div>
-                  <small>Open <strong>{new URL(pairing.approvalUrl).host}/pair</strong> on your phone, or scan the QR. This approval remains valid for three months.</small>
                 </>
               ) : (
                 <div className="pairing-loading">{pairingError || "Generating secure display code…"}</div>
