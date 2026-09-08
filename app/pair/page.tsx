@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useState } from "react";
 
 export default function PairDisplayPage() {
   const [code, setCode] = useState("");
-  const [password, setPassword] = useState("");
   const [state, setState] = useState<"idle" | "approving" | "approved" | "error">("idle");
   const [message, setMessage] = useState("");
 
@@ -26,15 +25,13 @@ export default function PairDisplayPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ code, password }),
+        body: JSON.stringify({ code }),
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Display could not be authorised");
-      setPassword("");
       setState("approved");
       setMessage("Display authorised. It will open automatically and remain authorised for three months.");
     } catch (error) {
-      setPassword("");
       setState("error");
       setMessage(error instanceof Error ? error.message : "Display could not be authorised");
     }
@@ -45,7 +42,7 @@ export default function PairDisplayPage() {
       <form className="access-card pairing-approval-card" onSubmit={approve}>
         <div className="access-kicker">BIOENGINEERING LAB · BITZ</div>
         <h1>Authorise wall display</h1>
-        <p>Confirm the code shown on the monitor. Enter the display password unless this phone already has an authorised session.</p>
+        <p>Confirm the code shown on the monitor.</p>
 
         <label htmlFor="pairing-code">Display code</label>
         <input
@@ -57,19 +54,6 @@ export default function PairDisplayPage() {
           onChange={(event) => setCode(event.target.value.replace(/[^A-Z0-9]/gi, "").toUpperCase().slice(0, 10))}
           autoComplete="one-time-code"
           autoCapitalize="characters"
-          spellCheck={false}
-        />
-
-        <label htmlFor="pairing-password">Display password</label>
-        <input
-          id="pairing-password"
-          name="password"
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          autoComplete="current-password"
-          autoCapitalize="characters"
-          autoCorrect="off"
           spellCheck={false}
         />
 

@@ -1,7 +1,6 @@
 import { env } from "cloudflare:workers";
-import QRCode from "qrcode";
 
-import { isAuthorized, passwordVerifierReady, sessionGrant, verifyPassword } from "@/lib/dashboard-auth";
+import { isAuthorized, sessionGrant } from "@/lib/dashboard-auth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -71,10 +70,9 @@ async function sha256(value: string) {
 
 function dashboardSecrets() {
   const runtimeEnv = env as unknown as Record<string, unknown>;
-  const passwordHash = runtimeEnv.DASHBOARD_PASSWORD_HASH;
   const sessionSecret = runtimeEnv.DASHBOARD_SESSION_SECRET;
-  if (typeof passwordHash !== "string" || typeof sessionSecret !== "string") return null;
-  return { passwordHash, sessionSecret };
+  if (typeof sessionSecret !== "string") return null;
+  return { sessionSecret };
 }
 
 export async function POST(request: Request) {
@@ -124,39 +122,24 @@ export async function POST(request: Request) {
   }
   if (!stored) return json({ error: "Display pairing could not be started" }, 503);
 
-  const origin = new URL(request.url).origin;
-  const approvalUrl = `${origin}/pair?code=${encodeURIComponent(code)}`;
-  const qrSvg = await QRCode.toString(approvalUrl, {
-    type: "svg",
-    errorCorrectionLevel: "M",
-    margin: 1,
-    width: 280,
-    color: { dark: "#032c2b", light: "#f4fffaf0" },
-  });
-
-  return json({ pairingId, pollSecret, code, expiresAt, approvalUrl, qrSvg }, 201);
+  return json({ pairingId, pollSecret, code, expiresAt }, 201);
 }
 
 export async function PUT(request: Request) {
   if (!sameOrigin(request)) return json({ error: "Origin rejected" }, 403);
   const configured = dashboardSecrets();
   const store = pairingStore();
-  if (!configured || !passwordVerifierReady(configured.passwordHash) || !store) {
+  if (!configured || !store) {
     return json({ error: "Display pairing is unavailable" }, 503);
   }
 
-  const body = await request.json().catch(() => null) as { code?: unknown; password?: unknown } | null;
-  const code = typeof body?.code === "string" ? body.code.normalize("NFKC").replace(/[^A-Z0-9]/gi, "").toUpperCase() : "";
-  let password = "";
-  if (typeof body?.password === "string") {
-    password = body.password.normalize("NFKC").replace(/[\p{Cf}\p{Z}\s]/gu, "").toUpperCase();
+  if (!await isAuthorized(request, configured.sessionSecret)) {
+    return json({ error: "Authorised dashboard session required" }, 401);
   }
 
-  const phoneAlreadyAuthorized = await isAuthorized(request, configured.sessionSecret);
-  const passwordAccepted = Boolean(password && password.length <= 256 && await verifyPassword(password, configured.passwordHash));
-  if (!code || (!phoneAlreadyAuthorized && !passwordAccepted)) {
-    return json({ error: "Code or password not accepted" }, 401);
-  }
+  const body = await request.json().catch(() => null) as { code?: unknown } | null;
+  const code = typeof body?.code === "string" ? body.code.normalize("NFKC").replace(/[^A-Z0-9]/gi, "").toUpperCase() : "";
+  if (!code) return json({ error: "Code not accepted" }, 401);
 
   const grant = await sessionGrant(configured.sessionSecret);
   if (!await store.approveDisplayPairing(code, grant.token)) {

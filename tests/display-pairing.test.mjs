@@ -27,20 +27,25 @@ test("access screen shows only the field and pairing code", () => {
   assert.doesNotMatch(page, /Open with the display password or authorise this screen from a phone/);
 });
 
-test("Tizen password and phone pairing issue the same signed session grant", () => {
+test("Tizen login and an already-authorised phone issue the same signed session grant", () => {
   assert.match(page, /Tizen\|SMART-TV\|TizenBrowser/);
   assert.match(page, /X-BITZ-Session-Mode/);
   assert.match(authRoute, /sessionGrant/);
   assert.match(auth, /x-bitz-display-session/);
   assert.match(auth, /return validSessionValue\(request\.headers\.get\(SESSION_HEADER_NAME\)/);
+  assert.doesNotMatch(approvalPage, /Display password/);
+  assert.doesNotMatch(approvalPage, /pairing-password/);
+  assert.doesNotMatch(approvalPage, /type="password"/);
+  assert.match(approvalPage, /body: JSON\.stringify\(\{ code \}\)/);
+  assert.match(pairingRoute, /if \(!await isAuthorized\(request, configured\.sessionSecret\)\)/);
+  assert.doesNotMatch(pairingRoute, /verifyPassword|passwordAccepted/);
   assert.match(approvalPage, /remain authorised for three months/);
 });
 
 test("pairing secrets stay off URLs and are one-time after approval", () => {
   assert.match(pairingRoute, /PAIRING_LIFETIME_MS = 10 \* 60_000/);
   assert.match(pairingRoute, /pollSecretHash: await sha256\(pollSecret\)/);
-  assert.match(pairingRoute, /const approvalUrl = `\$\{origin\}\/pair\?code=/);
-  assert.doesNotMatch(pairingRoute, /approvalUrl.*pollSecret/);
+  assert.doesNotMatch(pairingRoute, /QRCode|qrSvg|approvalUrl/);
   assert.match(worker, /DELETE FROM display_pairings WHERE id = \?/);
   assert.match(worker, /status: "approved", sessionToken/);
 });
