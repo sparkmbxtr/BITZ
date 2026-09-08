@@ -64,10 +64,14 @@ test("short landscape laptops fit the complete wallboard into the viewport", () 
   assert.match(page, /wallboard-auto-fit/);
 });
 
-test("PAIR is adjacent to CODES and visible only on phone displays", () => {
+test("PAIR is adjacent to CODES and visible whenever the screen is portrait", () => {
   assert.match(page, /className="footer-context-cluster"/);
   assert.match(page, /className="pair-trigger" href="\/pair"/);
-  assert.match(page, /Math\.min\(availableWidth, availableHeight\) <= 600/);
   assert.match(css, /\.pair-trigger \{ display: none;/);
-  assert.match(css, /html\[data-dashboard-device="phone"\] \.pair-trigger \{ display: inline-flex; \}/);
+  assert.match(css, /@media \(orientation: portrait\) \{\s*\.pair-trigger \{ display: inline-flex; \}/);
+});
+
+test("fitted landscape decision cards do not clip their two text rows", () => {
+  assert.match(css, /\.meaning-evidence > \.meaning-signal \{\s*grid-template-rows: minmax\(0, 1fr\) auto;/);
+  assert.match(css, /\.meaning-evidence b\.meaning-status \{\s*height: auto;\s*min-height: 0;/);
 });

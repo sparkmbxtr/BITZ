@@ -1388,11 +1388,9 @@ export default function Home() {
       const fitted = !compact
         && availableWidth > availableHeight
         && (availableWidth < 1920 || availableHeight < 960);
-      const phone = touchFirstViewport && Math.min(availableWidth, availableHeight) <= 600;
       setCompactViewport(compact);
       setFitViewport(fitted);
       document.documentElement.dataset.dashboardLayout = compact ? "compact" : "wide";
-      document.documentElement.dataset.dashboardDevice = phone ? "phone" : signage ? "signage" : desktopInput ? "desktop" : "touch";
     };
 
     syncViewportLayout();
@@ -1402,7 +1400,6 @@ export default function Home() {
       window.removeEventListener("resize", syncViewportLayout);
       window.removeEventListener("orientationchange", syncViewportLayout);
       delete document.documentElement.dataset.dashboardLayout;
-      delete document.documentElement.dataset.dashboardDevice;
     };
   }, []);
 
