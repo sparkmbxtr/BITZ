@@ -1,4 +1,5 @@
 const COOKIE_NAME = "airq_wallboard_session";
+const SESSION_HEADER_NAME = "x-bitz-display-session";
 const API_COOKIE_NAME = "airq_api_credential";
 const SESSION_DAYS = 90;
 const API_KEY_DAYS = 120;
@@ -83,13 +84,22 @@ export async function verifyPassword(password: string, expectedHash: string) {
   return verifier !== null && safeEqual(await sha256(password), verifier);
 }
 
-export async function isAuthorized(request: Request, sessionSecret: string) {
-  const value = cookieValue(request);
+async function validSessionValue(value: string | null, sessionSecret: string) {
   if (!value) return false;
   const [expires, suppliedSignature, extra] = value.split(".");
   if (!expires || !suppliedSignature || extra || !/^\d+$/.test(expires)) return false;
   if (Number(expires) <= Date.now()) return false;
   return safeEqual(suppliedSignature, await signature(sessionSecret, expires));
+}
+
+export async function isAuthorized(request: Request, sessionSecret: string) {
+  if (await validSessionValue(cookieValue(request), sessionSecret)) return true;
+
+  // Older Samsung/Tizen signage browsers can accept a Set-Cookie response but
+  // omit the cookie on the next fetch. A signed bearer stored by the wallboard
+  // is the compatibility path; it has the same expiry and HMAC validation as
+  // the HttpOnly cookie and is never placed in a URL.
+  return validSessionValue(request.headers.get(SESSION_HEADER_NAME)?.trim() ?? null, sessionSecret);
 }
 
 export async function isContextEntryAuthorized(request: Request, sessionSecret: string) {
@@ -109,11 +119,19 @@ export async function isBearerAuthorized(request: Request, expectedToken: string
   return safeEqual(await sha256(supplied), await sha256(expected));
 }
 
-export async function sessionCookie(sessionSecret: string) {
+export async function sessionGrant(sessionSecret: string) {
   const maxAge = SESSION_DAYS * 24 * 60 * 60;
   const expires = String(Date.now() + maxAge * 1000);
   const value = `${expires}.${await signature(sessionSecret, expires)}`;
-  return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
+  return {
+    token: value,
+    cookie: `${COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`,
+    expiresAt: Number(expires),
+  };
+}
+
+export async function sessionCookie(sessionSecret: string) {
+  return (await sessionGrant(sessionSecret)).cookie;
 }
 
 export function expiredSessionCookie() {

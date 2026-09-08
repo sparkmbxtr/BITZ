@@ -277,7 +277,7 @@ export async function POST(request: Request) {
 
   const payload = await request.json().catch(() => null) as { firstName?: unknown } | null;
   const firstName = acceptedFirstName(cleanFirstName(payload?.firstName));
-  if (!firstName) return json({ error: "Use one of the listed names" }, 403);
+  if (!firstName) return json({ error: "Bioengineering Lab personnel only." }, 403);
 
   const report = expectedWeeklyReport();
   const stub = reportLog();

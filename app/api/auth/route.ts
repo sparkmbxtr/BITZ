@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { expiredSessionCookie, isAuthorized, passwordVerifierReady, sessionCookie, verifyPassword } from "@/lib/dashboard-auth";
+import { expiredSessionCookie, isAuthorized, passwordVerifierReady, sessionGrant, verifyPassword } from "@/lib/dashboard-auth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -72,20 +72,21 @@ export async function POST(request: Request) {
       : Response.json({ error: "Incorrect password" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
 
-  const cookie = await sessionCookie(configured.sessionSecret);
+  const grant = await sessionGrant(configured.sessionSecret);
   if (nativeForm) {
     return new Response(null, {
       status: 303,
       headers: {
         "Cache-Control": "no-store",
         Location: new URL("/", request.url).toString(),
-        "Set-Cookie": cookie,
+        "Set-Cookie": grant.cookie,
       },
     });
   }
+  const portableSessionRequested = request.headers.get("x-bitz-session-mode") === "portable";
   return Response.json(
-    { authorized: true },
-    { headers: { "Cache-Control": "no-store", "Set-Cookie": cookie } },
+    { authorized: true, ...(portableSessionRequested ? { sessionToken: grant.token, expiresAt: grant.expiresAt } : {}) },
+    { headers: { "Cache-Control": "no-store", "Set-Cookie": grant.cookie } },
   );
 }
 

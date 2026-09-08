@@ -89,6 +89,50 @@ const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr
 const REPORT_ALLOWED_NAMES = ["RICHARD", "JEFF", "JESS", "LILIANA", "Dr.Itzel", "Dr.Kaarthik", "Dr.Fidelis", "airQ-tech"] as const;
 const REPORT_HIDDEN_TEST_NAME = "SPARKMBXTR";
 const REPORT_PENDING_MESSAGE = "Recent week’s report has not been generated yet.";
+const DISPLAY_SESSION_STORAGE_KEY = "bitz-display-session-v1";
+const DISPLAY_SESSION_HEADER = "X-BITZ-Display-Session";
+
+let inMemoryDisplaySession = "";
+
+function isTizenDisplay() {
+  return typeof window !== "undefined" && /Tizen|SMART-TV|TizenBrowser/i.test(window.navigator.userAgent);
+}
+
+function readDisplaySession() {
+  if (inMemoryDisplaySession) return inMemoryDisplaySession;
+  if (typeof window === "undefined") return "";
+  try {
+    inMemoryDisplaySession = window.localStorage.getItem(DISPLAY_SESSION_STORAGE_KEY) ?? "";
+  } catch {
+    inMemoryDisplaySession = "";
+  }
+  return inMemoryDisplaySession;
+}
+
+function storeDisplaySession(token: string) {
+  inMemoryDisplaySession = token;
+  try {
+    window.localStorage.setItem(DISPLAY_SESSION_STORAGE_KEY, token);
+  } catch {
+    // The in-memory copy still keeps the current kiosk session open.
+  }
+}
+
+function clearDisplaySession() {
+  inMemoryDisplaySession = "";
+  try {
+    window.localStorage.removeItem(DISPLAY_SESSION_STORAGE_KEY);
+  } catch {
+    // Some managed signage configurations disable persistent web storage.
+  }
+}
+
+function dashboardFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  const session = readDisplaySession();
+  if (session) headers.set(DISPLAY_SESSION_HEADER, session);
+  return fetch(input, { ...init, headers, credentials: "same-origin" });
+}
 
 type ReportAvailability = { available: boolean; fileName?: string; periodLabel?: string; message?: string };
 
@@ -811,15 +855,6 @@ function hepaAssessment(samples: Sample[], latest: Sample | null) {
   };
 }
 
-function ageLabel(timestamp: number, newestTimestamp: number | null | undefined) {
-  if (!newestTimestamp) return "LAST VALID";
-  const minutes = Math.max(0, Math.round((newestTimestamp - timestamp) / 60_000));
-  if (minutes <= 5) return "CURRENT SAMPLE";
-  if (minutes < 60) return `LAST VALID · ${minutes} MIN EARLIER`;
-  const hours = Math.round(minutes / 60);
-  return `LAST VALID · ${hours} H EARLIER`;
-}
-
 function indexGrade(value: number | null): Grade {
   if (value === null) return { label: "NO DATA", level: "unknown" };
   if (value >= 90) return { label: "GREAT", level: "great" };
@@ -1322,7 +1357,7 @@ export default function Home() {
     setContextNote("");
     setContextState("idle");
     setContextError("");
-    void fetch("/api/context-auth", { method: "DELETE", credentials: "same-origin" }).catch(() => undefined);
+    void dashboardFetch("/api/context-auth", { method: "DELETE" }).catch(() => undefined);
   }, []);
 
   const closeReportInput = useCallback(() => {
@@ -1331,6 +1366,12 @@ export default function Home() {
     setReportState("idle");
     setReportError("");
     setReportAvailability(null);
+  }, []);
+
+  const grantDashboardAccess = useCallback((sessionToken?: string) => {
+    if (sessionToken) storeDisplaySession(sessionToken);
+    setApiConnected(true);
+    setAuthorized(true);
   }, []);
 
   useEffect(() => {
@@ -1418,8 +1459,9 @@ export default function Home() {
   const loadData = useCallback(async () => {
     setRefreshing(true);
     try {
-      const response = await fetch("/api/airq", { cache: "no-store", credentials: "same-origin" });
+      const response = await dashboardFetch("/api/airq", { cache: "no-store" });
       if (response.status === 401) {
+        clearDisplaySession();
         setApiConnected(null);
         setAuthorized(false);
         return;
@@ -1443,11 +1485,12 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/auth", { cache: "no-store", credentials: "same-origin" })
+    dashboardFetch("/api/auth", { cache: "no-store" })
       .then((response) => response.json())
       .then((payload: { authorized?: boolean; passwordVerifierReady?: boolean }) => {
         if (active) {
           const sessionAuthorized = payload.authorized === true;
+          if (!sessionAuthorized) clearDisplaySession();
           setAuthorized(sessionAuthorized);
           setPasswordVerifierReady(payload.passwordVerifierReady === true);
           // The protected live-data route performs the same session check, so
@@ -1468,8 +1511,9 @@ export default function Home() {
     if (authorized !== true) return;
     setConnectionChecking(true);
     try {
-      const response = await fetch(`/api/key?check=${Date.now()}`, { cache: "no-store", credentials: "same-origin" });
+      const response = await dashboardFetch(`/api/key?check=${Date.now()}`, { cache: "no-store" });
       if (response.status === 401) {
+        clearDisplaySession();
         setApiConnected(null);
         setAuthorized(false);
         return;
@@ -1477,6 +1521,7 @@ export default function Home() {
       if (!response.ok) throw new Error("Connection check failed");
       const payload = await response.json() as { configured?: boolean; reauthenticate?: boolean };
       if (payload.reauthenticate === true) {
+        clearDisplaySession();
         setApiConnected(null);
         setAuthorized(false);
         return;
@@ -1491,7 +1536,7 @@ export default function Home() {
 
   useEffect(() => {
     if (authorized !== true || apiConnected === true) return;
-    void checkConnection();
+    const initialCheck = window.setTimeout(() => void checkConnection(), 0);
     const timer = window.setInterval(() => void checkConnection(), 15_000);
     const retryWhenVisible = () => {
       if (document.visibilityState === "visible") void checkConnection();
@@ -1499,6 +1544,7 @@ export default function Home() {
     window.addEventListener("focus", retryWhenVisible);
     document.addEventListener("visibilitychange", retryWhenVisible);
     return () => {
+      window.clearTimeout(initialCheck);
       window.clearInterval(timer);
       window.removeEventListener("focus", retryWhenVisible);
       document.removeEventListener("visibilitychange", retryWhenVisible);
@@ -1600,7 +1646,8 @@ export default function Home() {
   async function lockBoard() {
     setPresentationMode(false);
     if (document.fullscreenElement) await document.exitFullscreen?.().catch(() => undefined);
-    await fetch("/api/auth", { method: "DELETE", credentials: "same-origin" }).catch(() => undefined);
+    await dashboardFetch("/api/auth", { method: "DELETE" }).catch(() => undefined);
+    clearDisplaySession();
     setAuthorized(false);
     setApiConnected(null);
   }
@@ -1625,12 +1672,12 @@ export default function Home() {
     setReportAvailability(null);
     setReportOpen(true);
     try {
-      const response = await fetch(`/api/report?availability=${Date.now()}`, {
+      const response = await dashboardFetch(`/api/report?availability=${Date.now()}`, {
         cache: "no-store",
-        credentials: "same-origin",
       });
       const payload = await response.json().catch(() => ({})) as ReportAvailability & { error?: string };
       if (response.status === 401) {
+        clearDisplaySession();
         setAuthorized(false);
         return;
       }
@@ -1667,15 +1714,17 @@ export default function Home() {
     setReportState("sending");
     setReportError("");
     try {
-      const response = await fetch("/api/report", {
+      const response = await dashboardFetch("/api/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
         body: JSON.stringify({ firstName: acceptedName }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({})) as { error?: string };
-        if (response.status === 401) setAuthorized(false);
+        if (response.status === 401) {
+          clearDisplaySession();
+          setAuthorized(false);
+        }
         if (response.status === 404) {
           setReportAvailability((current) => ({ ...(current ?? { available: false }), available: false, message: payload.error ?? REPORT_PENDING_MESSAGE }));
           setReportState("unavailable");
@@ -1707,10 +1756,9 @@ export default function Home() {
     setContextState("unlocking");
     setContextError("");
     try {
-      const response = await fetch("/api/context-auth", {
+      const response = await dashboardFetch("/api/context-auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
         body: JSON.stringify({ password: contextPassword }),
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };
@@ -1731,10 +1779,9 @@ export default function Home() {
     setContextState("sending");
     setContextError("");
     try {
-      const response = await fetch("/api/context", {
+      const response = await dashboardFetch("/api/context", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
         body: JSON.stringify({ area: contextArea, note, observedAt: contextTimestamp }),
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };
@@ -1753,7 +1800,7 @@ export default function Home() {
     }
   }
 
-  if (authorized !== true) return <AccessGate checking={authorized === null} verifierReady={passwordVerifierReady} onGranted={() => { setApiConnected(true); setAuthorized(true); }} />;
+  if (authorized !== true) return <AccessGate checking={authorized === null} verifierReady={passwordVerifierReady} onGranted={grantDashboardAccess} />;
   if (apiConnected !== true) {
     if (ownerSetup && apiConnected === false) return <ApiKeySetup checking={false} onConnected={() => setApiConnected(true)} />;
     return <ConnectionPending checking={apiConnected === null || connectionChecking} onRetry={checkConnection} />;
@@ -1873,46 +1920,118 @@ export default function Home() {
   );
 }
 
-function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean; verifierReady: boolean | null; onGranted: () => void }) {
+type DisplayPairing = {
+  pairingId: string;
+  pollSecret: string;
+  code: string;
+  expiresAt: number;
+  approvalUrl: string;
+  qrSvg: string;
+};
+
+function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean; verifierReady: boolean | null; onGranted: (sessionToken?: string) => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [pairing, setPairing] = useState<DisplayPairing | null>(null);
+  const [pairingError, setPairingError] = useState("");
+  const [pairingRefresh, setPairingRefresh] = useState(0);
 
   useEffect(() => {
     const reason = new URLSearchParams(window.location.search).get("login");
-    if (reason === "incorrect") setError("Password not accepted");
-    if (reason === "unavailable") setError("Connection unavailable — try again");
+    const timer = window.setTimeout(() => {
+      if (reason === "incorrect") setError("Password not accepted");
+      if (reason === "unavailable") setError("Connection unavailable — try again");
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    const nativeTizenLogin = /Tizen|SMART-TV|TizenBrowser/i.test(window.navigator.userAgent);
-    if (nativeTizenLogin) {
-      if (!password || submitting) {
-        event.preventDefault();
-        return;
+  useEffect(() => {
+    if (checking) return;
+    let active = true;
+    let pollTimer: number | undefined;
+
+    async function poll(current: DisplayPairing) {
+      try {
+        const response = await fetch("/api/device-pair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ action: "poll", pairingId: current.pairingId, pollSecret: current.pollSecret }),
+        });
+        const payload = await response.json().catch(() => ({})) as { status?: string; sessionToken?: string; error?: string };
+        if (!active) return;
+        if (response.ok && payload.status === "approved" && payload.sessionToken) {
+          onGranted(payload.sessionToken);
+          return;
+        }
+        if (response.status === 410 || payload.status === "expired") {
+          setPairing(null);
+          setPairingError("Pairing code expired. Refreshing…");
+          pollTimer = window.setTimeout(() => {
+            if (active) setPairingRefresh((value) => value + 1);
+          }, 1_000);
+          return;
+        }
+      } catch {
+        if (active) setPairingError("Phone approval is temporarily unavailable.");
       }
-      setSubmitting(true);
-      setError("");
-      return;
+      if (active) pollTimer = window.setTimeout(() => void poll(current), 2_000);
     }
 
+    async function start() {
+      setPairing(null);
+      setPairingError("");
+      try {
+        const response = await fetch("/api/device-pair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ action: "start" }),
+        });
+        const payload = await response.json().catch(() => ({})) as DisplayPairing & { error?: string };
+        if (!response.ok) throw new Error(payload.error ?? "Phone approval could not be started");
+        if (!active) return;
+        setPairing(payload);
+        void poll(payload);
+      } catch (reason) {
+        if (active) {
+          setPairingError(reason instanceof Error ? `${reason.message}. Retrying…` : "Phone approval could not be started. Retrying…");
+          pollTimer = window.setTimeout(() => {
+            if (active) setPairingRefresh((value) => value + 1);
+          }, 30_000);
+        }
+      }
+    }
+
+    void start();
+    return () => {
+      active = false;
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
+    };
+  }, [checking, onGranted, pairingRefresh]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!password || submitting) return;
     setSubmitting(true);
     setError("");
     try {
-      const response = await fetch("/api/auth", {
+      const portableSession = isTizenDisplay();
+      const response = await dashboardFetch("/api/auth", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          ...(portableSession ? { "X-BITZ-Session-Mode": "portable" } : {}),
+        },
         body: JSON.stringify({ password }),
       });
-      const payload = await response.json().catch(() => ({})) as { error?: string };
+      const payload = await response.json().catch(() => ({})) as { error?: string; sessionToken?: string };
       if (!response.ok) {
         throw new Error(response.status === 401 ? "Password not accepted" : payload.error ?? "Connection unavailable — try again");
       }
       setPassword("");
-      onGranted();
+      onGranted(payload.sessionToken);
     } catch (reason) {
       setPassword("");
       setError(reason instanceof Error ? reason.message : "Connection unavailable — try again");
@@ -1923,12 +2042,15 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
 
   return (
     <main className="access-shell">
-      <form className="access-card" method="post" action="/api/auth" onSubmit={submit}>
+      <section className="access-card access-card-paired">
         <div className="access-kicker">SPARK RICHARD BIOENGINEERING</div>
         <h1>BITZ LAB AIR MONITORING</h1>
-        <p>Protected display access for the LAB and OFFICE wallboard.</p>
+        <p>Open with the display password or authorise this screen from a phone.</p>
         {checking ? <div className="access-checking">Checking saved display session…</div> : (
-          <>
+          <div className="access-choice-grid">
+            <form className="access-password-choice" method="post" action="/api/auth" onSubmit={submit}>
+              <strong>PASSWORD</strong>
+              <span>Use when a keyboard is available.</span>
             {verifierReady === false ? <div className="access-config-error" role="alert">Display password configuration needs correction.</div> : null}
             <label htmlFor="dashboard-password">Display password</label>
             <input
@@ -1947,9 +2069,25 @@ function AccessGate({ checking, verifierReady, onGranted }: { checking: boolean;
             />
             {error ? <div className="access-error" role="alert">{error}</div> : null}
             <button type="submit" disabled={!password || submitting || verifierReady === false}>{submitting ? "Opening…" : "Open monitor"}</button>
-          </>
+            </form>
+
+            <section className="access-phone-choice" aria-live="polite">
+              <strong>PHONE APPROVAL</strong>
+              <span>Scan once when the wall display has no convenient keyboard.</span>
+              {pairing ? (
+                <>
+                  <div className="pairing-qr" aria-label={`QR code for display code ${pairing.code}`} dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
+                  <div className="pairing-code"><span>DISPLAY CODE</span><b>{pairing.code}</b></div>
+                  <small>Open <strong>{new URL(pairing.approvalUrl).host}/pair</strong> on your phone, or scan the QR. This approval remains valid for three months.</small>
+                </>
+              ) : (
+                <div className="pairing-loading">{pairingError || "Generating secure display code…"}</div>
+              )}
+              {!pairing ? <button type="button" onClick={() => setPairingRefresh((value) => value + 1)}>Generate new code</button> : null}
+            </section>
+          </div>
         )}
-      </form>
+      </section>
     </main>
   );
 }
@@ -1981,10 +2119,9 @@ function ApiKeySetup({ checking, onConnected }: { checking: boolean; onConnected
     setSubmitting(true);
     setError("");
     try {
-      const response = await fetch("/api/key", {
+      const response = await dashboardFetch("/api/key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
         body: JSON.stringify({ apiKey }),
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };

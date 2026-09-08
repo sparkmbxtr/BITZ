@@ -398,7 +398,6 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const tvocRise = recentTvocValues.length > 0 && tvocMax !== null ? tvocMax - recentTvocValues[0] : null;
   const finalTwenty = recent.filter((sample) => sample.timestamp >= (latest?.timestamp ?? 0) - 20 * 60_000);
   const tvocNow = latestValue(recent, (sample) => sample.tvoc);
-  const hchoNow = latestValue(recent, (sample) => sample.hcho);
   const coNow = latestValue(recent, (sample) => sample.co);
   const co2Now = latestValue(recent, (sample) => sample.co2);
   const o2Now = latestValue(recent, (sample) => sample.oxygen);

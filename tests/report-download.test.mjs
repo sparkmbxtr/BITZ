@@ -8,9 +8,9 @@ const route = await readFile(new URL("../app/api/report/route.ts", import.meta.u
 
 test("weekly report gate checks current availability before requesting attribution", () => {
   assert.match(page, />REPORT<\/button>/);
-  assert.match(page, /fetch\(\`\/api\/report\?availability=/);
+  assert.match(page, /dashboardFetch\(\`\/api\/report\?availability=/);
   assert.match(page, /Recent week’s report has not been generated yet/i);
-  assert.match(page, /Input your first name to download weekly report/);
+  assert.match(page, /Enter your first name to download/);
   assert.match(page, /RICHARD\/JEFF\/JESS\/LILIANA\/\/Dr\.Itzel\/\/Dr\.Kaarthik\/\/Dr\.Fidelis/);
   assert.match(page, /!reportName \? <span className="report-name-guide"/);
   assert.match(page, /REPORT_ALLOWED_NAMES\.find/);
@@ -45,7 +45,7 @@ test("successful report downloads are attributable, durable and CSV-exportable",
   assert.match(route, /REPORT_ALLOWED_NAMES/);
   assert.match(route, /value === REPORT_HIDDEN_TEST_NAME/);
   assert.match(route, /firstName !== REPORT_HIDDEN_TEST_NAME/);
-  assert.match(route, /Use one of the listed names/);
+  assert.match(route, /Bioengineering Lab personnel only\./);
   assert.match(route, /Dashboard login required/);
   assert.match(route, /airq_weekly_report_downloads\.csv/);
   assert.match(route, /downloadLog.*csv/);
@@ -65,5 +65,5 @@ test("current display copy remains aligned", () => {
   assert.match(page, /CO WARNING/);
   assert.doesNotMatch(page, /LATEST COMPLETED WEEK/);
   assert.match(page, /LAB 2 BUILDING CONSTRUCTION · X'27/);
-  assert.match(page, /status === "normal" \? ""/);
+  assert.match(page, /status === "action" \? "!" : ""/);
 });

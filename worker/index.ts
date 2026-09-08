@@ -68,6 +68,28 @@ type StoredWeeklyReportRow = {
   created_at: number;
 };
 
+export type StoredDisplayPairing = {
+  id: string;
+  code: string;
+  pollSecretHash: string;
+  createdAt: number;
+  expiresAt: number;
+};
+
+type StoredDisplayPairingRow = {
+  id: string;
+  code: string;
+  poll_secret_hash: string;
+  created_at: number;
+  expires_at: number;
+  session_token: string | null;
+};
+
+export type DisplayPairingPoll = {
+  status: "pending" | "approved" | "expired";
+  sessionToken?: string;
+};
+
 /**
  * One SQLite-backed object keeps the manual observation stream ordered and
  * append-only. It is private to this Worker; browser requests reach it only
@@ -123,6 +145,20 @@ export class ContextLog extends DurableObject<Env> {
         state_key TEXT PRIMARY KEY CHECK (state_key = 'current'),
         report_id TEXT NOT NULL
       )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS display_pairings (
+        id TEXT PRIMARY KEY,
+        code TEXT UNIQUE NOT NULL CHECK (length(code) BETWEEN 6 AND 10),
+        poll_secret_hash TEXT NOT NULL CHECK (length(poll_secret_hash) = 64),
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        session_token TEXT
+      )
+    `);
+    ctx.storage.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_display_pairings_expires_at
+      ON display_pairings(expires_at)
     `);
   }
 
@@ -330,6 +366,61 @@ export class ContextLog extends DurableObject<Env> {
   async getWeeklyReport(reportName: string): Promise<StoredWeeklyReport | null> {
     const head = await this.headWeeklyReport(reportName);
     return head ? this.getStagedWeeklyReport(head.id) : null;
+  }
+
+  async createDisplayPairing(pairing: StoredDisplayPairing): Promise<void> {
+    const now = Date.now();
+    this.ctx.storage.sql.exec("DELETE FROM display_pairings WHERE expires_at < ?", now);
+    const recent = this.ctx.storage.sql
+      .exec<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM display_pairings WHERE created_at >= ?",
+        now - 60_000,
+      )
+      .one();
+    if (recent.count >= 20) throw new Error("PAIRING_RATE_LIMIT");
+
+    this.ctx.storage.sql.exec(
+      "INSERT INTO display_pairings (id, code, poll_secret_hash, created_at, expires_at, session_token) VALUES (?, ?, ?, ?, ?, NULL)",
+      pairing.id,
+      pairing.code,
+      pairing.pollSecretHash,
+      pairing.createdAt,
+      pairing.expiresAt,
+    );
+  }
+
+  async approveDisplayPairing(code: string, sessionToken: string): Promise<boolean> {
+    const now = Date.now();
+    const row = this.ctx.storage.sql
+      .exec<StoredDisplayPairingRow>(
+        "SELECT id, code, poll_secret_hash, created_at, expires_at, session_token FROM display_pairings WHERE code = ? LIMIT 1",
+        code,
+      )
+      .toArray()[0];
+    if (!row || row.expires_at < now) return false;
+    this.ctx.storage.sql.exec(
+      "UPDATE display_pairings SET session_token = ? WHERE id = ?",
+      sessionToken,
+      row.id,
+    );
+    return true;
+  }
+
+  async consumeDisplayPairing(id: string, pollSecretHash: string): Promise<DisplayPairingPoll> {
+    const row = this.ctx.storage.sql
+      .exec<StoredDisplayPairingRow>(
+        "SELECT id, code, poll_secret_hash, created_at, expires_at, session_token FROM display_pairings WHERE id = ? LIMIT 1",
+        id,
+      )
+      .toArray()[0];
+    if (!row || row.poll_secret_hash !== pollSecretHash || row.expires_at < Date.now()) {
+      if (row?.id) this.ctx.storage.sql.exec("DELETE FROM display_pairings WHERE id = ?", row.id);
+      return { status: "expired" };
+    }
+    if (!row.session_token) return { status: "pending" };
+
+    this.ctx.storage.sql.exec("DELETE FROM display_pairings WHERE id = ?", row.id);
+    return { status: "approved", sessionToken: row.session_token };
   }
 }
 

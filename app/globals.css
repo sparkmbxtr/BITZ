@@ -80,6 +80,24 @@ button, input { font: inherit; }
 .access-error { margin-top: 10px; color: var(--red); font-size: .9rem; }
 .access-config-error { margin: 0 0 12px; padding: 10px 12px; border-left: 4px solid var(--red); color: #ffe5e2; background: rgba(72, 28, 26, .78); font-size: .9rem; line-height: 1.35; }
 .access-checking { padding: 16px 0; color: var(--muted); font-size: 1rem; }
+.access-card-paired { width: min(940px, 100%); }
+.access-choice-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, .86fr); gap: 28px; }
+.access-password-choice,
+.access-phone-choice { min-width: 0; padding: 22px; border: 1px solid var(--border); border-radius: 9px; background: rgba(7, 21, 23, .72); }
+.access-password-choice > strong,
+.access-phone-choice > strong { display: block; color: var(--teal); font-size: 1rem; letter-spacing: .09em; }
+.access-password-choice > span,
+.access-phone-choice > span { display: block; min-height: 38px; margin: 7px 0 18px; color: var(--muted); font-size: .88rem; line-height: 1.35; }
+.pairing-qr { width: min(220px, 100%); margin: 0 auto 12px; padding: 8px; border-radius: 8px; background: #f4fffa; line-height: 0; }
+.pairing-qr svg { display: block; width: 100%; height: auto; }
+.pairing-code { display: flex; align-items: baseline; justify-content: center; gap: 12px; margin: 8px 0; }
+.pairing-code span { color: var(--muted); font-size: .72rem; font-weight: 750; letter-spacing: .08em; }
+.pairing-code b { color: var(--foreground); font-size: 1.45rem; letter-spacing: .16em; }
+.access-phone-choice small { display: block; color: var(--muted); font-size: .78rem; line-height: 1.45; text-align: center; overflow-wrap: anywhere; }
+.pairing-loading { min-height: 190px; display: grid; place-items: center; color: var(--muted); text-align: center; }
+.pairing-approval-card { width: min(540px, 100%); }
+.pairing-approval-card label:not(:first-of-type) { margin-top: 16px; }
+.pairing-success { margin-top: 14px; padding: 11px 12px; border-left: 4px solid var(--green); color: #dffff0; background: rgba(18, 63, 48, .72); font-size: .92rem; line-height: 1.4; }
 .connection-pending { width: min(620px, 100%); }
 .connection-pending p { margin-bottom: 10px; }
 .pending-state { display: flex; align-items: center; gap: 14px; margin: 20px 0 12px; font-size: 1.25rem; }
@@ -593,6 +611,8 @@ line.activity-close { stroke: var(--amber); }
 }
 
 @media (max-width: 900px) {
+  .access-choice-grid { grid-template-columns: minmax(0, 1fr); }
+  .access-card-paired { width: min(560px, 100%); }
   .wallboard-header { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 9px; padding-inline: 10px; }
   .identity { width: 100%; flex-wrap: wrap; }
   .identity strong { max-width: 100%; white-space: normal; overflow-wrap: anywhere; font-size: clamp(1.1rem, 5vw, 1.45rem); }
