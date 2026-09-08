@@ -1379,7 +1379,8 @@ export default function Home() {
       // Use the layout viewport here. Pinch zoom changes visualViewport width;
       // treating that as a device resize made the dashboard reflow mid-gesture.
       const availableWidth = Math.max(320, Math.floor(document.documentElement.clientWidth || window.innerWidth));
-      const compact = availableWidth < 1700;
+      const availableHeight = Math.max(320, Math.floor(document.documentElement.clientHeight || window.innerHeight));
+      const compact = availableWidth <= 900 || availableHeight > availableWidth;
       setCompactViewport(compact);
       document.documentElement.dataset.dashboardLayout = compact ? "compact" : "wide";
     };

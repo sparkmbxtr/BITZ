@@ -8,6 +8,7 @@ const pairingRoute = await readFile(new URL("../app/api/device-pair/route.ts", i
 const authRoute = await readFile(new URL("../app/api/auth/route.ts", import.meta.url), "utf8");
 const auth = await readFile(new URL("../lib/dashboard-auth.ts", import.meta.url), "utf8");
 const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
+const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
 test("access screen retains password and phone approval choices", () => {
   assert.match(page, />PASSWORD</);
@@ -38,4 +39,10 @@ test("pairing secrets stay off URLs and are one-time after approval", () => {
 test("lock removes both cookie and kiosk session", () => {
   assert.match(page, /dashboardFetch\("\/api\/auth", \{ method: "DELETE" \}\)/);
   assert.match(page, /clearDisplaySession\(\);\s*setAuthorized\(false\)/);
+});
+
+test("landscape laptops retain the two-room wallboard", () => {
+  assert.match(page, /availableWidth <= 900 \|\| availableHeight > availableWidth/);
+  assert.match(css, /@media \(max-width: 900px\), \(orientation: portrait\)/);
+  assert.doesNotMatch(css, /@media \(max-width: 1699px\), \(orientation: portrait\)/);
 });
