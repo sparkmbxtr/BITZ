@@ -91,6 +91,9 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
   assert.match(page, /acousticCloseCandidates\.length[\s\S]*officeCloseCandidates\.length/);
   assert.match(page, /candidate\.acoustic\.matched && \(room === "OFFICE" \|\| candidate\.changed >= 2\)/);
   assert.match(page, /sustained sound-max drop and exit silence/);
+  assert.match(page, /first sustained quiet record after the trailing/);
+  assert.match(page, /entry\.timestamp > timestamp \+ 14 \* 60_000/);
+  assert.match(page, /candidate\.acoustic\.score - Math\.abs\(candidate\.minuteOfDay - targetMinute\) \/ 18/);
 });
 
 test("LAB HEPA card includes a provisional airflow-rate assessment", () => {

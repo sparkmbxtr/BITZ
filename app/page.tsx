@@ -524,8 +524,32 @@ function acousticTransitionEventTime(
   const sign = direction === "BEGIN" ? 1 : -1;
   const maxThreshold = Math.max(3.5, Math.min(8, (scales.get("soundMax") ?? 4) * .55));
   const candidates = samples
-    .filter((sample) => Math.abs(sample.timestamp - candidateTimestamp) <= 20 * 60_000)
+    .filter((sample) => sample.timestamp >= candidateTimestamp - 20 * 60_000 &&
+      sample.timestamp <= candidateTimestamp + (direction === "CLOSE" ? 36 : 20) * 60_000)
     .sort((left, right) => left.timestamp - right.timestamp);
+
+  // A CLOSE belongs at the first sustained quiet record after the trailing
+  // edge of the departure noise episode.  Never timestamp the leading edge
+  // or an internal dip while later sound-max peaks are still present.
+  if (direction === "CLOSE") {
+    const nightCentre = median(samples
+      .filter((sample) => berlinCalendar(sample.timestamp).minuteOfDay < 6 * 60)
+      .map(SOUND_MAX_SIGNAL.select)
+      .filter((value): value is number => value !== null && Number.isFinite(value)));
+    const activeLevel = (nightCentre ?? 0) + Math.max(4, maxThreshold * .75);
+    for (const sample of candidates) {
+      const timestamp = sample.timestamp;
+      const before = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp - 10 * 60_000, timestamp - 2 * 60_000));
+      const quiet = valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp, timestamp + 10 * 60_000);
+      if (before === null || before < activeLevel || quiet.length < 3 || median(quiet) === null || median(quiet)! >= activeLevel) continue;
+      const laterPeak = candidates.some((entry) => {
+        if (entry.timestamp <= timestamp || entry.timestamp > timestamp + 14 * 60_000) return false;
+        const value = SOUND_MAX_SIGNAL.select(entry);
+        return value !== null && value >= activeLevel;
+      });
+      if (!laterPeak) return timestamp;
+    }
+  }
 
   for (const sample of candidates) {
     const timestamp = sample.timestamp;
@@ -792,12 +816,12 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
     let close: number | null = null;
     let closeMethod: ActivityMethod | null = null;
     if (acousticCloseCandidates.length) {
-      const firstEpisode = acousticCloseCandidates.filter((candidate) =>
-        candidate.timestamp <= acousticCloseCandidates[0].timestamp + 20 * 60_000
-      );
-      const closeCandidate = firstEpisode.reduce((best, candidate) =>
-        candidate.acoustic.score > best.acoustic.score ? candidate : best
-      );
+      const closeCandidate = acousticCloseCandidates.reduce((best, candidate) => {
+        const targetMinute = 16 * 60 + 50;
+        const bestWeighted = best.acoustic.score - Math.abs(best.minuteOfDay - targetMinute) / 18;
+        const candidateWeighted = candidate.acoustic.score - Math.abs(candidate.minuteOfDay - targetMinute) / 18;
+        return candidateWeighted > bestWeighted ? candidate : best;
+      });
       close = acousticTransitionEventTime(day, closeCandidate.timestamp, scales, "CLOSE");
       closeMethod = "ACOUSTIC";
     } else if (officeCloseCandidates.length) {
