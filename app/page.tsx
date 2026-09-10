@@ -581,6 +581,44 @@ function acousticTransitionEventTime(
   return candidateTimestamp;
 }
 
+function labCorroboratedBeginEventTime(
+  samples: Sample[],
+  acousticOnset: number,
+  centres: Map<ActivitySignal["key"], number>,
+  scales: Map<ActivitySignal["key"], number>,
+) {
+  const corroboratingSignals = ACTIVITY_SIGNALS.filter((signal) =>
+    signal.key === "co2" || signal.key === "humidityAbs" || signal.key === "temperature"
+  );
+  const candidates = samples.filter((sample) =>
+    sample.timestamp >= acousticOnset && sample.timestamp <= acousticOnset + 16 * 60_000
+  );
+
+  for (const sample of candidates) {
+    const timestamp = sample.timestamp;
+    const soundCentre = centres.get("sound");
+    const soundMaxCentre = centres.get("soundMax");
+    const soundNow = median(valuesBetween(samples, SOUND_SIGNAL, timestamp, timestamp + 6 * 60_000));
+    const soundMaxNow = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp, timestamp + 6 * 60_000));
+    const soundActive = soundCentre !== undefined && soundNow !== null &&
+      soundNow - soundCentre >= Math.max(1.2, (scales.get("sound") ?? 2.5) * .4);
+    const soundMaxActive = soundMaxCentre !== undefined && soundMaxNow !== null &&
+      soundMaxNow - soundMaxCentre >= Math.max(3.5, (scales.get("soundMax") ?? 4) * .5);
+    if (!soundActive || !soundMaxActive) continue;
+
+    const corroborated = corroboratingSignals.some((signal) => {
+      const centre = centres.get(signal.key);
+      const current = median(valuesBetween(samples, signal, timestamp, timestamp + 8 * 60_000));
+      if (centre === undefined || current === null) return false;
+      const threshold = Math.max(signal.changeFloor * .6, (scales.get(signal.key) ?? signal.changeFloor) * .45);
+      return Math.abs(current - centre) >= threshold;
+    });
+    if (corroborated) return timestamp;
+  }
+
+  return acousticOnset;
+}
+
 function officeCloseSignature(
   samples: Sample[],
   timestamp: number,
@@ -831,7 +869,9 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
             ? acousticTransitionEventTime(day, transition.timestamp, scales, "BEGIN")
             : transition.timestamp;
           if (resolved === null) continue;
-          openAt = resolved;
+          openAt = room === "LAB" && transition.acoustic.matched
+            ? labCorroboratedBeginEventTime(day, resolved, centres, scales)
+            : resolved;
           beginMethod = transition.acoustic.matched ? "ACOUSTIC" : "MULTICHANNEL";
           continue;
         }
@@ -890,6 +930,9 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
       const firstEpisode = acousticMorning.filter((candidate) => candidate.timestamp <= acousticMorning[0].timestamp + 20 * 60_000);
       const candidate = firstEpisode.reduce((best, current) => current.acoustic.score > best.acoustic.score ? current : best);
       begin = acousticTransitionEventTime(day, candidate.timestamp, scales, "BEGIN");
+      if (room === "LAB" && begin !== null) {
+        begin = labCorroboratedBeginEventTime(day, begin, centres, scales);
+      }
       beginMethod = "ACOUSTIC";
     } else if (morning.length) {
       const firstEpisode = morning.filter((candidate) => candidate.timestamp <= morning[0].timestamp + 20 * 60_000);
