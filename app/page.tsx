@@ -75,14 +75,17 @@ type DashboardData = {
 type GradeLevel = "great" | "good" | "watch" | "action" | "unknown";
 type Grade = { label: string; level: GradeLevel };
 type ContextArea = "LAB" | "OFFICE" | "OUTDOOR";
+type ActivityMethod = "ACOUSTIC" | "TVOC" | "MULTICHANNEL";
 type ActivityCycle = {
   dayKey: string;
   begin: number | null;
+  beginMethod: ActivityMethod | null;
   close: number | null;
+  closeMethod: ActivityMethod | null;
   end: number | null;
   peopleRange: string | null;
 };
-type ActivityEvent = { timestamp: number; label: "BEGIN" | "CLOSE"; x: number; peopleRange: string | null };
+type ActivityEvent = { timestamp: number; label: "BEGIN" | "CLOSE"; method: ActivityMethod; x: number; peopleRange: string | null };
 
 const ACOUSTIC_CHECK_LABEL = "Sound peak >90 dB";
 const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis//airQ-tech";
@@ -398,7 +401,7 @@ function median(values: number[]) {
 }
 
 type ActivitySignal = {
-  key: "co2" | "tvoc" | "humidityAbs" | "temperature" | "sound";
+  key: "co2" | "tvoc" | "humidityAbs" | "temperature" | "sound" | "soundMax";
   select: (sample: Sample) => number | null;
   changeFloor: number;
   settleFloor: number;
@@ -411,6 +414,14 @@ const ACTIVITY_SIGNALS: ActivitySignal[] = [
   { key: "temperature", select: (sample) => sample.temperature, changeFloor: .15, settleFloor: .4 },
   { key: "sound", select: (sample) => sample.sound, changeFloor: 2.5, settleFloor: 4 },
 ];
+
+const SOUND_SIGNAL = ACTIVITY_SIGNALS.find((signal) => signal.key === "sound")!;
+const SOUND_MAX_SIGNAL: ActivitySignal = {
+  key: "soundMax",
+  select: (sample) => sample.soundMax,
+  changeFloor: 4,
+  settleFloor: 7,
+};
 
 const activityCycleCache: Record<"LAB" | "OFFICE", WeakMap<Sample[], ActivityCycle[]>> = {
   LAB: new WeakMap<Sample[], ActivityCycle[]>(),
@@ -450,6 +461,82 @@ function signedWindowDelta(
   const before = median(valuesBetween(samples, signal, timestamp - 14 * 60_000, timestamp - 2 * 60_000));
   const after = median(valuesBetween(samples, signal, timestamp + 2 * 60_000, timestamp + 14 * 60_000));
   return before === null || after === null ? null : after - before;
+}
+
+function acousticTransitionSignature(
+  samples: Sample[],
+  timestamp: number,
+  centres: Map<ActivitySignal["key"], number>,
+  scales: Map<ActivitySignal["key"], number>,
+  direction: "BEGIN" | "CLOSE",
+) {
+  const soundBefore = median(valuesBetween(samples, SOUND_SIGNAL, timestamp - 18 * 60_000, timestamp - 4 * 60_000));
+  const soundEarly = median(valuesBetween(samples, SOUND_SIGNAL, timestamp + 2 * 60_000, timestamp + 10 * 60_000));
+  const soundLate = median(valuesBetween(samples, SOUND_SIGNAL, timestamp + 10 * 60_000, timestamp + 24 * 60_000));
+  const maxBefore = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp - 18 * 60_000, timestamp - 4 * 60_000));
+  const maxEarly = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp + 2 * 60_000, timestamp + 10 * 60_000));
+  const maxLate = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp + 10 * 60_000, timestamp + 24 * 60_000));
+  if ([soundBefore, soundEarly, soundLate, maxBefore, maxEarly, maxLate].some((value) => value === null)) {
+    return { matched: false, score: 0 };
+  }
+
+  const soundThreshold = Math.max(1.2, Math.min(4, (scales.get("sound") ?? 2.5) * .45));
+  const maxThreshold = Math.max(3.5, Math.min(8, (scales.get("soundMax") ?? 4) * .55));
+  const sign = direction === "BEGIN" ? 1 : -1;
+  const soundChange = sign * (soundEarly! - soundBefore!);
+  const soundPersistence = sign * (soundLate! - soundBefore!);
+  const maxChange = sign * (maxEarly! - maxBefore!);
+  const maxPersistence = sign * (maxLate! - maxBefore!);
+  const maxSustained = maxChange >= maxThreshold && maxPersistence >= maxThreshold * .55;
+  const soundSustained = soundChange >= soundThreshold && soundPersistence >= soundThreshold * .45;
+
+  const soundCentre = centres.get("sound");
+  const maxCentre = centres.get("soundMax");
+  const soundNearNight = direction === "CLOSE" && soundCentre !== undefined &&
+    soundLate! <= soundCentre + Math.max(2.5, soundThreshold * 1.8);
+  const maxNearNight = direction === "CLOSE" && maxCentre !== undefined &&
+    maxLate! <= maxCentre + Math.max(5, maxThreshold * 1.5);
+
+  const byKey = new Map(ACTIVITY_SIGNALS.map((signal) => [signal.key, signal] as const));
+  const co2Change = signedWindowDelta(samples, byKey.get("co2")!, timestamp);
+  const humidityChange = signedWindowDelta(samples, byKey.get("humidityAbs")!, timestamp);
+  const occupancyStopped = direction === "CLOSE" && co2Change !== null && humidityChange !== null &&
+    co2Change <= Math.max(15, (scales.get("co2") ?? 20) * .5) &&
+    humidityChange <= Math.max(.08, (scales.get("humidityAbs") ?? .12) * .5);
+
+  const matched = direction === "BEGIN"
+    ? maxSustained && soundSustained
+    : maxSustained && (soundSustained || soundNearNight || maxNearNight || occupancyStopped);
+  const score = (maxChange / maxThreshold) * 2 +
+    Math.max(0, soundChange / soundThreshold) +
+    Number(maxNearNight) * .7 + Number(soundNearNight) * .6 + Number(occupancyStopped) * .45;
+  return { matched, score };
+}
+
+function acousticTransitionEventTime(
+  samples: Sample[],
+  candidateTimestamp: number,
+  scales: Map<ActivitySignal["key"], number>,
+  direction: "BEGIN" | "CLOSE",
+) {
+  const sign = direction === "BEGIN" ? 1 : -1;
+  const maxThreshold = Math.max(3.5, Math.min(8, (scales.get("soundMax") ?? 4) * .55));
+  const candidates = samples
+    .filter((sample) => Math.abs(sample.timestamp - candidateTimestamp) <= 20 * 60_000)
+    .sort((left, right) => left.timestamp - right.timestamp);
+
+  for (const sample of candidates) {
+    const timestamp = sample.timestamp;
+    const before = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
+    const current = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp, timestamp + 4 * 60_000));
+    const following = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp + 4 * 60_000, timestamp + 12 * 60_000));
+    if (before === null || current === null || following === null) continue;
+    if (
+      sign * (current - before) >= maxThreshold * .7 &&
+      sign * (following - before) >= maxThreshold * .55
+    ) return timestamp;
+  }
+  return candidateTimestamp;
 }
 
 function officeCloseSignature(
@@ -633,7 +720,7 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
 
     const scales = new Map<ActivitySignal["key"], number>();
     const centres = new Map<ActivitySignal["key"], number>();
-    for (const signal of ACTIVITY_SIGNALS) {
+    for (const signal of [...ACTIVITY_SIGNALS, SOUND_MAX_SIGNAL]) {
       const values = baseline.map(signal.select).filter((value): value is number => value !== null && Number.isFinite(value));
       const centre = median(values);
       if (centre === null) continue;
@@ -661,10 +748,23 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
       (candidate.changed >= 3 && candidate.score >= 3.4) ||
       (candidate.changed >= 2 && candidate.score >= 2.25)
     );
+    const acousticMorning = morningWindow
+      .map((candidate) => ({
+        ...candidate,
+        acoustic: acousticTransitionSignature(day, candidate.timestamp, centres, scales, "BEGIN"),
+      }))
+      .filter((candidate) => candidate.acoustic.matched && (room === "OFFICE" || candidate.changed >= 2));
     let begin: number | null = null;
-    if (morning.length) {
+    let beginMethod: ActivityMethod | null = null;
+    if (acousticMorning.length) {
+      const firstEpisode = acousticMorning.filter((candidate) => candidate.timestamp <= acousticMorning[0].timestamp + 20 * 60_000);
+      const candidate = firstEpisode.reduce((best, current) => current.acoustic.score > best.acoustic.score ? current : best);
+      begin = acousticTransitionEventTime(day, candidate.timestamp, scales, "BEGIN");
+      beginMethod = "ACOUSTIC";
+    } else if (morning.length) {
       const firstEpisode = morning.filter((candidate) => candidate.timestamp <= morning[0].timestamp + 20 * 60_000);
       begin = firstEpisode.reduce((best, candidate) => candidate.score > best.score ? candidate : best).timestamp;
+      beginMethod = "MULTICHANNEL";
     }
 
     const eveningWindow = transitionCandidates.filter((candidate) =>
@@ -677,18 +777,35 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
           .map((candidate) => ({ ...candidate, closeSignature: officeCloseSignature(day, candidate.timestamp, scales) }))
           .filter((candidate) => candidate.closeSignature.matched)
       : [];
+    const acousticCloseCandidates = eveningWindow
+      .map((candidate) => ({
+        ...candidate,
+        acoustic: acousticTransitionSignature(day, candidate.timestamp, centres, scales, "CLOSE"),
+      }))
+      .filter((candidate) => candidate.acoustic.matched && (room === "OFFICE" || candidate.changed >= 2));
     const strictEvening = eveningWindow.filter((candidate) => candidate.changed >= 3 && candidate.score >= 3.4);
     const evening = strictEvening.length
       ? strictEvening
       : eveningWindow.filter((candidate) => candidate.changed >= 2 && candidate.score >= 2.25);
     let close: number | null = null;
-    if (officeCloseCandidates.length) {
+    let closeMethod: ActivityMethod | null = null;
+    if (acousticCloseCandidates.length) {
+      const firstEpisode = acousticCloseCandidates.filter((candidate) =>
+        candidate.timestamp <= acousticCloseCandidates[0].timestamp + 20 * 60_000
+      );
+      const closeCandidate = firstEpisode.reduce((best, candidate) =>
+        candidate.acoustic.score > best.acoustic.score ? candidate : best
+      );
+      close = acousticTransitionEventTime(day, closeCandidate.timestamp, scales, "CLOSE");
+      closeMethod = "ACOUSTIC";
+    } else if (officeCloseCandidates.length) {
       const closeCandidate = officeCloseCandidates.reduce((best, candidate) => {
         const bestWeighted = best.score + best.closeSignature.score - Math.abs(best.minuteOfDay - (16 * 60 + 50)) / 300;
         const candidateWeighted = candidate.score + candidate.closeSignature.score - Math.abs(candidate.minuteOfDay - (16 * 60 + 50)) / 300;
         return candidateWeighted > bestWeighted ? candidate : best;
       });
       close = officeCloseEventTime(day, closeCandidate.timestamp, scales);
+      closeMethod = "TVOC";
     } else if (evening.length) {
       close = evening.reduce((best, candidate) => {
         const targetMinute = room === "OFFICE" ? 16 * 60 + 50 : 17 * 60;
@@ -696,6 +813,7 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
         const candidateWeighted = candidate.score - Math.abs(candidate.minuteOfDay - targetMinute) / 360;
         return candidateWeighted > bestWeighted ? candidate : best;
       }).timestamp;
+      closeMethod = "MULTICHANNEL";
     }
 
     function settledWindow(start: number, end: number) {
@@ -735,7 +853,7 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
     }
 
     const peopleRange = begin ? approximatePeopleAfterBegin(day, begin, centres) : null;
-    if (begin || close || end) cycles.push({ dayKey, begin, close, end, peopleRange });
+    if (begin || close || end) cycles.push({ dayKey, begin, beginMethod, close, closeMethod, end, peopleRange });
   }
 
   activityCycleCache[room].set(samples, cycles);
@@ -1169,8 +1287,8 @@ function HistoryTrend({
     }, []);
     const ticks = roundedTimeTicks(start, end);
     const events: ActivityEvent[] = activityCycles(orderedSamples, room).flatMap((cycle) => [
-      ...(cycle.begin ? [{ timestamp: cycle.begin, label: "BEGIN" as const, peopleRange: cycle.peopleRange }] : []),
-      ...(cycle.close ? [{ timestamp: cycle.close, label: "CLOSE" as const, peopleRange: null }] : []),
+      ...(cycle.begin && cycle.beginMethod ? [{ timestamp: cycle.begin, label: "BEGIN" as const, method: cycle.beginMethod, peopleRange: cycle.peopleRange }] : []),
+      ...(cycle.close && cycle.closeMethod ? [{ timestamp: cycle.close, label: "CLOSE" as const, method: cycle.closeMethod, peopleRange: null }] : []),
     ]).filter((event) => event.timestamp >= start && event.timestamp <= end)
       .map((event) => ({ ...event, x: ((event.timestamp - start) / timeRange) * 100 }));
     const primaryGeometry = build(primary, climateReference?.primary);
@@ -1218,9 +1336,13 @@ function HistoryTrend({
               style={{ left: `${Math.min(98, Math.max(2, event.x))}%` }}
               title={
                 event.label === "BEGIN"
-                  ? `${beganWording(event.timestamp, orderedSamples.at(-1)?.timestamp, room === "LAB" && labPmGrade(pmBalanceObservation(orderedSamples)?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")} ${berlinShortTime(event.timestamp)}`
+                  ? `${beganWording(event.timestamp, orderedSamples.at(-1)?.timestamp, room === "LAB" && labPmGrade(pmBalanceObservation(orderedSamples)?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")} ${berlinShortTime(event.timestamp)}${event.method === "ACOUSTIC" ? " · sustained sound-led entry transition" : " · coordinated multichannel transition"}`
                   : room === "OFFICE"
-                    ? `CLOSE ${berlinShortTime(event.timestamp)} · sustained TVOC-rise onset with departure support`
+                    ? event.method === "ACOUSTIC"
+                      ? `CLOSE ${berlinShortTime(event.timestamp)} · sustained sound-max drop and exit silence`
+                      : event.method === "TVOC"
+                        ? `CLOSE ${berlinShortTime(event.timestamp)} · sustained TVOC-rise onset with departure support`
+                        : `CLOSE ${berlinShortTime(event.timestamp)} · coordinated late-day transition`
                     : `CLOSE ${berlinShortTime(event.timestamp)} · coordinated late-day transition`
               }
             >{event.label} {berlinShortTime(event.timestamp)}{event.label === "BEGIN" && event.peopleRange ? ` · ≈${event.peopleRange}` : ""}</span>

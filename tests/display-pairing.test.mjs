@@ -84,3 +84,11 @@ test("fitted landscape decision cards do not clip their two text rows", () => {
   assert.match(css, /\.meaning-evidence > \.meaning-signal \{\s*grid-template-rows: minmax\(0, 1fr\) auto;/);
   assert.match(css, /\.meaning-evidence b\.meaning-status \{\s*height: auto;\s*min-height: 0;/);
 });
+
+test("OFFICE activity timing prioritizes sustained sound-max transitions", () => {
+  assert.match(page, /const SOUND_MAX_SIGNAL: ActivitySignal/);
+  assert.match(page, /direction === "BEGIN"\s*\? maxSustained && soundSustained/);
+  assert.match(page, /acousticCloseCandidates\.length[\s\S]*officeCloseCandidates\.length/);
+  assert.match(page, /candidate\.acoustic\.matched && \(room === "OFFICE" \|\| candidate\.changed >= 2\)/);
+  assert.match(page, /sustained sound-max drop and exit silence/);
+});
