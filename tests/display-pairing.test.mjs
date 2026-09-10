@@ -97,8 +97,13 @@ test("LAB HEPA card includes a provisional airflow-rate assessment", () => {
   assert.match(page, /HEPA STATUS \/\/ AIRFLOW RATE/);
   assert.match(page, /LAB_VOLUME_ESTIMATE_M3 = 50/);
   assert.match(page, /LAB_FLOOR_AREA_ESTIMATE_M2 = 18/);
-  assert.match(page, /latestCalendar\.minuteOfDay < 6 \* 60 \? "EST\. −50%" : "EST\. 0%"/);
-  assert.match(page, /Math\.max\(tvocAdjustment, co2Adjustment, pm25Adjustment, pm10Adjustment\)/);
-  assert.match(page, /EST\. \+20–50%/);
+  assert.match(page, /latestCalendar\.minuteOfDay < 6 \* 60 \? "ESTIMATE 《−50–60%》 POSSIBLE" : "ESTIMATE 《0%》 POSSIBLE"/);
+  assert.match(page, /function empiricalDecayRate/);
+  assert.match(page, /empiricalDecayRate\(officeSamples[\s\S]*"NIGHT"/);
+  assert.match(page, /empiricalDecayRate\(officeSamples[\s\S]*"DAY"/);
+  assert.match(page, /`ESTIMATE 《\+\$\{strongest\.adjustment\}–\$\{maximum\}%》 REQUIRED`/);
+  assert.match(page, /replace\("》 REQUIRED", " REQ\."\)/);
+  assert.match(page, /compactAirflowStatus/);
+  assert.match(css, /\.airflow-status-short \{ display: none;/);
   assert.match(page, /status: `GOOD \/\/ \$\{airflow\}`/);
 });

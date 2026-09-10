@@ -907,7 +907,31 @@ function pmBalanceObservation(samples: Sample[]) {
   return null;
 }
 
-function airflowAdjustmentEstimate(samples: Sample[], latest: Sample) {
+function empiricalDecayRate(samples: Sample[], selector: (sample: Sample) => number | null, baseline: number, floor: number, period: "NIGHT" | "DAY") {
+  const ordered = [...samples].sort((left, right) => left.timestamp - right.timestamp);
+  const rates: number[] = [];
+  for (const start of ordered) {
+    const minute = berlinCalendar(start.timestamp).minuteOfDay;
+    if (period === "NIGHT" ? minute >= 6 * 60 : minute < 7 * 60 || minute > 18 * 60) continue;
+    const startValue = selector(start);
+    if (startValue === null || startValue - baseline < floor) continue;
+    const end = ordered.find((sample) => sample.timestamp >= start.timestamp + 30 * 60_000 && sample.timestamp <= start.timestamp + 45 * 60_000);
+    if (!end) continue;
+    const endValue = selector(end);
+    if (endValue === null || endValue >= startValue) continue;
+    const interval = ordered.filter((sample) => sample.timestamp >= start.timestamp && sample.timestamp <= end.timestamp)
+      .map(selector).filter((value): value is number => value !== null && Number.isFinite(value));
+    if (interval.length < 6) continue;
+    const fallingSteps = interval.slice(1).filter((value, index) => value <= interval[index]).length;
+    if (fallingSteps / (interval.length - 1) < .6) continue;
+    const hours = (end.timestamp - start.timestamp) / 3_600_000;
+    const rate = Math.log((startValue - baseline) / Math.max(endValue - baseline, floor * .1)) / hours;
+    if (Number.isFinite(rate) && rate > 0) rates.push(rate);
+  }
+  return median(rates);
+}
+
+function airflowAdjustmentEstimate(samples: Sample[], officeSamples: Sample[], latest: Sample) {
   const latestCalendar = berlinCalendar(latest.timestamp);
   const sameDay = samples.filter((sample) => berlinCalendar(sample.timestamp).dayKey === latestCalendar.dayKey);
   const night = sameDay.filter((sample) => berlinCalendar(sample.timestamp).minuteOfDay < 6 * 60);
@@ -925,19 +949,35 @@ function airflowAdjustmentEstimate(samples: Sample[], latest: Sample) {
   const pm10 = channelMedian(recent, (sample) => sample.pm10);
   const pm10Night = channelMedian(night, (sample) => sample.pm10);
 
-  const tvocAdjustment = tvoc !== null && tvocNight !== null ? step(tvoc - tvocNight, [30, 75, 150, 300]) : 0;
-  const co2Adjustment = co2 === null ? 0 : step(co2 - 800, [50, 200, 600, 1200]);
-  const pm25Adjustment = pm25 !== null && pm25Night !== null ? step(pm25 - pm25Night, [3, 7, 15, 25]) : 0;
-  const pm10Adjustment = pm10 !== null && pm10Night !== null ? step(pm10 - pm10Night, [5, 12, 25, 40]) : 0;
-  const increase = Math.max(tvocAdjustment, co2Adjustment, pm25Adjustment, pm10Adjustment);
-  if (increase >= 20) return "EST. +20–50%";
-  if (increase >= 15) return "EST. +15–35%";
-  if (increase >= 10) return "EST. +10–25%";
-  if (increase >= 5) return "EST. +5–15%";
-  return latestCalendar.minuteOfDay < 6 * 60 ? "EST. −50%" : "EST. 0%";
+  const candidates = [
+    { adjustment: tvoc !== null && tvocNight !== null ? step(tvoc - tvocNight, [30, 75, 150, 300]) : 0, select: (sample: Sample) => sample.tvoc, floor: 30 },
+    { adjustment: co2 === null ? 0 : step(co2 - 800, [50, 200, 600, 1200]), select: (sample: Sample) => sample.co2, floor: 50 },
+    { adjustment: pm25 !== null && pm25Night !== null ? step(pm25 - pm25Night, [3, 7, 15, 25]) : 0, select: (sample: Sample) => sample.pm25, floor: 3 },
+    { adjustment: pm10 !== null && pm10Night !== null ? step(pm10 - pm10Night, [5, 12, 25, 40]) : 0, select: (sample: Sample) => sample.pm10, floor: 5 },
+  ];
+  const strongest = candidates.reduce((best, candidate) => candidate.adjustment > best.adjustment ? candidate : best);
+  if (strongest.adjustment > 0) {
+    const officeNight = officeSamples.filter((sample) => berlinCalendar(sample.timestamp).minuteOfDay < 6 * 60);
+    const officeBaseline = channelMedian(officeNight, strongest.select);
+    const closedRate = officeBaseline === null ? null : empiricalDecayRate(officeSamples, strongest.select, officeBaseline, strongest.floor, "NIGHT");
+    const ventilatedRate = officeBaseline === null ? null : empiricalDecayRate(officeSamples, strongest.select, officeBaseline, strongest.floor, "DAY");
+    const recoverySpread = closedRate !== null && ventilatedRate !== null && ventilatedRate > closedRate
+      ? Math.min(30, Math.max(5, Math.ceil((ventilatedRate / closedRate - 1)) * 5))
+      : 10;
+    const maximum = Math.min(50, strongest.adjustment + recoverySpread);
+    return `ESTIMATE 《+${strongest.adjustment}–${maximum}%》 REQUIRED`;
+  }
+  return latestCalendar.minuteOfDay < 6 * 60 ? "ESTIMATE 《−50–60%》 POSSIBLE" : "ESTIMATE 《0%》 POSSIBLE";
 }
 
-function hepaAssessment(samples: Sample[], latest: Sample | null) {
+function compactAirflowStatus(status: string) {
+  return status
+    .replace("ESTIMATE 《", "EST. ")
+    .replace("》 POSSIBLE", " POSS.")
+    .replace("》 REQUIRED", " REQ.");
+}
+
+function hepaAssessment(samples: Sample[], officeSamples: Sample[], latest: Sample | null) {
   const observation = pmBalanceObservation(samples);
   if (!latest || !observation || latest.timestamp - observation.timestamp > 10 * 60_000) return null;
   if (observation.pm25 === null || observation.pm10 === null) return null;
@@ -952,7 +992,7 @@ function hepaAssessment(samples: Sample[], latest: Sample | null) {
   const limit10 = Math.max(10, (baseline10 ?? 0) + 5);
   const withinBand = (sample: { pm25: number; pm10: number }) => sample.pm25 <= limit25 && sample.pm10 <= limit10;
   const currentWithin = withinBand(observation);
-  const airflow = airflowAdjustmentEstimate(samples, latest);
+  const airflow = airflowAdjustmentEstimate(samples, officeSamples, latest);
 
   if (!currentWithin) {
     return {
@@ -1994,7 +2034,7 @@ export default function Home() {
       </header>
       {!data.live ? <div className="preview-banner">{data.message ?? "Establishing secure airQ connection · Preparing LIVE data display"}</div> : null}
       <div className="room-layout">
-        <LabPanel room={displayedLabRoom} outdoor={data.outdoor ?? null} refreshing={refreshing} analysisMinutes={data.analysisMinutes} />
+        <LabPanel room={displayedLabRoom} officeSamples={data.rooms.office.samples} outdoor={data.outdoor ?? null} refreshing={refreshing} analysisMinutes={data.analysisMinutes} />
         <OfficeRail room={displayedOfficeRoom} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes} />
       </div>
       <footer className="wallboard-footer">
@@ -2305,7 +2345,7 @@ function ApiKeySetup({ checking, onConnected }: { checking: boolean; onConnected
   );
 }
 
-function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomData; outdoor: OutdoorData | null; refreshing: boolean; analysisMinutes: number }) {
+function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes }: { room: RoomData; officeSamples: Sample[]; outdoor: OutdoorData | null; refreshing: boolean; analysisMinutes: number }) {
   const latest = room.latest;
   const pmObservation = pmBalanceObservation(room.samples);
   const currentSoundGrade = activeSoundGrade(latest?.soundMax ?? null);
@@ -2314,7 +2354,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
   const outdoorParticles = outdoor?.particleLatest ?? null;
   const humidityAdaptationActive = labHumidityAdaptation(room, outdoor);
   const performanceGrade = labPerformanceGrade(latest?.performance ?? null, latest, humidityAdaptationActive, room.checks);
-  const hepa = hepaAssessment(room.samples, latest);
+  const hepa = hepaAssessment(room.samples, officeSamples, latest);
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
   const cycle = latestCycle(room.samples, "LAB");
   const beginWording = cycle?.begin
@@ -2413,7 +2453,12 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
           <div className="meaning-copy"><strong>RECENT PATTERN</strong><p>{room.summary}</p><span>COMPUTED · PAST HOUR</span></div>
           {hepa ? (
             <div className={`hepa-status hepa-${hepa.level}`}>
-              <span>HEPA STATUS // AIRFLOW RATE</span><strong>{hepa.status}</strong><small>{hepa.note}</small>
+              <span>HEPA STATUS // AIRFLOW RATE</span>
+              <strong aria-label={hepa.status} title={hepa.status}>
+                <span className="airflow-status-full">{hepa.status}</span>
+                <span className="airflow-status-short">{compactAirflowStatus(hepa.status)}</span>
+              </strong>
+              <small>{hepa.note}</small>
             </div>
           ) : null}
           <div className="meaning-evidence" aria-label="Signals supporting the current interpretation">
