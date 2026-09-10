@@ -321,6 +321,13 @@ function berlinHour(timestamp: number) {
   return Number(part?.value ?? 0);
 }
 
+function berlinWeekday(timestamp: number) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Berlin",
+    weekday: "short",
+  }).format(timestamp);
+}
+
 function berlinAxisLabel(timestamp: number) {
   return new Intl.DateTimeFormat("en-US", {
     timeZone: "Europe/Berlin",
@@ -540,15 +547,24 @@ function acousticTransitionEventTime(
     for (const sample of candidates) {
       const timestamp = sample.timestamp;
       const before = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp - 10 * 60_000, timestamp - 2 * 60_000));
-      const quiet = valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp, timestamp + 10 * 60_000);
-      if (before === null || before < activeLevel || quiet.length < 3 || median(quiet) === null || median(quiet)! >= activeLevel) continue;
-      const laterPeak = candidates.some((entry) => {
-        if (entry.timestamp <= timestamp || entry.timestamp > timestamp + 14 * 60_000) return false;
-        const value = SOUND_MAX_SIGNAL.select(entry);
-        return value !== null && value >= activeLevel;
-      });
-      if (!laterPeak) return timestamp;
+      const quiet = valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp, timestamp + 16 * 60_000);
+      if (before === null || before < activeLevel || quiet.length < 5 || median(quiet) === null || median(quiet)! >= activeLevel) continue;
+
+      // Confirm the complete trailing edge. A short dip within the departure
+      // episode is not CLOSE when sound-max becomes active again later in the
+      // available confirmation tail.
+      const confirmationEnd = Math.min(
+        timestamp + 30 * 60_000,
+        candidates.at(-1)?.timestamp ?? timestamp,
+      );
+      const confirmation = valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp, confirmationEnd);
+      const renewedActivity = confirmation.some((value) => value >= activeLevel);
+      if (!renewedActivity) return timestamp;
     }
+
+    // Do not fall back to the leading edge of a sound decrease when the full
+    // departure tail has not produced a confirmed quiet boundary.
+    return null;
   }
 
   for (const sample of candidates) {
@@ -766,6 +782,80 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
       ...departureScore(day, sample.timestamp, centres, scales),
     }));
 
+    const weekday = day.length ? berlinWeekday(day[0].timestamp) : null;
+    const weekend = weekday === "Sat" || weekday === "Sun";
+    if (weekend) {
+      const weekendWindow = morningCandidates.filter((candidate) =>
+        candidate.minuteOfDay >= 6 * 60 && candidate.minuteOfDay <= 23 * 60 + 30
+      );
+      const beginCandidates = weekendWindow
+        .map((candidate) => ({
+          ...candidate,
+          acoustic: acousticTransitionSignature(day, candidate.timestamp, centres, scales, "BEGIN"),
+        }))
+        .filter((candidate) => candidate.acoustic.matched ||
+          (candidate.changed >= 3 && candidate.score >= 3.4));
+      const closeCandidates = weekendWindow
+        .map((candidate) => ({
+          ...candidate,
+          acoustic: acousticTransitionSignature(day, candidate.timestamp, centres, scales, "CLOSE"),
+        }))
+        .filter((candidate) => candidate.acoustic.matched);
+
+      let openAt: number | null = null;
+      let beginMethod: ActivityMethod | null = null;
+      let previousClose: number | null = null;
+      const transitions = [
+        ...beginCandidates.map((candidate) => ({ ...candidate, kind: "BEGIN" as const })),
+        ...closeCandidates.map((candidate) => ({ ...candidate, kind: "CLOSE" as const })),
+      ].sort((left, right) => left.timestamp - right.timestamp || (left.kind === "CLOSE" ? -1 : 1));
+
+      for (const transition of transitions) {
+        if (openAt === null && transition.kind === "BEGIN") {
+          if (previousClose && transition.timestamp < previousClose + 10 * 60_000) continue;
+          const resolved = transition.acoustic.matched
+            ? acousticTransitionEventTime(day, transition.timestamp, scales, "BEGIN")
+            : transition.timestamp;
+          if (resolved === null) continue;
+          openAt = resolved;
+          beginMethod = transition.acoustic.matched ? "ACOUSTIC" : "MULTICHANNEL";
+          continue;
+        }
+
+        if (openAt !== null && transition.kind === "CLOSE" && transition.timestamp >= openAt + 15 * 60_000) {
+          const resolvedClose = acousticTransitionEventTime(day, transition.timestamp, scales, "CLOSE");
+          if (resolvedClose === null || resolvedClose <= openAt) continue;
+          const peopleRange = approximatePeopleAfterBegin(day, openAt, centres);
+          cycles.push({
+            dayKey,
+            begin: openAt,
+            beginMethod,
+            close: resolvedClose,
+            closeMethod: "ACOUSTIC",
+            end: resolvedClose,
+            peopleRange: peopleRange === "0–1" ? "1" : peopleRange ? "1–2" : null,
+          });
+          previousClose = resolvedClose;
+          openAt = null;
+          beginMethod = null;
+        }
+      }
+
+      if (openAt !== null) {
+        const peopleRange = approximatePeopleAfterBegin(day, openAt, centres);
+        cycles.push({
+          dayKey,
+          begin: openAt,
+          beginMethod,
+          close: null,
+          closeMethod: null,
+          end: null,
+          peopleRange: peopleRange === "0–1" ? "1" : peopleRange ? "1–2" : null,
+        });
+      }
+      continue;
+    }
+
     const morningWindow = morningCandidates.filter((candidate) =>
       candidate.minuteOfDay >= 6 * 60 + 45 &&
       candidate.minuteOfDay <= 10 * 60 + 30
@@ -823,7 +913,15 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
         return candidateWeighted > bestWeighted ? candidate : best;
       });
       close = acousticTransitionEventTime(day, closeCandidate.timestamp, scales, "CLOSE");
-      closeMethod = "ACOUSTIC";
+      // Weekday OFFICE occupancy is known to continue until the departure
+      // period around 16:40. This is only a rejection guard: sensor evidence
+      // must still create CLOSE, but an earlier internal quiet dip cannot.
+      const closeWeekday = close ? berlinWeekday(close) : null;
+      const weekdayOfficeClose = closeWeekday !== "Sat" && closeWeekday !== "Sun";
+      if (room === "OFFICE" && close && weekdayOfficeClose && berlinCalendar(close).minuteOfDay < 16 * 60 + 40) {
+        close = null;
+      }
+      closeMethod = close ? "ACOUSTIC" : null;
     } else if (officeCloseCandidates.length) {
       const closeCandidate = officeCloseCandidates.reduce((best, candidate) => {
         const bestWeighted = best.score + best.closeSignature.score - Math.abs(best.minuteOfDay - (16 * 60 + 50)) / 300;
@@ -1133,7 +1231,7 @@ function labHumidityAdaptation(room: RoomData, outdoor: OutdoorData | null) {
   if (!latest || !outdoor || outdoorLatest?.humidity === null || outdoorLatest?.humidity === undefined) return false;
 
   const dayKey = berlinCalendar(latest.timestamp).dayKey;
-  const cycle = activityCycles(room.samples, "LAB").find((candidate) => candidate.dayKey === dayKey) ?? null;
+  const cycle = activityCycles(room.samples, "LAB").filter((candidate) => candidate.dayKey === dayKey).at(-1) ?? null;
   if (cycle?.close && latest.timestamp >= cycle.close) return false;
 
   const currentOutdoorHigh = outdoorLatest.humidity > 70;
@@ -1852,10 +1950,10 @@ export default function Home() {
   const sourceTime = newestTimestamp ? berlinClock(newestTimestamp) : "—";
   const newestDayKey = newestTimestamp ? berlinCalendar(newestTimestamp).dayKey : null;
   const labCycle = newestDayKey
-    ? activityCycles(data.rooms.lab.samples, "LAB").find((cycle) => cycle.dayKey === newestDayKey) ?? null
+    ? activityCycles(data.rooms.lab.samples, "LAB").filter((cycle) => cycle.dayKey === newestDayKey).at(-1) ?? null
     : null;
   const officeCycle = newestDayKey
-    ? activityCycles(data.rooms.office.samples, "OFFICE").find((cycle) => cycle.dayKey === newestDayKey) ?? null
+    ? activityCycles(data.rooms.office.samples, "OFFICE").filter((cycle) => cycle.dayKey === newestDayKey).at(-1) ?? null
     : null;
   const beginTimes = [labCycle?.begin, officeCycle?.begin]
     .filter((timestamp): timestamp is number => timestamp !== null && timestamp !== undefined);
