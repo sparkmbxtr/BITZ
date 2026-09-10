@@ -92,7 +92,12 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
   assert.match(page, /candidate\.acoustic\.matched && \(room === "OFFICE" \|\| candidate\.changed >= 2\)/);
   assert.match(page, /sustained sound-max drop and exit silence/);
   assert.match(page, /first sustained quiet record after the trailing/);
-  assert.match(page, /entry\.timestamp > timestamp \+ 14 \* 60_000/);
+  assert.match(page, /timestamp \+ 30 \* 60_000/);
+  assert.match(page, /const renewedActivity = confirmation\.some/);
+  assert.match(page, /weekdayOfficeClose && berlinCalendar\(close\)\.minuteOfDay < 16 \* 60 \+ 40/);
+  assert.match(page, /const weekend = weekday === "Sat" \|\| weekday === "Sun"/);
+  assert.match(page, /previousClose && transition\.timestamp < previousClose \+ 10 \* 60_000/);
+  assert.match(page, /cycles\.push\(\{[\s\S]*close: resolvedClose,[\s\S]*peopleRange: peopleRange === "0–1" \? "1" : peopleRange \? "1–2" : null/);
   assert.match(page, /candidate\.acoustic\.score - Math\.abs\(candidate\.minuteOfDay - targetMinute\) \/ 18/);
 });
 
