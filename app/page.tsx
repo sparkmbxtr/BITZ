@@ -532,7 +532,7 @@ function acousticTransitionEventTime(
   const maxThreshold = Math.max(3.5, Math.min(8, (scales.get("soundMax") ?? 4) * .55));
   const candidates = samples
     .filter((sample) => sample.timestamp >= candidateTimestamp - 20 * 60_000 &&
-      sample.timestamp <= candidateTimestamp + (direction === "CLOSE" ? 36 : 20) * 60_000)
+      sample.timestamp <= candidateTimestamp + (direction === "CLOSE" ? 90 : 20) * 60_000)
     .sort((left, right) => left.timestamp - right.timestamp);
 
   // A CLOSE belongs at the first sustained quiet record after the trailing
@@ -595,19 +595,28 @@ function officeCloseSignature(
   const co2Change = signedWindowDelta(samples, byKey.get("co2")!, timestamp);
   const humidityChange = signedWindowDelta(samples, byKey.get("humidityAbs")!, timestamp);
   const tvocThreshold = Math.max(25, (scales.get("tvoc") ?? 25) * .75);
+  const coupledTvocThreshold = Math.max(10, (scales.get("tvoc") ?? 25) * .3);
+  const coupledCo2Drop = Math.max(5, (scales.get("co2") ?? 20) * .15);
+  const coupledSoundDrop = Math.max(1, (scales.get("sound") ?? 2.5) * .25);
 
-  if (tvocChange === null || tvocChange < tvocThreshold) return { matched: false, score: 0 };
+  const ventilatedDeparture = tvocChange !== null && co2Change !== null &&
+    soundChange !== null && tvocChange >= coupledTvocThreshold &&
+    co2Change <= -coupledCo2Drop && soundChange <= -coupledSoundDrop;
+  if (tvocChange === null || (tvocChange < tvocThreshold && !ventilatedDeparture)) {
+    return { matched: false, score: 0 };
+  }
 
   const soundDrop = soundChange !== null && soundChange <= -Math.max(2, (scales.get("sound") ?? 2.5) * .5);
   const co2NotAccumulating = co2Change !== null && co2Change <= Math.max(15, (scales.get("co2") ?? 20) * .5);
   const humidityNotAccumulating = humidityChange !== null && humidityChange <= Math.max(.08, (scales.get("humidityAbs") ?? .12) * .5);
   const occupancyDeparture = co2NotAccumulating && humidityNotAccumulating;
-  const matched = soundDrop || occupancyDeparture;
-  const support = Number(soundDrop) + Number(co2NotAccumulating) + Number(humidityNotAccumulating);
+  const matched = ventilatedDeparture || soundDrop || occupancyDeparture;
+  const support = Number(ventilatedDeparture) * 1.25 + Number(soundDrop) +
+    Number(co2NotAccumulating) + Number(humidityNotAccumulating);
 
   return {
     matched,
-    score: Math.min(tvocChange / tvocThreshold, 3) + support * .55,
+    score: Math.min(tvocChange / (ventilatedDeparture ? coupledTvocThreshold : tvocThreshold), 3) + support * .55,
   };
 }
 
@@ -619,6 +628,7 @@ function officeCloseEventTime(
   const byKey = new Map(ACTIVITY_SIGNALS.map((signal) => [signal.key, signal] as const));
   const tvocSignal = byKey.get("tvoc")!;
   const soundSignal = byKey.get("sound")!;
+  const co2Signal = byKey.get("co2")!;
   const tvocScale = Math.max(25, scales.get("tvoc") ?? 25);
   const soundScale = Math.max(2.5, scales.get("sound") ?? 2.5);
   const candidates = samples.filter((sample) => {
@@ -643,7 +653,11 @@ function officeCloseEventTime(
     const soundBefore = median(valuesBetween(samples, soundSignal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
     const soundAfter = median(valuesBetween(samples, soundSignal, timestamp, timestamp + 6 * 60_000));
     const soundDrop = soundBefore === null || soundAfter === null ? 0 : Math.max(0, soundBefore - soundAfter);
-    const score = tvocRise / tvocScale + (soundDrop / soundScale) * .7;
+    const co2Before = median(valuesBetween(samples, co2Signal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
+    const co2After = median(valuesBetween(samples, co2Signal, timestamp, timestamp + 6 * 60_000));
+    const co2Drop = co2Before === null || co2After === null ? 0 : Math.max(0, co2Before - co2After);
+    const co2Scale = Math.max(20, scales.get("co2") ?? 20);
+    const score = tvocRise / tvocScale + (soundDrop / soundScale) * .7 + (co2Drop / co2Scale) * .9;
 
     if (score > best.score) best = { timestamp, score };
   }
@@ -906,13 +920,11 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
     let close: number | null = null;
     let closeMethod: ActivityMethod | null = null;
     if (acousticCloseCandidates.length) {
-      const closeCandidate = acousticCloseCandidates.reduce((best, candidate) => {
-        const targetMinute = 16 * 60 + 50;
-        const bestWeighted = best.acoustic.score - Math.abs(best.minuteOfDay - targetMinute) / 18;
-        const candidateWeighted = candidate.acoustic.score - Math.abs(candidate.minuteOfDay - targetMinute) / 18;
-        return candidateWeighted > bestWeighted ? candidate : best;
-      });
-      close = acousticTransitionEventTime(day, closeCandidate.timestamp, scales, "CLOSE");
+      const resolvedAcousticCloses = acousticCloseCandidates
+        .map((candidate) => acousticTransitionEventTime(day, candidate.timestamp, scales, "CLOSE"))
+        .filter((timestamp): timestamp is number => timestamp !== null)
+        .sort((left, right) => left - right);
+      close = resolvedAcousticCloses[0] ?? null;
       // Weekday OFFICE occupancy is known to continue until the departure
       // period around 16:40. This is only a rejection guard: sensor evidence
       // must still create CLOSE, but an earlier internal quiet dip cannot.
@@ -922,7 +934,8 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
         close = null;
       }
       closeMethod = close ? "ACOUSTIC" : null;
-    } else if (officeCloseCandidates.length) {
+    }
+    if (close === null && officeCloseCandidates.length) {
       const closeCandidate = officeCloseCandidates.reduce((best, candidate) => {
         const bestWeighted = best.score + best.closeSignature.score - Math.abs(best.minuteOfDay - (16 * 60 + 50)) / 300;
         const candidateWeighted = candidate.score + candidate.closeSignature.score - Math.abs(candidate.minuteOfDay - (16 * 60 + 50)) / 300;
@@ -930,7 +943,7 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
       });
       close = officeCloseEventTime(day, closeCandidate.timestamp, scales);
       closeMethod = "TVOC";
-    } else if (evening.length) {
+    } else if (close === null && evening.length) {
       close = evening.reduce((best, candidate) => {
         const targetMinute = room === "OFFICE" ? 16 * 60 + 50 : 17 * 60;
         const bestWeighted = best.score - Math.abs(best.minuteOfDay - targetMinute) / 360;
