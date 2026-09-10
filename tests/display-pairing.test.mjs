@@ -92,3 +92,13 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
   assert.match(page, /candidate\.acoustic\.matched && \(room === "OFFICE" \|\| candidate\.changed >= 2\)/);
   assert.match(page, /sustained sound-max drop and exit silence/);
 });
+
+test("LAB HEPA card includes a provisional airflow-rate assessment", () => {
+  assert.match(page, /HEPA STATUS \/\/ AIRFLOW RATE/);
+  assert.match(page, /LAB_VOLUME_ESTIMATE_M3 = 50/);
+  assert.match(page, /LAB_FLOOR_AREA_ESTIMATE_M2 = 18/);
+  assert.match(page, /latestCalendar\.minuteOfDay < 6 \* 60 \? "EST\. −50%" : "EST\. 0%"/);
+  assert.match(page, /Math\.max\(tvocAdjustment, co2Adjustment, pm25Adjustment, pm10Adjustment\)/);
+  assert.match(page, /EST\. \+20–50%/);
+  assert.match(page, /status: `GOOD \/\/ \$\{airflow\}`/);
+});

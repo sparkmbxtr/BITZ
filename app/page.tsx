@@ -94,6 +94,8 @@ const REPORT_HIDDEN_TEST_NAME = "SPARKMBXTR";
 const REPORT_PENDING_MESSAGE = "Recent week’s report has not been generated yet.";
 const DISPLAY_SESSION_STORAGE_KEY = "bitz-display-session-v1";
 const DISPLAY_SESSION_HEADER = "X-BITZ-Display-Session";
+const LAB_FLOOR_AREA_ESTIMATE_M2 = 18;
+const LAB_VOLUME_ESTIMATE_M3 = 50;
 
 let inMemoryDisplaySession = "";
 
@@ -905,6 +907,36 @@ function pmBalanceObservation(samples: Sample[]) {
   return null;
 }
 
+function airflowAdjustmentEstimate(samples: Sample[], latest: Sample) {
+  const latestCalendar = berlinCalendar(latest.timestamp);
+  const sameDay = samples.filter((sample) => berlinCalendar(sample.timestamp).dayKey === latestCalendar.dayKey);
+  const night = sameDay.filter((sample) => berlinCalendar(sample.timestamp).minuteOfDay < 6 * 60);
+  const recent = sameDay.filter((sample) => sample.timestamp >= latest.timestamp - 15 * 60_000);
+  const channelMedian = (source: Sample[], selector: (sample: Sample) => number | null) =>
+    median(source.map(selector).filter((value): value is number => value !== null && Number.isFinite(value)));
+  const step = (rise: number, thresholds: [number, number, number, number]) =>
+    rise >= thresholds[3] ? 20 : rise >= thresholds[2] ? 15 : rise >= thresholds[1] ? 10 : rise >= thresholds[0] ? 5 : 0;
+
+  const tvoc = channelMedian(recent, (sample) => sample.tvoc);
+  const tvocNight = channelMedian(night, (sample) => sample.tvoc);
+  const co2 = channelMedian(recent, (sample) => sample.co2);
+  const pm25 = channelMedian(recent, (sample) => sample.pm25);
+  const pm25Night = channelMedian(night, (sample) => sample.pm25);
+  const pm10 = channelMedian(recent, (sample) => sample.pm10);
+  const pm10Night = channelMedian(night, (sample) => sample.pm10);
+
+  const tvocAdjustment = tvoc !== null && tvocNight !== null ? step(tvoc - tvocNight, [30, 75, 150, 300]) : 0;
+  const co2Adjustment = co2 === null ? 0 : step(co2 - 800, [50, 200, 600, 1200]);
+  const pm25Adjustment = pm25 !== null && pm25Night !== null ? step(pm25 - pm25Night, [3, 7, 15, 25]) : 0;
+  const pm10Adjustment = pm10 !== null && pm10Night !== null ? step(pm10 - pm10Night, [5, 12, 25, 40]) : 0;
+  const increase = Math.max(tvocAdjustment, co2Adjustment, pm25Adjustment, pm10Adjustment);
+  if (increase >= 20) return "EST. +20–50%";
+  if (increase >= 15) return "EST. +15–35%";
+  if (increase >= 10) return "EST. +10–25%";
+  if (increase >= 5) return "EST. +5–15%";
+  return latestCalendar.minuteOfDay < 6 * 60 ? "EST. −50%" : "EST. 0%";
+}
+
 function hepaAssessment(samples: Sample[], latest: Sample | null) {
   const observation = pmBalanceObservation(samples);
   if (!latest || !observation || latest.timestamp - observation.timestamp > 10 * 60_000) return null;
@@ -920,12 +952,13 @@ function hepaAssessment(samples: Sample[], latest: Sample | null) {
   const limit10 = Math.max(10, (baseline10 ?? 0) + 5);
   const withinBand = (sample: { pm25: number; pm10: number }) => sample.pm25 <= limit25 && sample.pm10 <= limit10;
   const currentWithin = withinBand(observation);
+  const airflow = airflowAdjustmentEstimate(samples, latest);
 
   if (!currentWithin) {
     return {
-      status: "CHECK",
+      status: `CHECK // ${airflow}`,
       level: "watch" as const,
-      note: "PM₂.₅ + PM₁₀ remain above the expected LAB band",
+      note: `≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
     };
   }
 
@@ -953,23 +986,23 @@ function hepaAssessment(samples: Sample[], latest: Sample | null) {
       const clearanceMinutes = Math.round((recovery.timestamp - recent[episodeStart].timestamp) / 60_000);
       if (clearanceMinutes > 60) {
         return {
-          status: "CHECK",
+          status: `CHECK // ${airflow}`,
           level: "watch" as const,
-          note: "Particle return exceeded the 60 min review window",
+          note: `≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
         };
       }
       return {
-        status: "GOOD",
+        status: `GOOD // ${airflow}`,
         level: "normal" as const,
-        note: `PM₂.₅ + PM₁₀ returned within ${clearanceMinutes} min`,
+        note: `PM returned within ${clearanceMinutes} min · ≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
       };
     }
   }
 
   return {
-    status: "GOOD",
+    status: `GOOD // ${airflow}`,
     level: "normal" as const,
-    note: "PM₂.₅ + PM₁₀ are within the expected LAB band",
+    note: `≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
   };
 }
 
@@ -2380,7 +2413,7 @@ function LabPanel({ room, outdoor, refreshing, analysisMinutes }: { room: RoomDa
           <div className="meaning-copy"><strong>RECENT PATTERN</strong><p>{room.summary}</p><span>COMPUTED · PAST HOUR</span></div>
           {hepa ? (
             <div className={`hepa-status hepa-${hepa.level}`}>
-              <span>HEPA STATUS</span><strong>{hepa.status}</strong><small>{hepa.note}</small>
+              <span>HEPA STATUS // AIRFLOW RATE</span><strong>{hepa.status}</strong><small>{hepa.note}</small>
             </div>
           ) : null}
           <div className="meaning-evidence" aria-label="Signals supporting the current interpretation">
