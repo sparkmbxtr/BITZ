@@ -94,7 +94,11 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
 });
 
 test("LAB HEPA card includes a provisional airflow-rate assessment", () => {
-  assert.match(page, /HEPA STATUS \/\/ AIRFLOW RATE/);
+  assert.match(page, /<span>HEPA STATUS<\/span>/);
+  assert.match(page, /<span>AIRFLOW RATE<\/span>/);
+  assert.match(page, /className="hepa-status-half airflow-rate-half"/);
+  assert.match(css, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.hepa-status-half \{[^}]*grid-template-rows: auto auto 1fr/);
   assert.match(page, /LAB_VOLUME_ESTIMATE_M3 = 50/);
   assert.match(page, /LAB_FLOOR_AREA_ESTIMATE_M2 = 18/);
   assert.match(page, /latestCalendar\.minuteOfDay < 6 \* 60 \? "ESTIMATE 《−50–60%》 POSSIBLE" : "ESTIMATE 《0%》 POSSIBLE"/);
@@ -105,5 +109,5 @@ test("LAB HEPA card includes a provisional airflow-rate assessment", () => {
   assert.match(page, /replace\("》 REQUIRED", " REQ\."\)/);
   assert.match(page, /compactAirflowStatus/);
   assert.match(css, /\.airflow-status-short \{ display: none;/);
-  assert.match(page, /status: `GOOD \/\/ \$\{airflow\}`/);
+  assert.match(page, /status: "GOOD",\s*airflow,/);
 });

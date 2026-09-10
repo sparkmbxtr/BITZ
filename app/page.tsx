@@ -996,9 +996,11 @@ function hepaAssessment(samples: Sample[], officeSamples: Sample[], latest: Samp
 
   if (!currentWithin) {
     return {
-      status: `CHECK // ${airflow}`,
+      status: "CHECK",
+      airflow,
       level: "watch" as const,
-      note: `≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
+      note: "PM₂.₅ + PM₁₀ above LAB band",
+      airflowNote: `≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
     };
   }
 
@@ -1026,23 +1028,29 @@ function hepaAssessment(samples: Sample[], officeSamples: Sample[], latest: Samp
       const clearanceMinutes = Math.round((recovery.timestamp - recent[episodeStart].timestamp) / 60_000);
       if (clearanceMinutes > 60) {
         return {
-          status: `CHECK // ${airflow}`,
+          status: "CHECK",
+          airflow,
           level: "watch" as const,
-          note: `≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
+          note: "Particle return exceeded 60 min",
+          airflowNote: `≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
         };
       }
       return {
-        status: `GOOD // ${airflow}`,
+        status: "GOOD",
+        airflow,
         level: "normal" as const,
-        note: `PM returned within ${clearanceMinutes} min · ≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
+        note: `PM returned within ${clearanceMinutes} min`,
+        airflowNote: `≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
       };
     }
   }
 
   return {
-    status: `GOOD // ${airflow}`,
+    status: "GOOD",
+    airflow,
     level: "normal" as const,
-    note: `≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
+    note: "PM₂.₅ + PM₁₀ within LAB band",
+    airflowNote: `≈${LAB_FLOOR_AREA_ESTIMATE_M2} m² // ≈${LAB_VOLUME_ESTIMATE_M3} m³ provisional`,
   };
 }
 
@@ -2453,12 +2461,19 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes }:
           <div className="meaning-copy"><strong>RECENT PATTERN</strong><p>{room.summary}</p><span>COMPUTED · PAST HOUR</span></div>
           {hepa ? (
             <div className={`hepa-status hepa-${hepa.level}`}>
-              <span>HEPA STATUS // AIRFLOW RATE</span>
-              <strong aria-label={hepa.status} title={hepa.status}>
-                <span className="airflow-status-full">{hepa.status}</span>
-                <span className="airflow-status-short">{compactAirflowStatus(hepa.status)}</span>
-              </strong>
-              <small>{hepa.note}</small>
+              <div className="hepa-status-half">
+                <span>HEPA STATUS</span>
+                <strong>{hepa.status}</strong>
+                <small>{hepa.note}</small>
+              </div>
+              <div className="hepa-status-half airflow-rate-half">
+                <span>AIRFLOW RATE</span>
+                <strong aria-label={hepa.airflow} title={hepa.airflow}>
+                  <span className="airflow-status-full">{hepa.airflow}</span>
+                  <span className="airflow-status-short">{compactAirflowStatus(hepa.airflow)}</span>
+                </strong>
+                <small>{hepa.airflowNote}</small>
+              </div>
             </div>
           ) : null}
           <div className="meaning-evidence" aria-label="Signals supporting the current interpretation">

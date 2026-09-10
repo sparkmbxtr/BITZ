@@ -321,15 +321,17 @@ line.activity-close { stroke: var(--amber); }
 .meaning-copy p, .action-copy p, .office-summary p, .office-action p { margin: 9px 0 0; color: #d6e5e7; font-size: clamp(.98rem, min(.98vw, 1.75vh), 1.28rem); line-height: 1.42; }
 .meaning-copy span { display: block; margin-top: 12px; color: var(--teal); font-size: clamp(.82rem, .76vw, .98rem); font-weight: 750; letter-spacing: .07em; }
 .meaning-with-hepa { grid-template-rows: repeat(6, auto); }
-.hepa-status { min-height: 66px; container-type: inline-size; display: grid; grid-template-columns: 1fr auto; align-content: center; gap: 4px 14px; padding: 10px 14px; border: 1px solid rgba(98, 228, 160, .38); border-left: 7px solid var(--green); background: rgba(17, 91, 61, .64); }
-.hepa-status span { color: #e4f7ed; font-size: clamp(.9rem, min(.86vw, 1.5vh), 1.12rem); font-weight: 780; letter-spacing: .045em; }
-.hepa-status strong { color: var(--green); font-size: clamp(1.08rem, min(1.08vw, 1.9vh), 1.42rem); letter-spacing: .055em; }
+.hepa-status { min-height: 66px; container-type: inline-size; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0; border: 1px solid rgba(98, 228, 160, .38); border-left: 7px solid var(--green); background: rgba(17, 91, 61, .64); }
+.hepa-status-half { min-width: 0; display: grid; grid-template-rows: auto auto 1fr; align-content: center; gap: 4px; padding: 10px 14px; }
+.hepa-status-half + .hepa-status-half { border-left: 1px solid rgba(98, 228, 160, .34); }
+.hepa-status-half > span { color: #e4f7ed; font-size: clamp(.9rem, min(.86vw, 1.5vh), 1.12rem); font-weight: 780; letter-spacing: .045em; }
+.hepa-status-half strong { min-width: 0; color: var(--green); font-size: clamp(1.08rem, min(1.08vw, 1.9vh), 1.42rem); letter-spacing: .055em; white-space: nowrap; }
 .airflow-status-short { display: none; }
 @container (max-width: 31rem) {
   .airflow-status-full { display: none; }
   .airflow-status-short { display: inline; }
 }
-.hepa-status small { grid-column: 1 / -1; color: #d7e9df; font-size: clamp(.72rem, min(.68vw, 1.18vh), .88rem); line-height: 1.25; }
+.hepa-status-half small { color: #d7e9df; font-size: clamp(.72rem, min(.68vw, 1.18vh), .88rem); line-height: 1.25; }
 .hepa-watch { border-color: rgba(255, 196, 87, .44); border-left-color: var(--amber); background: rgba(101, 67, 10, .78); }
 .hepa-watch strong { color: var(--amber); }
 .meaning-evidence { min-height: 210px; padding: 7px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(62px, 1fr)); gap: 6px; background: rgba(10, 34, 37, .58); border: 1px solid rgba(88, 222, 212, .18); }
