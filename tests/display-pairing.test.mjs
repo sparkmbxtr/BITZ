@@ -88,7 +88,7 @@ test("fitted landscape decision cards do not clip their two text rows", () => {
 test("OFFICE activity timing prioritizes sustained sound-max transitions", () => {
   assert.match(page, /const SOUND_MAX_SIGNAL: ActivitySignal/);
   assert.match(page, /direction === "BEGIN"\s*\? maxSustained && soundSustained/);
-  assert.match(page, /acousticCloseCandidates\.length[\s\S]*officeCloseCandidates\.length/);
+  assert.match(page, /acousticCloseCandidates\.length[\s\S]*resolvedAcousticCloses[\s\S]*officeCloseCandidates\.length/);
   assert.match(page, /candidate\.acoustic\.matched && \(room === "OFFICE" \|\| candidate\.changed >= 2\)/);
   assert.match(page, /sustained sound-max drop and exit silence/);
   assert.match(page, /first sustained quiet record after the trailing/);
@@ -98,7 +98,11 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
   assert.match(page, /const weekend = weekday === "Sat" \|\| weekday === "Sun"/);
   assert.match(page, /previousClose && transition\.timestamp < previousClose \+ 10 \* 60_000/);
   assert.match(page, /cycles\.push\(\{[\s\S]*close: resolvedClose,[\s\S]*peopleRange: peopleRange === "0–1" \? "1" : peopleRange \? "1–2" : null/);
-  assert.match(page, /candidate\.acoustic\.score - Math\.abs\(candidate\.minuteOfDay - targetMinute\) \/ 18/);
+  assert.match(page, /direction === "CLOSE" \? 90 : 20/);
+  assert.match(page, /if \(close === null && officeCloseCandidates\.length\)/);
+  assert.match(page, /const ventilatedDeparture = tvocChange !== null && co2Change !== null/);
+  assert.match(page, /tvocChange >= coupledTvocThreshold &&[\s\S]*co2Change <= -coupledCo2Drop && soundChange <= -coupledSoundDrop/);
+  assert.match(page, /\(co2Drop \/ co2Scale\) \* \.9/);
 });
 
 test("LAB HEPA card includes a provisional airflow-rate assessment", () => {
