@@ -106,6 +106,10 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
   assert.match(page, /function labCorroboratedBeginEventTime/);
   assert.match(page, /signal\.key === "co2" \|\| signal\.key === "humidityAbs" \|\| signal\.key === "temperature"/);
   assert.match(page, /labCorroboratedBeginEventTime\(day, begin, centres, scales\)/);
+  assert.match(page, /function officeCorroboratedBeginEventTime/);
+  assert.match(page, /const co2Confirmed = co2Rise >= Math\.max\(10,/);
+  assert.match(page, /const soundConcurrent = soundRise >= Math\.max\(\.8,/);
+  assert.match(page, /officeCorroboratedBeginEventTime\(day, begin, centres, scales\)/);
 });
 
 test("LAB HEPA card includes a provisional airflow-rate assessment", () => {
