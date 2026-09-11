@@ -627,20 +627,23 @@ function officeCorroboratedBeginEventTime(
 ) {
   const co2Signal = ACTIVITY_SIGNALS.find((signal) => signal.key === "co2")!;
   const candidates = samples.filter((sample) =>
-    sample.timestamp >= acousticOnset && sample.timestamp <= acousticOnset + 16 * 60_000
+    sample.timestamp >= acousticOnset - 24 * 60_000 && sample.timestamp <= acousticOnset + 12 * 60_000
   );
 
   for (const sample of candidates) {
     const timestamp = sample.timestamp;
-    const co2Centre = centres.get("co2");
     const soundCentre = centres.get("sound");
-    const co2Now = median(valuesBetween(samples, co2Signal, timestamp, timestamp + 8 * 60_000));
-    const soundNow = median(valuesBetween(samples, SOUND_SIGNAL, timestamp, timestamp + 6 * 60_000));
-    if (co2Centre === undefined || soundCentre === undefined || co2Now === null || soundNow === null) continue;
+    const co2Before = median(valuesBetween(samples, co2Signal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
+    const co2Early = median(valuesBetween(samples, co2Signal, timestamp, timestamp + 6 * 60_000));
+    const co2Later = median(valuesBetween(samples, co2Signal, timestamp + 6 * 60_000, timestamp + 12 * 60_000));
+    const soundNow = median(valuesBetween(samples, SOUND_SIGNAL, timestamp - 2 * 60_000, timestamp + 10 * 60_000));
+    if (soundCentre === undefined || co2Before === null || co2Early === null || co2Later === null || soundNow === null) continue;
 
-    const co2Rise = co2Now - co2Centre;
+    const co2Rise = co2Early - co2Before;
+    const co2Persistence = co2Later - co2Before;
     const soundRise = soundNow - soundCentre;
-    const co2Confirmed = co2Rise >= Math.max(10, (scales.get("co2") ?? 20) * .35);
+    const onsetThreshold = Math.max(4, (scales.get("co2") ?? 20) * .15);
+    const co2Confirmed = co2Rise >= onsetThreshold && co2Persistence >= onsetThreshold * 1.5;
     const soundConcurrent = soundRise >= Math.max(.8, (scales.get("sound") ?? 2.5) * .2);
     if (co2Confirmed && soundConcurrent) return timestamp;
   }
