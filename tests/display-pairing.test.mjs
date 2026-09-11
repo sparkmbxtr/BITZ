@@ -104,7 +104,9 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
   assert.match(page, /tvocChange >= coupledTvocThreshold &&[\s\S]*co2Change <= -coupledCo2Drop && soundChange <= -coupledSoundDrop/);
   assert.match(page, /\(co2Drop \/ co2Scale\) \* \.9/);
   assert.match(page, /function labCorroboratedBeginEventTime/);
-  assert.match(page, /signal\.key === "co2" \|\| signal\.key === "humidityAbs" \|\| signal\.key === "temperature"/);
+  assert.match(page, /signal\.key === "temperature" \|\| signal\.key === "tvoc"/);
+  assert.match(page, /acousticOnset - 60 \* 60_000 && sample\.timestamp <= acousticOnset \+ 60 \* 60_000/);
+  assert.match(page, /Math\.sign\(earlyDelta\) === Math\.sign\(laterDelta\)/);
   assert.match(page, /labCorroboratedBeginEventTime\(day, begin, centres, scales\)/);
   assert.match(page, /function officeCorroboratedBeginEventTime/);
   assert.match(page, /acousticOnset - 60 \* 60_000 && sample\.timestamp <= acousticOnset \+ 60 \* 60_000/);
