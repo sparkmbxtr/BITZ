@@ -5,9 +5,6 @@ import { isGitHubActionsExportAuthorized } from "@/lib/github-actions-oidc";
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis//airQ-tech";
-const REPORT_ALLOWED_NAMES = ["RICHARD", "JEFF", "JESS", "LILIANA", "Dr.Itzel", "Dr.Kaarthik", "Dr.Fidelis", "airQ-tech"] as const;
-const REPORT_HIDDEN_TEST_NAME = "SPARKMBXTR";
 const REPORT_PENDING_MESSAGE = "Recent week’s report has not been generated yet.";
 const REPORT_MAX_BYTES = 25 * 1024 * 1024;
 const REPORT_CHUNK_BYTES = 256 * 1024;
@@ -20,7 +17,6 @@ type ReportDownload = {
 };
 
 type ReportLogStub = {
-  addReportDownload(entry: ReportDownload): Promise<ReportDownload>;
   listReportDownloads(from: number, to: number, limit?: number): Promise<ReportDownload[]>;
   stageWeeklyReport(report: StoredWeeklyReport): Promise<unknown>;
   getStagedWeeklyReport(reportId: string): Promise<StoredWeeklyReport | null>;
@@ -80,30 +76,15 @@ function sameOrigin(request: Request) {
   }
 }
 
-function cleanFirstName(value: unknown) {
-  if (typeof value !== "string") return "";
-  return value
-    .normalize("NFKC")
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function acceptedFirstName(value: string) {
-  if (!value || value.length > 80 || value === REPORT_INPUT_GUIDE) return null;
-  if (value === REPORT_HIDDEN_TEST_NAME) return REPORT_HIDDEN_TEST_NAME;
-  return REPORT_ALLOWED_NAMES.find((name) => name.toLocaleLowerCase("en-US") === value.toLocaleLowerCase("en-US")) ?? null;
+async function exportAuthorized(request: Request) {
+  const expected = runtimeBinding<string>("MONITOR_EXPORT_TOKEN");
+  return Boolean(expected && await isBearerAuthorized(request, expected))
+    || await isGitHubActionsExportAuthorized(request);
 }
 
 async function dashboardAuthorized(request: Request) {
   const secret = runtimeBinding<string>("DASHBOARD_SESSION_SECRET");
   return Boolean(secret && await isAuthorized(request, secret));
-}
-
-async function exportAuthorized(request: Request) {
-  const expected = runtimeBinding<string>("MONITOR_EXPORT_TOKEN");
-  return Boolean(expected && await isBearerAuthorized(request, expected))
-    || await isGitHubActionsExportAuthorized(request);
 }
 
 function csvCell(value: string | number) {
@@ -258,8 +239,11 @@ async function exportDownloadLog(request: Request) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  // Historical records retain their separate export authorization.
   if (url.searchParams.get("downloadLog") === "csv") return exportDownloadLog(request);
   if (!await dashboardAuthorized(request)) return json({ error: "Dashboard login required" }, 401);
+  // Downloads require an explicit POST; GET is availability-only.
+  if (url.searchParams.has("download")) return json({ error: "Use POST to download the report" }, 405);
 
   const report = expectedWeeklyReport();
   const available = await reportAvailable(report);
@@ -274,11 +258,11 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   if (!await dashboardAuthorized(request)) return json({ error: "Dashboard login required" }, 401);
   if (!sameOrigin(request)) return json({ error: "Origin rejected" }, 403);
+  // No name is requested, read, or logged, including from older dashboard tabs.
+  return downloadReport();
+}
 
-  const payload = await request.json().catch(() => null) as { firstName?: unknown } | null;
-  const firstName = acceptedFirstName(cleanFirstName(payload?.firstName));
-  if (!firstName) return json({ error: "Bioengineering Lab personnel only." }, 403);
-
+async function downloadReport() {
   const report = expectedWeeklyReport();
   const stub = reportLog();
   if (!stub) return json({ error: REPORT_PENDING_MESSAGE }, 404);
@@ -292,24 +276,6 @@ export async function POST(request: Request) {
   const bytes = object ? joinReport(object.chunks, object.byteSize) : null;
   if (!object || !bytes || object.reportName !== report.fileName) {
     return json({ error: REPORT_PENDING_MESSAGE }, 404);
-  }
-
-  if (firstName !== REPORT_HIDDEN_TEST_NAME) {
-    const entry: ReportDownload = {
-      id: crypto.randomUUID(),
-      createdAt: Date.now(),
-      firstName,
-      reportName: report.fileName,
-    };
-
-    try {
-      await stub.addReportDownload(entry);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("REPORT_RATE_LIMIT")) {
-        return json({ error: "Too many downloads; wait one minute" }, 429);
-      }
-      return json({ error: "Download could not be recorded" }, 503);
-    }
   }
 
   const headers = new Headers({

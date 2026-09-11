@@ -490,13 +490,10 @@ line.activity-close { stroke: var(--amber); }
 .report-popover-heading > button { width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); background: transparent; font-size: 1.15rem; line-height: 1; }
 .report-popover > p { margin: 0; color: var(--foreground); font-size: .84rem; line-height: 1.3; }
 .report-popover > .report-pending { min-height: 42px; display: flex; align-items: center; color: rgba(203, 216, 219, .8); font-weight: 750; letter-spacing: .04em; }
-.report-input-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 7px; }
-.report-name-field { position: relative; min-width: 0; }
-.report-name-field input { width: 100%; min-width: 0; height: 46px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 4px; outline: none; color: var(--foreground); background: #081719; font: inherit; }
-.report-name-field input:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgba(88, 222, 212, .13); }
-.report-name-guide { position: absolute; inset: 0; padding: 7px 9px; display: flex; align-items: center; color: rgba(169, 189, 193, .48); font-size: clamp(.58rem, 1.65vw, .7rem); line-height: 1.15; letter-spacing: .015em; overflow-wrap: anywhere; pointer-events: none; user-select: none; }
-.report-input-row > button { height: 46px; border: 1px solid rgba(169, 189, 193, .54); border-radius: 4px; color: var(--foreground); background: rgba(169, 189, 193, .15); font-size: .72rem; font-weight: 850; letter-spacing: .065em; }
-.report-input-row > button:disabled { opacity: .42; }
+.report-confirm-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.report-confirm-actions > button { min-height: 46px; border: 1px solid rgba(169, 189, 193, .54); border-radius: 4px; color: var(--foreground); background: rgba(169, 189, 193, .15); font-size: .875rem; font-weight: 850; letter-spacing: .065em; }
+.report-confirm-actions > button:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.report-confirm-actions > button:disabled { opacity: .42; }
 .report-result { min-height: 14px; font-size: .7rem; font-weight: 800; letter-spacing: .06em; }
 .report-result.is-sent { color: var(--green); }
 .report-result.is-error { color: var(--red); }
@@ -672,8 +669,6 @@ line.activity-close { stroke: var(--amber); }
   .colour-key { width: 100%; flex-wrap: wrap; }
   .context-popover { left: 6px; width: calc(100vw - 12px); }
   .report-popover { right: 6px; width: calc(100vw - 12px); }
-  .report-input-row { grid-template-columns: minmax(0, 1fr); }
-  .report-input-row > button { width: 100%; }
   .footer-report-cluster { gap: 6px; }
 }
 

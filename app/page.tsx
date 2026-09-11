@@ -90,9 +90,6 @@ type ActivityCycle = {
 type ActivityEvent = { timestamp: number; label: "BEGIN" | "CLOSE"; method: ActivityMethod; x: number; peopleRange: string | null };
 
 const ACOUSTIC_CHECK_LABEL = "Sound peak >90 dB";
-const REPORT_INPUT_GUIDE = "RICHARD/JEFF/JESS/LILIANA//Dr.Itzel//Dr.Kaarthik//Dr.Fidelis//airQ-tech";
-const REPORT_ALLOWED_NAMES = ["RICHARD", "JEFF", "JESS", "LILIANA", "Dr.Itzel", "Dr.Kaarthik", "Dr.Fidelis", "airQ-tech"] as const;
-const REPORT_HIDDEN_TEST_NAME = "SPARKMBXTR";
 const REPORT_PENDING_MESSAGE = "Recent week’s report has not been generated yet.";
 const DISPLAY_SESSION_STORAGE_KEY = "bitz-display-session-v1";
 const DISPLAY_SESSION_HEADER = "X-BITZ-Display-Session";
@@ -1981,7 +1978,7 @@ export default function Home() {
   const [contextState, setContextState] = useState<"idle" | "unlocking" | "sending" | "sent" | "error">("idle");
   const [contextError, setContextError] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
-  const [reportName, setReportName] = useState("");
+  const reportDownloading = useRef(false);
   const [reportState, setReportState] = useState<"idle" | "checking" | "ready" | "unavailable" | "sending" | "sent" | "error">("idle");
   const [reportError, setReportError] = useState("");
   const [reportAvailability, setReportAvailability] = useState<ReportAvailability | null>(null);
@@ -2070,7 +2067,6 @@ export default function Home() {
 
   const closeReportInput = useCallback(() => {
     setReportOpen(false);
-    setReportName("");
     setReportState("idle");
     setReportError("");
     setReportAvailability(null);
@@ -2381,8 +2377,8 @@ export default function Home() {
   }
 
   async function openReportInput() {
+    if (reportDownloading.current) return;
     closeContextInput();
-    setReportName("");
     setReportState("checking");
     setReportError("");
     setReportAvailability(null);
@@ -2391,12 +2387,13 @@ export default function Home() {
       const response = await dashboardFetch(`/api/report?availability=${Date.now()}`, {
         cache: "no-store",
       });
-      const payload = await response.json().catch(() => ({})) as ReportAvailability & { error?: string };
       if (response.status === 401) {
+        closeReportInput();
         clearDisplaySession();
         setAuthorized(false);
         return;
       }
+      const payload = await response.json().catch(() => ({})) as ReportAvailability & { error?: string };
       if (response.ok && payload.available === true) {
         setReportAvailability(payload);
         setReportState("ready");
@@ -2412,35 +2409,24 @@ export default function Home() {
 
   async function downloadWeeklyReport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (reportState === "sending") return;
-    const firstName = reportName
-      .normalize("NFKC")
-      .replace(/[\u0000-\u001f\u007f]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    const acceptedName = firstName === REPORT_HIDDEN_TEST_NAME
-      ? REPORT_HIDDEN_TEST_NAME
-      : REPORT_ALLOWED_NAMES.find((name) => name.toLocaleLowerCase("en-US") === firstName.toLocaleLowerCase("en-US"));
-    if (!acceptedName) {
-      setReportState("error");
-      setReportError("Bioengineering Lab personnel only.");
-      return;
-    }
+    if (reportDownloading.current || (reportState !== "ready" && reportState !== "error")) return;
 
+    reportDownloading.current = true;
     setReportState("sending");
     setReportError("");
     try {
       const response = await dashboardFetch("/api/report", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ firstName: acceptedName }),
+        cache: "no-store",
       });
+      if (response.status === 401) {
+        closeReportInput();
+        clearDisplaySession();
+        setAuthorized(false);
+        return;
+      }
       if (!response.ok) {
         const payload = await response.json().catch(() => ({})) as { error?: string };
-        if (response.status === 401) {
-          clearDisplaySession();
-          setAuthorized(false);
-        }
         if (response.status === 404) {
           setReportAvailability((current) => ({ ...(current ?? { available: false }), available: false, message: payload.error ?? REPORT_PENDING_MESSAGE }));
           setReportState("unavailable");
@@ -2463,6 +2449,8 @@ export default function Home() {
     } catch (error) {
       setReportState("error");
       setReportError(error instanceof Error ? error.message : "Weekly report could not be downloaded");
+    } finally {
+      reportDownloading.current = false;
     }
   }
 
@@ -2612,23 +2600,12 @@ export default function Home() {
             </div>
             {reportState === "checking" ? <p className="report-pending">CHECKING REPORT…</p> : null}
             {reportState === "unavailable" ? <p className="report-pending">{reportAvailability?.message ?? REPORT_PENDING_MESSAGE}</p> : null}
-            {reportState !== "checking" && reportState !== "unavailable" ? (
+            {reportState !== "checking" && reportState !== "unavailable" && reportState !== "sent" ? (
               <>
-                <p>Enter your first name to download</p>
-                <form className="report-input-row" onSubmit={downloadWeeklyReport}>
-                  <div className="report-name-field">
-                    <input
-                      autoFocus
-                      type="text"
-                      autoComplete="given-name"
-                      maxLength={80}
-                      value={reportName}
-                      onChange={(event) => setReportName(event.target.value)}
-                      aria-label="First name for weekly report download"
-                    />
-                    {!reportName ? <span className="report-name-guide" aria-hidden="true">{REPORT_INPUT_GUIDE}</span> : null}
-                  </div>
-                  <button type="submit" disabled={!reportName.trim() || reportState === "sending"}>{reportState === "sending" ? "…" : "DOWNLOAD"}</button>
+                <p id="report-confirmation">Download the weekly report{reportAvailability?.periodLabel ? ` (${reportAvailability.periodLabel})` : ""}?</p>
+                <form className="report-confirm-actions" onSubmit={downloadWeeklyReport} aria-describedby="report-confirmation">
+                  <button autoFocus type="button" onClick={closeReportInput} disabled={reportState === "sending"}>CANCEL</button>
+                  <button type="submit" disabled={reportState === "sending"}>{reportState === "sending" ? "DOWNLOADING…" : "OK"}</button>
                 </form>
               </>
             ) : null}
