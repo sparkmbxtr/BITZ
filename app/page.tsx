@@ -588,30 +588,35 @@ function labCorroboratedBeginEventTime(
   scales: Map<ActivitySignal["key"], number>,
 ) {
   const corroboratingSignals = ACTIVITY_SIGNALS.filter((signal) =>
-    signal.key === "co2" || signal.key === "humidityAbs" || signal.key === "temperature"
+    signal.key === "co2" || signal.key === "humidityAbs" ||
+    signal.key === "temperature" || signal.key === "tvoc"
   );
   const candidates = samples.filter((sample) =>
-    sample.timestamp >= acousticOnset && sample.timestamp <= acousticOnset + 16 * 60_000
+    sample.timestamp >= acousticOnset - 60 * 60_000 && sample.timestamp <= acousticOnset + 60 * 60_000
   );
 
   for (const sample of candidates) {
     const timestamp = sample.timestamp;
     const soundCentre = centres.get("sound");
     const soundMaxCentre = centres.get("soundMax");
-    const soundNow = median(valuesBetween(samples, SOUND_SIGNAL, timestamp, timestamp + 6 * 60_000));
-    const soundMaxNow = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp, timestamp + 6 * 60_000));
+    const soundNow = median(valuesBetween(samples, SOUND_SIGNAL, timestamp - 2 * 60_000, timestamp + 12 * 60_000));
+    const soundMaxNow = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp - 2 * 60_000, timestamp + 12 * 60_000));
     const soundActive = soundCentre !== undefined && soundNow !== null &&
-      soundNow - soundCentre >= Math.max(1.2, (scales.get("sound") ?? 2.5) * .4);
+      soundNow - soundCentre >= Math.max(.8, (scales.get("sound") ?? 2.5) * .2);
     const soundMaxActive = soundMaxCentre !== undefined && soundMaxNow !== null &&
-      soundMaxNow - soundMaxCentre >= Math.max(3.5, (scales.get("soundMax") ?? 4) * .5);
-    if (!soundActive || !soundMaxActive) continue;
+      soundMaxNow - soundMaxCentre >= Math.max(2.5, (scales.get("soundMax") ?? 4) * .3);
+    if (!soundActive && !soundMaxActive) continue;
 
     const corroborated = corroboratingSignals.some((signal) => {
-      const centre = centres.get(signal.key);
-      const current = median(valuesBetween(samples, signal, timestamp, timestamp + 8 * 60_000));
-      if (centre === undefined || current === null) return false;
-      const threshold = Math.max(signal.changeFloor * .6, (scales.get(signal.key) ?? signal.changeFloor) * .45);
-      return Math.abs(current - centre) >= threshold;
+      const before = median(valuesBetween(samples, signal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
+      const early = median(valuesBetween(samples, signal, timestamp, timestamp + 6 * 60_000));
+      const later = median(valuesBetween(samples, signal, timestamp + 8 * 60_000, timestamp + 18 * 60_000));
+      if (before === null || early === null || later === null) return false;
+      const threshold = Math.max(signal.changeFloor * .15, (scales.get(signal.key) ?? signal.changeFloor) * .08);
+      const earlyDelta = early - before;
+      const laterDelta = later - before;
+      return Math.abs(earlyDelta) >= threshold &&
+        Math.abs(laterDelta) >= threshold * 2 && Math.sign(earlyDelta) === Math.sign(laterDelta);
     });
     if (corroborated) return timestamp;
   }
