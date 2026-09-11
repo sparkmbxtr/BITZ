@@ -608,6 +608,50 @@ function acousticTransitionEventTime(
   return candidateTimestamp;
 }
 
+function labDepartureCloseEventTime(
+  samples: Sample[],
+  from: number,
+  to: number,
+  centres: Map<ActivitySignal["key"], number>,
+  scales: Map<ActivitySignal["key"], number>,
+) {
+  const nightMax = centres.get("soundMax");
+  if (nightMax === undefined) return null;
+  const activeLevel = nightMax + Math.max(4, Math.min(8, (scales.get("soundMax") ?? 4) * .55));
+  const day = [...samples].sort((left, right) => left.timestamp - right.timestamp);
+  for (let index = 1; index < day.length; index += 1) {
+    const sample = day[index];
+    const previous = day[index - 1];
+    if (sample.timestamp < from || sample.timestamp > to) continue;
+    // LAB machinery keeps the acoustic median near its night level even while
+    // departure produces intermittent peaks. Detect their trailing edge, not
+    // a later median-window change. Confirmation never changes the event time.
+    if (sample.soundMax === null || previous.soundMax === null ||
+      !Number.isFinite(sample.soundMax) || !Number.isFinite(previous.soundMax) ||
+      sample.soundMax >= activeLevel || previous.soundMax < activeLevel ||
+      sample.timestamp - previous.timestamp > 5 * 60_000) continue;
+    const preceding = valuesBetween(day, SOUND_MAX_SIGNAL, sample.timestamp - 40 * 60_000, previous.timestamp);
+    if (preceding.filter((value) => value >= activeLevel).length < 3) continue;
+    const tail = day.filter((point) => point.timestamp >= sample.timestamp &&
+      point.timestamp <= sample.timestamp + 30 * 60_000);
+    if (tail.length < 10 || tail.at(-1)!.timestamp < sample.timestamp + 28 * 60_000) continue;
+    if (tail.some((point, tailIndex) => point.soundMax === null || !Number.isFinite(point.soundMax) ||
+      point.soundMax >= activeLevel || (tailIndex > 0 && point.timestamp - tail[tailIndex - 1].timestamp > 5 * 60_000))) continue;
+    const beforeSound = median(valuesBetween(day, SOUND_SIGNAL, sample.timestamp - 20 * 60_000, previous.timestamp));
+    const afterSound = median(tail.map(SOUND_SIGNAL.select).filter((value): value is number => value !== null && Number.isFinite(value)));
+    const co2 = ACTIVITY_SIGNALS.find((signal) => signal.key === "co2")!;
+    const humidity = ACTIVITY_SIGNALS.find((signal) => signal.key === "humidityAbs")!;
+    const co2Change = signedWindowDelta(day, co2, sample.timestamp);
+    const humidityChange = signedWindowDelta(day, humidity, sample.timestamp);
+    const occupancyStopped = co2Change !== null && humidityChange !== null &&
+      co2Change <= Math.max(15, (scales.get("co2") ?? 20) * .5) &&
+      humidityChange <= Math.max(.08, (scales.get("humidityAbs") ?? .12) * .5);
+    const quieter = beforeSound !== null && afterSound !== null && beforeSound - afterSound >= .5;
+    if (quieter || occupancyStopped) return sample.timestamp;
+  }
+  return null;
+}
+
 function labCorroboratedBeginEventTime(
   samples: Sample[],
   acousticOnset: number,
@@ -1072,7 +1116,9 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
         }
 
         if (openAt !== null && transition.kind === "CLOSE" && transition.timestamp >= openAt + 15 * 60_000) {
-          const resolvedClose = acousticTransitionEventTime(day, transition.timestamp, scales, "CLOSE");
+          const resolvedClose = (room === "LAB"
+            ? labDepartureCloseEventTime(day, Math.max(openAt + 15 * 60_000, transition.timestamp - 20 * 60_000), transition.timestamp + 90 * 60_000, centres, scales)
+            : null) ?? acousticTransitionEventTime(day, transition.timestamp, scales, "CLOSE");
           if (resolvedClose === null || resolvedClose <= openAt) continue;
           const peopleRange = approximatePeopleAfterBegin(day, openAt, centres);
           cycles.push({
@@ -1165,9 +1211,11 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
     const evening = strictEvening.length
       ? strictEvening
       : eveningWindow.filter((candidate) => candidate.changed >= 2 && candidate.score >= 2.25);
-    let close: number | null = null;
-    let closeMethod: ActivityMethod | null = null;
-    if (acousticCloseCandidates.length) {
+    let close: number | null = room === "LAB" && eveningWindow.length
+      ? labDepartureCloseEventTime(day, eveningWindow[0].timestamp, eveningWindow.at(-1)!.timestamp, centres, scales)
+      : null;
+    let closeMethod: ActivityMethod | null = close === null ? null : "ACOUSTIC";
+    if (close === null && acousticCloseCandidates.length) {
       const resolvedAcousticCloses = acousticCloseCandidates
         .map((candidate) => acousticTransitionEventTime(day, candidate.timestamp, scales, "CLOSE"))
         .filter((timestamp): timestamp is number => timestamp !== null)
