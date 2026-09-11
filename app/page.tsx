@@ -619,6 +619,35 @@ function labCorroboratedBeginEventTime(
   return acousticOnset;
 }
 
+function officeCorroboratedBeginEventTime(
+  samples: Sample[],
+  acousticOnset: number,
+  centres: Map<ActivitySignal["key"], number>,
+  scales: Map<ActivitySignal["key"], number>,
+) {
+  const co2Signal = ACTIVITY_SIGNALS.find((signal) => signal.key === "co2")!;
+  const candidates = samples.filter((sample) =>
+    sample.timestamp >= acousticOnset && sample.timestamp <= acousticOnset + 16 * 60_000
+  );
+
+  for (const sample of candidates) {
+    const timestamp = sample.timestamp;
+    const co2Centre = centres.get("co2");
+    const soundCentre = centres.get("sound");
+    const co2Now = median(valuesBetween(samples, co2Signal, timestamp, timestamp + 8 * 60_000));
+    const soundNow = median(valuesBetween(samples, SOUND_SIGNAL, timestamp, timestamp + 6 * 60_000));
+    if (co2Centre === undefined || soundCentre === undefined || co2Now === null || soundNow === null) continue;
+
+    const co2Rise = co2Now - co2Centre;
+    const soundRise = soundNow - soundCentre;
+    const co2Confirmed = co2Rise >= Math.max(10, (scales.get("co2") ?? 20) * .35);
+    const soundConcurrent = soundRise >= Math.max(.8, (scales.get("sound") ?? 2.5) * .2);
+    if (co2Confirmed && soundConcurrent) return timestamp;
+  }
+
+  return acousticOnset;
+}
+
 function officeCloseSignature(
   samples: Sample[],
   timestamp: number,
@@ -636,7 +665,6 @@ function officeCloseSignature(
   const coupledTvocThreshold = Math.max(10, (scales.get("tvoc") ?? 25) * .3);
   const coupledCo2Drop = Math.max(5, (scales.get("co2") ?? 20) * .15);
   const coupledSoundDrop = Math.max(1, (scales.get("sound") ?? 2.5) * .25);
-
   const ventilatedDeparture = tvocChange !== null && co2Change !== null &&
     soundChange !== null && tvocChange >= coupledTvocThreshold &&
     co2Change <= -coupledCo2Drop && soundChange <= -coupledSoundDrop;
@@ -871,7 +899,9 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
           if (resolved === null) continue;
           openAt = room === "LAB" && transition.acoustic.matched
             ? labCorroboratedBeginEventTime(day, resolved, centres, scales)
-            : resolved;
+            : room === "OFFICE" && transition.acoustic.matched
+              ? officeCorroboratedBeginEventTime(day, resolved, centres, scales)
+              : resolved;
           beginMethod = transition.acoustic.matched ? "ACOUSTIC" : "MULTICHANNEL";
           continue;
         }
@@ -932,6 +962,8 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
       begin = acousticTransitionEventTime(day, candidate.timestamp, scales, "BEGIN");
       if (room === "LAB" && begin !== null) {
         begin = labCorroboratedBeginEventTime(day, begin, centres, scales);
+      } else if (room === "OFFICE" && begin !== null) {
+        begin = officeCorroboratedBeginEventTime(day, begin, centres, scales);
       }
       beginMethod = "ACOUSTIC";
     } else if (morning.length) {
