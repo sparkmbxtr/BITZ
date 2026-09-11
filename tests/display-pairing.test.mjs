@@ -108,13 +108,8 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
   assert.match(page, /acousticOnset - 60 \* 60_000 && sample\.timestamp <= acousticOnset \+ 60 \* 60_000/);
   assert.match(page, /Math\.sign\(earlyDelta\) === Math\.sign\(laterDelta\)/);
   assert.match(page, /labCorroboratedBeginEventTime\(day, begin, centres, scales\)/);
-  assert.match(page, /function officeCorroboratedBeginEventTime/);
-  assert.match(page, /acousticOnset - 60 \* 60_000 && sample\.timestamp <= acousticOnset \+ 60 \* 60_000/);
-  assert.match(page, /const co2Persistence = co2Later - co2Before/);
-  assert.match(page, /const humidityPersistence = humidityLater - humidityBefore/);
-  assert.match(page, /co2Confirmed && humidityConfirmed && soundConcurrent/);
-  assert.match(page, /const soundConcurrent = soundRise >= Math\.max\(\.6,/);
-  assert.match(page, /officeCorroboratedBeginEventTime\(day, begin, centres, scales\)/);
+  // OFFICE BEGIN timestamps and rendered curve alignment are exercised with
+  // sensor sequences in office-activity.test.mjs.
 });
 
 test("LAB HEPA card includes a provisional airflow-rate assessment", () => {

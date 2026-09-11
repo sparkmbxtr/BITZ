@@ -626,44 +626,74 @@ function labCorroboratedBeginEventTime(
 
 function officeCorroboratedBeginEventTime(
   samples: Sample[],
-  acousticOnset: number,
+  candidateTimestamp: number,
   centres: Map<ActivitySignal["key"], number>,
   scales: Map<ActivitySignal["key"], number>,
+  earliestTimestamp = Number.NEGATIVE_INFINITY,
 ) {
   const co2Signal = ACTIVITY_SIGNALS.find((signal) => signal.key === "co2")!;
   const humiditySignal = ACTIVITY_SIGNALS.find((signal) => signal.key === "humidityAbs")!;
   const candidates = samples.filter((sample) =>
-    sample.timestamp >= acousticOnset - 60 * 60_000 && sample.timestamp <= acousticOnset + 60 * 60_000
+    sample.timestamp >= Math.max(earliestTimestamp, candidateTimestamp - 60 * 60_000) &&
+    sample.timestamp <= candidateTimestamp + 60 * 60_000
   );
 
   for (const sample of candidates) {
     const timestamp = sample.timestamp;
-    const soundCentre = centres.get("sound");
+    // Forward windows confirm a rise; the marker itself must sit on a rising
+    // raw record, not a preceding flat record whose window includes the rise.
+    const preceding = samples.filter((entry) => entry.timestamp >= timestamp - 16 * 60_000 && entry.timestamp <= timestamp - 2 * 60_000 && entry.co2 !== null);
+    const older = preceding.filter((entry) => entry.timestamp <= timestamp - 10 * 60_000);
+    const recent = preceding.filter((entry) => entry.timestamp >= timestamp - 8 * 60_000);
+    const olderCo2 = median(older.map((entry) => entry.co2!));
+    const recentCo2 = median(recent.map((entry) => entry.co2!));
+    const olderTime = median(older.map((entry) => entry.timestamp));
+    const recentTime = median(recent.map((entry) => entry.timestamp));
+    const following = samples.filter((entry) => entry.timestamp >= timestamp && entry.timestamp <= timestamp + 18 * 60_000 && entry.co2 !== null && entry.humidityAbs !== null);
+    if (sample.co2 === null || older.length < 2 || recent.length < 2 ||
+      olderCo2 === null || recentCo2 === null || olderTime === null || recentTime === null ||
+      recentTime <= olderTime || following.length < 4 ||
+      following.at(-1)!.timestamp < timestamp + 10 * 60_000) continue;
+    const observationTimes = [...preceding.map((entry) => entry.timestamp), ...following.map((entry) => entry.timestamp)];
+    if (observationTimes.some((time, index) => index > 0 && time - observationTimes[index - 1] > 6 * 60_000)) continue;
+    const co2Slope = (recentCo2 - olderCo2) / (recentTime - olderTime);
+    const expectedCo2 = recentCo2 + co2Slope * (timestamp - recentTime);
     const co2Before = median(valuesBetween(samples, co2Signal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
     const co2Early = median(valuesBetween(samples, co2Signal, timestamp, timestamp + 6 * 60_000));
     const co2Later = median(valuesBetween(samples, co2Signal, timestamp + 8 * 60_000, timestamp + 18 * 60_000));
     const humidityBefore = median(valuesBetween(samples, humiditySignal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
     const humidityEarly = median(valuesBetween(samples, humiditySignal, timestamp, timestamp + 6 * 60_000));
     const humidityLater = median(valuesBetween(samples, humiditySignal, timestamp + 8 * 60_000, timestamp + 18 * 60_000));
-    const soundNow = median(valuesBetween(samples, SOUND_SIGNAL, timestamp - 2 * 60_000, timestamp + 20 * 60_000));
-    if (soundCentre === undefined || co2Before === null || co2Early === null || co2Later === null ||
-      humidityBefore === null || humidityEarly === null || humidityLater === null || soundNow === null) continue;
+    if (co2Before === null || co2Early === null || co2Later === null ||
+      humidityBefore === null || humidityEarly === null || humidityLater === null) continue;
 
     const co2Rise = co2Early - co2Before;
     const co2Persistence = co2Later - co2Before;
     const humidityRise = humidityEarly - humidityBefore;
     const humidityPersistence = humidityLater - humidityBefore;
-    const soundRise = soundNow - soundCentre;
     const co2OnsetThreshold = Math.max(2, (scales.get("co2") ?? 20) * .08);
     const humidityOnsetThreshold = Math.max(.02, (scales.get("humidityAbs") ?? .12) * .08);
-    const co2Confirmed = co2Rise >= co2OnsetThreshold && co2Persistence >= co2OnsetThreshold * 2;
+    const co2Confirmed = sample.co2 - expectedCo2 >= co2OnsetThreshold &&
+      co2Rise >= co2OnsetThreshold && co2Persistence >= co2OnsetThreshold * 2;
     const humidityConfirmed = humidityRise >= humidityOnsetThreshold &&
       humidityPersistence >= humidityOnsetThreshold * 2;
-    const soundConcurrent = soundRise >= Math.max(.6, (scales.get("sound") ?? 2.5) * .15);
+    // Quiet visits can produce repeated peaks without lifting a 22-minute
+    // median. Either sound channel can corroborate the CO2/humidity onset.
+    const soundConcurrent = [SOUND_SIGNAL, SOUND_MAX_SIGNAL].some((signal) => {
+      const reference = median(valuesBetween(samples, signal, timestamp - 18 * 60_000, timestamp - 4 * 60_000)) ?? centres.get(signal.key);
+      if (reference === undefined) return false;
+      const threshold = signal.key === "sound" ? Math.max(.6, (scales.get("sound") ?? 2.5) * .15) : Math.max(2.5, (scales.get("soundMax") ?? 4) * .3);
+      const active = samples.filter((entry) => {
+        const value = signal.select(entry);
+        return entry.timestamp >= timestamp - 2 * 60_000 && entry.timestamp <= timestamp + 12 * 60_000 &&
+          value !== null && value - reference >= threshold;
+      });
+      return active.length >= 2 && active.at(-1)!.timestamp - active[0].timestamp >= 2 * 60_000;
+    });
     if (co2Confirmed && humidityConfirmed && soundConcurrent) return timestamp;
   }
 
-  return acousticOnset;
+  return candidateTimestamp;
 }
 
 function officeCloseSignature(
@@ -917,9 +947,13 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
           if (resolved === null) continue;
           openAt = room === "LAB" && transition.acoustic.matched
             ? labCorroboratedBeginEventTime(day, resolved, centres, scales)
-            : room === "OFFICE" && transition.acoustic.matched
-              ? officeCorroboratedBeginEventTime(day, resolved, centres, scales)
+            : room === "OFFICE"
+              ? officeCorroboratedBeginEventTime(day, resolved, centres, scales, previousClose === null ? Number.NEGATIVE_INFINITY : previousClose + 10 * 60_000)
               : resolved;
+          if (previousClose !== null && openAt < previousClose + 10 * 60_000) {
+            openAt = null;
+            continue;
+          }
           beginMethod = transition.acoustic.matched ? "ACOUSTIC" : "MULTICHANNEL";
           continue;
         }
@@ -980,14 +1014,17 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
       begin = acousticTransitionEventTime(day, candidate.timestamp, scales, "BEGIN");
       if (room === "LAB" && begin !== null) {
         begin = labCorroboratedBeginEventTime(day, begin, centres, scales);
-      } else if (room === "OFFICE" && begin !== null) {
-        begin = officeCorroboratedBeginEventTime(day, begin, centres, scales);
       }
       beginMethod = "ACOUSTIC";
     } else if (morning.length) {
       const firstEpisode = morning.filter((candidate) => candidate.timestamp <= morning[0].timestamp + 20 * 60_000);
       begin = firstEpisode.reduce((best, candidate) => candidate.score > best.score ? candidate : best).timestamp;
       beginMethod = "MULTICHANNEL";
+    }
+    // Apply OFFICE refinement to both entry paths. A multichannel detection
+    // must not bypass the earlier, sound-supported CO2/humidity onset.
+    if (room === "OFFICE" && begin !== null) {
+      begin = officeCorroboratedBeginEventTime(day, begin, centres, scales);
     }
 
     const eveningWindow = transitionCandidates.filter((candidate) =>
@@ -1459,8 +1496,9 @@ function pointsFor(
     .sort((left, right) => left.sample.timestamp - right.sample.timestamp);
   let previousX = 0;
   return ordered.map((point, index) => {
-    const proportionalX = ((point.sample.timestamp - domainStart) / timeRange) * 98;
-    const x = Math.min(98, Math.max(index === 0 ? 0 : previousX, proportionalX));
+    // Curves, clock ticks and BEGIN/CLOSE lines share the entire time axis.
+    const proportionalX = ((point.sample.timestamp - domainStart) / timeRange) * 100;
+    const x = Math.min(100, Math.max(index === 0 ? 0 : previousX, proportionalX));
     previousX = x;
     const y = 25 - ((point.value - valueMin) / range) * 18;
     return { x, y, command: index === 0 ? "M" : "L" };
@@ -1661,7 +1699,7 @@ function HistoryTrend({
           <span
             className="current-point"
             aria-hidden="true"
-            style={{ left: `${Math.min(98, Math.max(2, geometry.primary.current.x))}%`, top: `${(geometry.primary.current.y / 30) * 100}%` }}
+            style={{ left: `${geometry.primary.current.x}%`, top: `${(geometry.primary.current.y / 30) * 100}%` }}
           />
         ) : null}
         {geometry.primary.count < 2 && noSeriesLabel ? <div className="trend-last-valid">{noSeriesLabel}</div> : null}
