@@ -624,6 +624,85 @@ function labCorroboratedBeginEventTime(
   return acousticOnset;
 }
 
+const officeFourChannelCache = new WeakMap<Sample[], number[]>();
+
+function officeFourChannelBeginEvents(samples: Sample[]) {
+  const cached = officeFourChannelCache.get(samples);
+  if (cached) return cached;
+  const events: number[] = [];
+  // These are the four traces paired on the OFFICE gas/climate graphs. HCHO
+  // is separate from TVOC, and their joint change can corroborate a quiet
+  // entry without requiring a later acoustic event.
+  const signals = [
+    { key: "co2", floor: 2, rising: true },
+    { key: "humidityAbs", floor: .015, rising: true },
+    { key: "tvoc", floor: 2, rising: false },
+    { key: "hcho", floor: .05, rising: false },
+  ] as const;
+  const intervals = samples.slice(1).map((sample, index) => sample.timestamp - samples[index].timestamp)
+    .filter((interval) => interval > 0);
+  const cadence = median(intervals);
+  if (cadence === null || cadence > 10 * 60_000) return events;
+  const window = Math.max(18 * 60_000, cadence * 3);
+  const maxGap = Math.max(6 * 60_000, cadence * 1.6);
+  for (const sample of samples) {
+    const timestamp = sample.timestamp;
+    const before = samples.filter((entry) => entry.timestamp >= timestamp - window && entry.timestamp < timestamp);
+    const after = samples.filter((entry) => entry.timestamp >= timestamp && entry.timestamp <= timestamp + window);
+    if (before.length < 3 || after.length < 3 ||
+      before.at(-1)!.timestamp - before[0].timestamp < 8 * 60_000 ||
+      after.at(-1)!.timestamp - timestamp < Math.max(10 * 60_000, cadence * 2)) continue;
+    const times = [...before, ...after].map((entry) => entry.timestamp);
+    if (times.some((time, index) => index > 0 && time - times[index - 1] > maxGap)) continue;
+
+    const coordinated = signals.every(({ key, floor, rising }) => {
+      const reference = before.filter((entry) => entry[key] !== null && Number.isFinite(entry[key]));
+      const confirmation = after.filter((entry) => entry[key] !== null && Number.isFinite(entry[key]));
+      const current = sample[key];
+      if (current === null || !Number.isFinite(current) || reference.length < 3 || confirmation.length < 3 ||
+        confirmation.at(-1)!.timestamp - timestamp < Math.max(10 * 60_000, cadence * 2)) return false;
+
+      // Extrapolate each channel's local pre-entry trajectory. This tests for
+      // a new bend in the curve, rather than its accumulated overnight level.
+      const meanTime = reference.reduce((sum, entry) => sum + (entry.timestamp - timestamp) / 60_000, 0) / reference.length;
+      const meanValue = reference.reduce((sum, entry) => sum + entry[key]!, 0) / reference.length;
+      let variance = 0;
+      let covariance = 0;
+      for (const entry of reference) {
+        const dt = (entry.timestamp - timestamp) / 60_000 - meanTime;
+        variance += dt * dt;
+        covariance += dt * (entry[key]! - meanValue);
+      }
+      if (variance === 0) return false;
+      const slope = covariance / variance;
+      const expected = (time: number) => meanValue + slope * ((time - timestamp) / 60_000 - meanTime);
+      const noise = median(reference.map((entry) => Math.abs(entry[key]! - expected(entry.timestamp)))) ?? 0;
+      const threshold = Math.max(floor, noise * 4);
+      const early = confirmation.filter((entry) => entry.timestamp <= timestamp + Math.max(6 * 60_000, cadence));
+      const later = confirmation.filter((entry) => entry.timestamp >= timestamp + Math.max(8 * 60_000, cadence));
+      const earlyChange = median(early.map((entry) => entry[key]! - expected(entry.timestamp)));
+      const laterChange = median(later.map((entry) => entry[key]! - expected(entry.timestamp)));
+      if (early.length < 2 || later.length < 2 || earlyChange === null || laterChange === null) return false;
+      if (rising) {
+        const previousLevel = median(reference.slice(-2).map((entry) => entry[key]!))!;
+        const earlyLevel = median(early.map((entry) => entry[key]!))!;
+        const laterLevel = median(later.map((entry) => entry[key]!))!;
+        // A decay flattening after CLOSE also bends above an extrapolated
+        // falling line. Require actual CO2/moisture accumulation for entry.
+        if (earlyLevel - previousLevel < floor * .5 || laterLevel - previousLevel < floor) return false;
+      }
+      const direction = rising ? 1 : Math.sign(earlyChange);
+      const changed = confirmation.filter((entry) => direction * (entry[key]! - expected(entry.timestamp)) >= threshold * .5);
+      return direction * (current - expected(timestamp)) >= threshold * .25 &&
+        direction * earlyChange >= threshold && direction * laterChange >= threshold * 2 &&
+        changed.length / confirmation.length >= .75;
+    });
+    if (coordinated) events.push(timestamp);
+  }
+  officeFourChannelCache.set(samples, events);
+  return events;
+}
+
 function officeCorroboratedBeginEventTime(
   samples: Sample[],
   candidateTimestamp: number,
@@ -631,6 +710,10 @@ function officeCorroboratedBeginEventTime(
   scales: Map<ActivitySignal["key"], number>,
   earliestTimestamp = Number.NEGATIVE_INFINITY,
 ) {
+  const fourChannelOnset = officeFourChannelBeginEvents(samples).find((timestamp) =>
+    timestamp >= Math.max(earliestTimestamp, candidateTimestamp - 60 * 60_000) &&
+    timestamp <= candidateTimestamp + 60 * 60_000
+  );
   const co2Signal = ACTIVITY_SIGNALS.find((signal) => signal.key === "co2")!;
   const humiditySignal = ACTIVITY_SIGNALS.find((signal) => signal.key === "humidityAbs")!;
   const candidates = samples.filter((sample) =>
@@ -690,10 +773,10 @@ function officeCorroboratedBeginEventTime(
       });
       return active.length >= 2 && active.at(-1)!.timestamp - active[0].timestamp >= 2 * 60_000;
     });
-    if (co2Confirmed && humidityConfirmed && soundConcurrent) return timestamp;
+    if (co2Confirmed && humidityConfirmed && soundConcurrent) return Math.min(fourChannelOnset ?? timestamp, timestamp);
   }
 
-  return candidateTimestamp;
+  return fourChannelOnset ?? candidateTimestamp;
 }
 
 function officeCloseSignature(
@@ -912,6 +995,9 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
 
     const weekday = day.length ? berlinWeekday(day[0].timestamp) : null;
     const weekend = weekday === "Sat" || weekday === "Sun";
+    // Four-way trajectory agreement is an entry candidate in its own right,
+    // including when changes are too small to pass the overnight level gates.
+    const officeTrajectoryBegins = new Set(room === "OFFICE" ? officeFourChannelBeginEvents(day) : []);
     if (weekend) {
       const weekendWindow = morningCandidates.filter((candidate) =>
         candidate.minuteOfDay >= 6 * 60 && candidate.minuteOfDay <= 23 * 60 + 30
@@ -921,7 +1007,7 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
           ...candidate,
           acoustic: acousticTransitionSignature(day, candidate.timestamp, centres, scales, "BEGIN"),
         }))
-        .filter((candidate) => candidate.acoustic.matched ||
+        .filter((candidate) => officeTrajectoryBegins.has(candidate.timestamp) || candidate.acoustic.matched ||
           (candidate.changed >= 3 && candidate.score >= 3.4));
       const closeCandidates = weekendWindow
         .map((candidate) => ({
@@ -1021,8 +1107,13 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
       begin = firstEpisode.reduce((best, candidate) => candidate.score > best.score ? candidate : best).timestamp;
       beginMethod = "MULTICHANNEL";
     }
-    // Apply OFFICE refinement to both entry paths. A multichannel detection
-    // must not bypass the earlier, sound-supported CO2/humidity onset.
+    const coordinatedMorning = morningWindow.find((candidate) => officeTrajectoryBegins.has(candidate.timestamp));
+    if (coordinatedMorning && (begin === null || coordinatedMorning.timestamp < begin)) {
+      begin = coordinatedMorning.timestamp;
+      beginMethod = "MULTICHANNEL";
+    }
+    // Refine either entry path using four-way agreement or CO2/humidity with
+    // sound support, within one hour of the candidate and available data.
     if (room === "OFFICE" && begin !== null) {
       begin = officeCorroboratedBeginEventTime(day, begin, centres, scales);
     }

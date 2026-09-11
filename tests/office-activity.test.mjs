@@ -148,3 +148,111 @@ test("all OFFICE curves put the BEGIN line at the rising record's actual x coord
     assert.match(html, /class="current-point"[^>]*left:100%/);
   }
 });
+
+// Four chemical/environmental traces can turn together during a quiet visit.
+// Their pre-existing slopes differ; a level above the midnight median alone
+// is not the event. These fixtures exercise the missing sound-independent path.
+function fourChannelSeries(options = {}) {
+  const begin = options.begin ?? onset;
+  return series(options).map((sample) => {
+    const t = (sample.timestamp - (options.day ?? midnight)) / minute;
+    const elapsed = Math.max(0, Math.min(60, t - begin + 2));
+    return {
+      ...sample,
+      tvoc: 120 - t * .004 + elapsed * .65,
+      hcho: 8.8 + t * .0005 + elapsed * .035,
+      sound: 35, soundMax: 40,
+    };
+  });
+}
+
+test("four coordinated trajectory changes establish OFFICE BEGIN without a sound veto", () => {
+  const begin = onset + 8;
+  const samples = fourChannelSeries({ begin });
+  assertAtOnset(activityCycles(samples, "OFFICE")[0]?.begin, midnight + begin * minute);
+});
+
+test("four-channel confirmation uses the first changed record at different cloud cadences", () => {
+  for (const cadence of [2, 4, 6, 10]) {
+    const samples = fourChannelSeries().filter((sample) => (sample.timestamp - midnight) / minute % cadence === 0);
+    const anchor = midnight + (onset + 36) * minute;
+    assertAtOnset(officeCorroboratedBeginEventTime(samples, anchor, centres, scales));
+  }
+});
+
+test("the fourth channel is needed to replace sound corroboration", () => {
+  const anchor = midnight + (onset + 30) * minute;
+  for (const hcho of [null, 9]) {
+    const samples = fourChannelSeries().map((sample) => ({ ...sample, hcho }));
+    assert.equal(officeCorroboratedBeginEventTime(samples, anchor, centres, scales), anchor);
+  }
+});
+
+test("four-channel noise or ongoing drift does not establish a new trajectory change", () => {
+  const samples = fourChannelSeries().map((sample, index) => ({
+    ...sample, co2: 450 + index * 2, humidityAbs: 8.2 + index * .02,
+    tvoc: 120 + index, hcho: 8.8 + index * .03,
+  }));
+  const anchor = midnight + (onset + 30) * minute;
+  assert.equal(officeCorroboratedBeginEventTime(samples, anchor, centres, scales), anchor);
+  const spikeSamples = fourChannelSeries({ begin: 900 });
+  const spike = spikeSamples.find((sample) => sample.timestamp === midnight + onset * minute);
+  Object.assign(spike, { co2: spike.co2 + 50, humidityAbs: spike.humidityAbs + .5, tvoc: spike.tvoc + 50, hcho: spike.hcho + 3 });
+  assert.equal(officeCorroboratedBeginEventTime(spikeSamples, anchor, centres, scales), anchor);
+});
+
+test("four-channel onset requires available confirmation and respects previous CLOSE", () => {
+  const anchor = midnight + (onset + 30) * minute;
+  assert.equal(officeCorroboratedBeginEventTime(fourChannelSeries({ end: onset + 4 }), anchor, centres, scales), anchor);
+  assertAtOnset(officeCorroboratedBeginEventTime(fourChannelSeries({ end: onset + 18 }), anchor, centres, scales));
+  assert.equal(officeCorroboratedBeginEventTime(fourChannelSeries(), anchor, centres, scales, midnight + (onset + 24) * minute), anchor);
+});
+
+test("both weekend days recognize the quiet four-channel entry", () => {
+  for (const date of ["2026-09-12", "2026-09-13"]) {
+    const day = Date.parse(`${date}T00:00:00+02:00`);
+    assertAtOnset(activityCycles(fourChannelSeries({ day }), "OFFICE")[0]?.begin, day + onset * minute);
+  }
+});
+
+test("four modest coordinated changes can create BEGIN without any older trigger", () => {
+  for (const date of ["2026-09-11", "2026-09-12", "2026-09-13"]) {
+    const day = Date.parse(`${date}T00:00:00+02:00`);
+    const samples = fourChannelSeries({ day }).map((sample) => {
+      const active = sample.timestamp >= day + onset * minute;
+      return { ...sample, co2: 450 + (active ? 8 : 0), humidityAbs: 8.2 + (active ? .045 : 0), tvoc: 120 + (active ? 6 : 0), hcho: 8.8 + (active ? .15 : 0) };
+    });
+    const cycle = activityCycles(samples, "OFFICE")[0];
+    assertAtOnset(cycle?.begin, day + onset * minute);
+    assert.equal(cycle.beginMethod, "MULTICHANNEL");
+  }
+});
+
+test("four decays flattening after CLOSE are not another OPEN", () => {
+  const samples = fourChannelSeries().map((sample) => {
+    const remaining = Math.max(0, onset - (sample.timestamp - midnight) / minute);
+    return { ...sample, co2: 450 + remaining * .8, humidityAbs: 8.2 + remaining * .005, tvoc: 120 + remaining * .3, hcho: 8.8 + remaining * .02 };
+  });
+  const anchor = midnight + (onset + 30) * minute;
+  assert.equal(officeCorroboratedBeginEventTime(samples, anchor, centres, scales), anchor);
+});
+
+test("the four displayed trajectories share a BEGIN line at their coordinated onset", () => {
+  const begin = onset + 8;
+  const samples = fourChannelSeries({ begin });
+  const index = samples.findIndex((sample) => sample.timestamp === midnight + begin * minute);
+  for (const [primary, secondary] of [["tvoc", "hcho"], ["co2", "humidityAbs"]]) {
+    const html = renderToStaticMarkup(createElement(HistoryTrend, {
+      samples, primary: (sample) => sample[primary], secondary: (sample) => sample[secondary],
+      label: `${primary}/${secondary}`, room: "OFFICE", levelFor: () => ({ label: "GOOD", level: "good" }),
+    }));
+    const eventX = Number(html.match(/<line x1="([^"]+)"[^>]*class="activity-time-grid activity-begin"/)?.[1]);
+    for (const channel of ["primary", "secondary"]) {
+      const path = html.match(new RegExp(`<path d="([^"]+)" class="trend-${channel} trend-history"`))?.[1];
+      assert.ok(path);
+      const x = Number([...path.matchAll(/[ML]([\d.]+),/g)][index][1]);
+      assert.ok(Math.abs(eventX - x) <= .005);
+    }
+    assert.match(html, /BEGIN 07:08/);
+  }
+});
