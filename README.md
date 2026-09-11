@@ -1,4 +1,28 @@
-# vinext-starter
+# BITZ Lab Air Monitoring
+
+A room-level environmental monitoring dashboard for LAB and OFFICE, with
+independent sensor interpretation, activity-transition calibration and printable
+reports.
+
+## Open-source licence
+
+Original project contributions and documentation are released under the
+[MIT License](LICENSE), copyright (c) 2026 SPARK. You may use, modify, redistribute
+and commercially reuse the software while retaining the copyright and licence
+notices. The software is provided without warranty under the terms of that licence.
+
+Third-party dependencies, starter components and vendored files retain their own
+licences and copyright notices. Preserve those notices when redistributing them;
+the bundled shadcn notice is in
+[vendor/shadcn-tailwind-4.13.0.LICENSE.md](vendor/shadcn-tailwind-4.13.0.LICENSE.md).
+
+This source-code licence does not grant access to the hosted dashboard, private
+sensor archives, internal reports, credentials or personal data. Anyone operating
+their own instance must provide their own authorised data sources and credentials.
+Institutional names used to describe the original deployment do not imply
+endorsement of modified or third-party deployments.
+
+## Starter documentation
 
 A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
 
