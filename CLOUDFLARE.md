@@ -11,6 +11,24 @@ Workers account subdomain set to `bioengineering`, its public address is
 - Deploy command: `npm run deploy`
 - Root directory: `/`
 
+## Automatic display updates
+
+After a display loads the updater-enabled page, it checks `/api/display-version`
+every 30 seconds. Two consistent observations of a different build trigger an
+automatic navigation to the new page, usually within one minute of deployment.
+The build fingerprint covers application source, styles, assets and build inputs.
+The version endpoint is independent of the sensor connection and uses no-store
+headers. Existing tabs that predate this feature adopt it on their next normal
+page load; this rollout sends them no restart or recovery command.
+
+Updates wait while a context note or report is open or the page is hidden. The
+display preserves its saved login, presentation layout and scroll position.
+An in-memory-only login must have a verified persistent cookie before navigating.
+Network failures retain the current page, and repeated attempts to load the same
+build are limited to prevent reload loops. Browser-native fullscreen remains
+subject to the device browser's navigation policy; the dashboard's fitted
+presentation layout is restored automatically.
+
 Configure these production secrets in Cloudflare before the first public
 deployment. Never commit their values to Git:
 

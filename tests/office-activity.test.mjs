@@ -1,20 +1,14 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
-import vm from "node:vm";
 import test from "node:test";
-import ts from "typescript";
+import { loadTypeScriptModule } from "./helpers/typescript-module.mjs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 // Execute the production detector and chart component, including every BEGIN
 // selection path. Checking for strings in the source cannot catch a skipped path.
-const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-const compiled = ts.transpileModule(source + `
-export { activityCycles, officeCorroboratedBeginEventTime, HistoryTrend };
-`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } });
-const exports = {};
-vm.runInNewContext(compiled.outputText, { exports, require: createRequire(import.meta.url) });
+const exports = loadTypeScriptModule(new URL("../app/page.tsx", import.meta.url), {
+  append: "\nexport { activityCycles, officeCorroboratedBeginEventTime, HistoryTrend };",
+});
 const { activityCycles, officeCorroboratedBeginEventTime, HistoryTrend } = exports;
 const minute = 60_000;
 const midnight = Date.parse("2026-09-11T00:00:00+02:00");

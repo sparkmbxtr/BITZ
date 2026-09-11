@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DASHBOARD_BUILD_VERSION } from "@/lib/dashboard-version";
+import { createDisplayUpdateMonitor, DISPLAY_UPDATE_ATTEMPT_KEY, DISPLAY_UPDATE_VIEW_KEY, readDisplayUpdateValue, writeDisplayUpdateValue, type DisplayUpdateView } from "@/lib/display-updates";
 
 type Sample = {
   timestamp: number;
@@ -111,6 +113,10 @@ function readDisplaySession() {
   } catch {
     inMemoryDisplaySession = "";
   }
+  if (!inMemoryDisplaySession) {
+    try { inMemoryDisplaySession = window.sessionStorage.getItem(DISPLAY_SESSION_STORAGE_KEY) ?? ""; }
+    catch { /* Keep the cookie-based session when browser storage is restricted. */ }
+  }
   return inMemoryDisplaySession;
 }
 
@@ -121,6 +127,8 @@ function storeDisplaySession(token: string) {
   } catch {
     // The in-memory copy still keeps the current kiosk session open.
   }
+  try { window.sessionStorage.setItem(DISPLAY_SESSION_STORAGE_KEY, token); }
+  catch { /* The local or in-memory copy can still authorize this display. */ }
 }
 
 function clearDisplaySession() {
@@ -130,6 +138,25 @@ function clearDisplaySession() {
   } catch {
     // Some managed signage configurations disable persistent web storage.
   }
+  try { window.sessionStorage.removeItem(DISPLAY_SESSION_STORAGE_KEY); }
+  catch { /* Storage may be disabled. */ }
+}
+
+async function preserveDisplayLoginForUpdate() {
+  const token = readDisplaySession();
+  if (!token) return true; // This display was authorized by its saved cookie.
+  storeDisplaySession(token);
+  for (const name of ["localStorage", "sessionStorage"] as const) {
+    try { if (window[name].getItem(DISPLAY_SESSION_STORAGE_KEY) === token) return true; }
+    catch { /* Try the other persistence mechanism. */ }
+  }
+  // Verify the cookie alone before navigating away from an in-memory token.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch("/api/auth", { cache: "no-store", credentials: "same-origin", signal: controller.signal });
+    return response.ok && (await response.json()).authorized === true;
+  } finally { clearTimeout(timeout); }
 }
 
 function dashboardFetch(input: RequestInfo | URL, init: RequestInit = {}) {
@@ -1896,7 +1923,7 @@ export default function Home() {
   const [connectionChecking, setConnectionChecking] = useState(false);
   const [compactViewport, setCompactViewport] = useState(false);
   const [fitViewport, setFitViewport] = useState(false);
-  const [presentationMode, setPresentationMode] = useState(false);
+  const [presentationMode, setPresentationMode] = useState(() => readDisplayUpdateValue<DisplayUpdateView>(DISPLAY_UPDATE_VIEW_KEY)?.presentationMode === true);
   const [contextOpen, setContextOpen] = useState(false);
   const [contextUnlocked, setContextUnlocked] = useState(false);
   const [contextPassword, setContextPassword] = useState("");
@@ -1910,6 +1937,78 @@ export default function Home() {
   const [reportState, setReportState] = useState<"idle" | "checking" | "ready" | "unavailable" | "sending" | "sent" | "error">("idle");
   const [reportError, setReportError] = useState("");
   const [reportAvailability, setReportAvailability] = useState<ReportAvailability | null>(null);
+  const updateState = useRef({ busy: false, presentationMode: false });
+  updateState.current = { busy: contextOpen || reportOpen, presentationMode };
+  const restoredUpdateView = useRef(false);
+
+  useEffect(() => {
+    if (authorized !== true) return;
+    let request: AbortController | null = null;
+    // If storage is unavailable, the cache-busting navigation target still
+    // prevents a stale document from immediately trying the same update again.
+    const requestedVersion = new URL(window.location.href).searchParams.get("_display_build");
+    let fallbackAttempt = requestedVersion && requestedVersion !== DASHBOARD_BUILD_VERSION
+      ? { version: requestedVersion, at: Date.now() } : null;
+    if (requestedVersion === DASHBOARD_BUILD_VERSION) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("_display_build");
+      window.history.replaceState(window.history.state, "", url.toString());
+    }
+    const monitor = createDisplayUpdateMonitor({
+      currentVersion: DASHBOARD_BUILD_VERSION,
+      loadVersion: async () => {
+        request = new AbortController();
+        const timeout = window.setTimeout(() => request?.abort(), 12_000);
+        try {
+          const response = await fetch(`/api/display-version?at=${Date.now()}`, {
+            cache: "no-store", credentials: "same-origin", signal: request.signal,
+          });
+          if (!response.ok) return null;
+          const payload = await response.json() as { version?: string };
+          return typeof payload.version === "string" ? payload.version : null;
+        } finally { window.clearTimeout(timeout); }
+      },
+      canReload: () => !updateState.current.busy && document.visibilityState === "visible",
+      prepareReload: preserveDisplayLoginForUpdate,
+      readAttempt: () => readDisplayUpdateValue<{ version: string; at: number }>(DISPLAY_UPDATE_ATTEMPT_KEY) ?? fallbackAttempt,
+      writeAttempt: (attempt) => {
+        fallbackAttempt = attempt;
+        writeDisplayUpdateValue(DISPLAY_UPDATE_ATTEMPT_KEY, attempt);
+      },
+      reload: (version) => {
+        writeDisplayUpdateValue(DISPLAY_UPDATE_VIEW_KEY, {
+          presentationMode: updateState.current.presentationMode, x: window.scrollX, y: window.scrollY,
+        });
+        const url = new URL(window.location.href);
+        url.searchParams.set("_display_build", version);
+        window.location.replace(url.toString());
+      },
+    });
+    const check = () => { void monitor.check(); };
+    check();
+    const timer = window.setInterval(check, 30_000);
+    window.addEventListener("online", check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      monitor.stop();
+      request?.abort();
+      window.clearInterval(timer);
+      window.removeEventListener("online", check);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [authorized]);
+
+  useEffect(() => {
+    if (restoredUpdateView.current || !data.live || authorized !== true || apiConnected !== true) return;
+    const view = readDisplayUpdateValue<DisplayUpdateView>(DISPLAY_UPDATE_VIEW_KEY);
+    const frame = window.requestAnimationFrame(() => {
+      restoredUpdateView.current = true;
+      if (view && Number.isFinite(view.x) && Number.isFinite(view.y)) window.scrollTo(view.x, view.y);
+      try { window.sessionStorage.removeItem(DISPLAY_UPDATE_VIEW_KEY); }
+      catch { /* Storage may be disabled. */ }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [authorized, apiConnected, data.live]);
 
   const closeContextInput = useCallback(() => {
     setContextOpen(false);
