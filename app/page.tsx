@@ -626,8 +626,9 @@ function officeCorroboratedBeginEventTime(
   scales: Map<ActivitySignal["key"], number>,
 ) {
   const co2Signal = ACTIVITY_SIGNALS.find((signal) => signal.key === "co2")!;
+  const humiditySignal = ACTIVITY_SIGNALS.find((signal) => signal.key === "humidityAbs")!;
   const candidates = samples.filter((sample) =>
-    sample.timestamp >= acousticOnset - 24 * 60_000 && sample.timestamp <= acousticOnset + 12 * 60_000
+    sample.timestamp >= acousticOnset - 60 * 60_000 && sample.timestamp <= acousticOnset + 60 * 60_000
   );
 
   for (const sample of candidates) {
@@ -635,17 +636,26 @@ function officeCorroboratedBeginEventTime(
     const soundCentre = centres.get("sound");
     const co2Before = median(valuesBetween(samples, co2Signal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
     const co2Early = median(valuesBetween(samples, co2Signal, timestamp, timestamp + 6 * 60_000));
-    const co2Later = median(valuesBetween(samples, co2Signal, timestamp + 6 * 60_000, timestamp + 12 * 60_000));
-    const soundNow = median(valuesBetween(samples, SOUND_SIGNAL, timestamp - 2 * 60_000, timestamp + 10 * 60_000));
-    if (soundCentre === undefined || co2Before === null || co2Early === null || co2Later === null || soundNow === null) continue;
+    const co2Later = median(valuesBetween(samples, co2Signal, timestamp + 8 * 60_000, timestamp + 18 * 60_000));
+    const humidityBefore = median(valuesBetween(samples, humiditySignal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
+    const humidityEarly = median(valuesBetween(samples, humiditySignal, timestamp, timestamp + 6 * 60_000));
+    const humidityLater = median(valuesBetween(samples, humiditySignal, timestamp + 8 * 60_000, timestamp + 18 * 60_000));
+    const soundNow = median(valuesBetween(samples, SOUND_SIGNAL, timestamp - 2 * 60_000, timestamp + 20 * 60_000));
+    if (soundCentre === undefined || co2Before === null || co2Early === null || co2Later === null ||
+      humidityBefore === null || humidityEarly === null || humidityLater === null || soundNow === null) continue;
 
     const co2Rise = co2Early - co2Before;
     const co2Persistence = co2Later - co2Before;
+    const humidityRise = humidityEarly - humidityBefore;
+    const humidityPersistence = humidityLater - humidityBefore;
     const soundRise = soundNow - soundCentre;
-    const onsetThreshold = Math.max(4, (scales.get("co2") ?? 20) * .15);
-    const co2Confirmed = co2Rise >= onsetThreshold && co2Persistence >= onsetThreshold * 1.5;
-    const soundConcurrent = soundRise >= Math.max(.8, (scales.get("sound") ?? 2.5) * .2);
-    if (co2Confirmed && soundConcurrent) return timestamp;
+    const co2OnsetThreshold = Math.max(2, (scales.get("co2") ?? 20) * .08);
+    const humidityOnsetThreshold = Math.max(.02, (scales.get("humidityAbs") ?? .12) * .08);
+    const co2Confirmed = co2Rise >= co2OnsetThreshold && co2Persistence >= co2OnsetThreshold * 2;
+    const humidityConfirmed = humidityRise >= humidityOnsetThreshold &&
+      humidityPersistence >= humidityOnsetThreshold * 2;
+    const soundConcurrent = soundRise >= Math.max(.6, (scales.get("sound") ?? 2.5) * .15);
+    if (co2Confirmed && humidityConfirmed && soundConcurrent) return timestamp;
   }
 
   return acousticOnset;
