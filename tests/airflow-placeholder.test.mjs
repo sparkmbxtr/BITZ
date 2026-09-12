@@ -35,6 +35,16 @@ test("quiet Saturday and Sunday use the explicit negative planning range during 
   }
 });
 
+test("a stable closed LAB at 19:42 is not held at zero by a recovered daytime event or old gap", () => {
+  const noon = Date.parse("2026-09-12T12:00:00+02:00");
+  const samples = series("2026-09-12", 19 * 60 + 42)
+    .filter((_, index) => index < 240 || index > 245)
+    .map((point) => point.timestamp >= noon && point.timestamp <= noon + 20 * 60_000
+      ? { ...point, tvoc: point.tvoc + 20 } : point);
+  assert.equal(hasMatch(samples), true);
+  assert.equal(show(samples), "ESTIMATE 《−50–60%》 POSSIBLE");
+});
+
 test("a weekend date alone cannot bypass the night/day evidence requirement", () => {
   const earlySaturday = series("2026-09-12", 30);
   assert.match(new Date(earlySaturday.at(-1).timestamp).toISOString(), /^2026-09-11/);
@@ -162,31 +172,37 @@ test("an unstable night cannot inflate the matching tolerance without limit", ()
   assert.equal(hasMatch(samples), false);
 });
 
-test("late drift and short sustained activity cannot hide in a matching whole-day median", () => {
+test("current drift cannot hide, while a recovered older deviation does not pin the estimate to zero", () => {
   const base = series("2026-09-12");
   const latest = base.at(-1).timestamp;
-  for (const [start, end] of [[latest - 30 * 60_000, latest], [latest - 120 * 60_000, latest - 108 * 60_000]]) {
-    const samples = base.map((point) => point.timestamp >= start && point.timestamp <= end
-      ? { ...point, co2: point.co2 + 15 } : point);
-    assert.equal(hasMatch(samples), false);
-    assert.doesNotMatch(show(samples), /−50–60%/);
-  }
+  const currentDrift = base.map((point) => point.timestamp >= latest - 30 * 60_000
+    ? { ...point, co2: point.co2 + 15 } : point);
+  assert.equal(hasMatch(currentDrift), false);
+  assert.doesNotMatch(show(currentDrift), /−50–60%/);
+
+  const recovered = base.map((point) => point.timestamp >= latest - 120 * 60_000 && point.timestamp <= latest - 108 * 60_000
+    ? { ...point, co2: point.co2 + 15 } : point);
+  assert.equal(hasMatch(recovered), true);
+  assert.equal(show(recovered), "ESTIMATE 《−50–60%》 POSSIBLE");
 });
 
-test("the latest raw value and isolated raw sound-max events are not averaged away", () => {
+test("the latest raw value and recent isolated sound-max events are not averaged away", () => {
   const base = series("2026-09-12");
   const latestChange = base.map((point, index) => index === base.length - 1 ? { ...point, oxygen: 20.5 } : point);
   assert.equal(hasMatch(latestChange), false);
-  const rawPeak = base.map((point, index) => index === 280 ? { ...point, soundMax: 91 } : point);
+  const rawPeak = base.map((point, index) => index === base.length - 10 ? { ...point, soundMax: 91 } : point);
   assert.equal(hasMatch(rawPeak), false);
+  const recoveredOldPeak = base.map((point, index) => index === 280 ? { ...point, soundMax: 91 } : point);
+  assert.equal(hasMatch(recoveredOldPeak), true);
 });
 
-test("incomplete night, daytime, or channel coverage cannot establish equality", () => {
+test("night and current-hour coverage are required; an old daytime gap may recover", () => {
   const base = series("2026-09-12");
   for (const samples of [base.slice(30), base.filter((_, index) => index < 100 || index > 110),
-    base.filter((_, index) => index < 200 || index > 210)]) {
+    base.filter((_, index) => index < base.length - 20 || index > base.length - 10)]) {
     assert.equal(hasMatch(samples), false);
   }
+  assert.equal(hasMatch(base.filter((_, index) => index < 200 || index > 210)), true);
   for (const invalid of [null, undefined, NaN, Infinity]) {
     const missing = base.map((point) => ({ ...point, oxygen: invalid }));
     assert.equal(hasMatch(missing), false);

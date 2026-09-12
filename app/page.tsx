@@ -1410,7 +1410,7 @@ function labDaySupportsSavingReview(samples: Sample[], latest: Sample) {
   if (new Set(day.map((point) => point.sample.timestamp)).size !== day.length) return false;
   const night = day.filter((point) => point.minuteOfDay < 6 * 60);
   const daytime = day.filter((point) => point.minuteOfDay >= 6 * 60);
-  if (!night.length || !daytime.length || night[0].minuteOfDay > 5 || daytime[0].minuteOfDay > 6 * 60 + 5) return false;
+  if (!night.length || !daytime.length || night[0].minuteOfDay > 5) return false;
   // Derive each boundary from its local source time, including DST nights.
   const nightStart = Math.floor(night[0].sample.timestamp / 60_000) * 60_000 - night[0].minuteOfDay * 60_000;
   const dayStart = Math.floor(daytime[0].sample.timestamp / 60_000) * 60_000 - (daytime[0].minuteOfDay - 6 * 60) * 60_000;
@@ -1456,7 +1456,7 @@ function labDaySupportsSavingReview(samples: Sample[], latest: Sample) {
     const dayPoints = daytime.map((point) => point.sample).filter(valid);
     const recentPoints = dayPoints.filter((sample) => sample.timestamp >= recentStart);
     if (!valid(latest) || !hasCoverage(nightPoints, nightStart, dayStart) ||
-      !hasCoverage(dayPoints, dayStart, latest.timestamp) || !hasCoverage(recentPoints, recentStart, latest.timestamp)) return false;
+      !hasCoverage(recentPoints, recentStart, latest.timestamp)) return false;
     // Temperature, RH and absolute humidity can move together with air handling
     // and daily weather. They remain observed, without requiring night equality
     // or making an external weather service part of this gate.
@@ -1465,12 +1465,12 @@ function labDaySupportsSavingReview(samples: Sample[], latest: Sample) {
     const deviation = median(nightPoints.map((sample) => Math.abs(sample[key]! - centre)))!;
     const tolerance = Math.max(resolution, Math.min(maxDrift, deviation * 3));
     const matches = (value: number) => (mode === "upper" ? value - centre : Math.abs(value - centre)) <= tolerance + 1e-9;
-    if (!matches(median(dayPoints.map((sample) => sample[key]!))!) ||
-      !matches(median(recentPoints.map((sample) => sample[key]!))!) || !matches(latest[key]!)) return false;
-    // Short sustained changes must not disappear inside a whole-day median.
+    if (!matches(median(recentPoints.map((sample) => sample[key]!))!) || !matches(latest[key]!)) return false;
+    // Short sustained changes must not disappear inside the current closed-state
+    // review window. Old, fully recovered drift must not pin the display to 0%.
     const blocks = new Map<number, number[]>();
-    for (const sample of dayPoints) {
-      const block = Math.floor((sample.timestamp - dayStart) / (15 * 60_000));
+    for (const sample of recentPoints) {
+      const block = Math.floor((sample.timestamp - recentStart) / (15 * 60_000));
       const values = blocks.get(block) ?? [];
       values.push(sample[key]!);
       blocks.set(block, values);
@@ -1497,7 +1497,7 @@ function labDaySupportsSavingReview(samples: Sample[], latest: Sample) {
       if (latest[key]! - recentLow > maxDrift + 1e-9) return false;
     }
     // Preserve isolated raw acoustic events rather than averaging them away.
-    return key !== "soundMax" || dayPoints.every((sample) => sample.soundMax! <= 90);
+    return key !== "soundMax" || recentPoints.every((sample) => sample.soundMax! <= 90);
   });
 }
 
@@ -3021,7 +3021,9 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
   const beginWording = cycle?.begin
     ? beganWording(cycle.begin, latest?.timestamp, currentParticleAvailable && labPmGrade(pmObservation?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")
     : "DAY BEGAN";
-  const routineClosed = routineClosedForRoom(latest, cycle, room.status);
+  const markedClosed = routineClosedForRoom(latest, cycle, room.status);
+  const routineClosed = Boolean(cycle?.dayKey === (latest ? berlinCalendar(latest.timestamp).dayKey : null) &&
+    cycle.close !== null && latest && latest.timestamp >= cycle.close && room.status !== "action" && room.status !== "unknown");
   const closedStateText = latest && ["Sat", "Sun"].includes(berlinWeekday(latest.timestamp))
     ? cycle?.dayKey === berlinCalendar(latest.timestamp).dayKey && cycle.begin !== null
       ? "Weekend monitoring · awaiting next validated BEGIN"
@@ -3075,7 +3077,7 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
       <div className="room-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h1 id="lab-heading">BIOENGINEERING S1 LAB</h1></div>{refreshing ? <span className="refresh-label">UPDATING</span> : null}</div>
       <div className={`overall-state overall-${room.status}`}>
         <LevelMark status={room.status} />
-        <div><strong>{routineClosed ? "CLOSED" : room.statusLabel}</strong><span>{routineClosed ? closedStateText : `${normalCount}/${room.checks.length} monitored conditions currently clear`}</span></div>
+        <div><strong>{markedClosed ? "CLOSED" : room.statusLabel}</strong><span>{markedClosed ? closedStateText : `${normalCount}/${room.checks.length} monitored conditions currently clear`}</span></div>
         <div className="state-detail"><strong>{latest ? `Updated ${berlinClock(latest.timestamp)} · ${berlinCompactDate(latest.timestamp)}` : "Update pending"}</strong><span>latest LAB sample · Europe/Berlin</span>{cycle?.begin ? <span className="cycle-begin-stamp">{beginWording} {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div>
       </div>
       <div className={`critical-grid ${room.checks.length === 7 ? "critical-grid-seven" : room.checks.length === 9 ? "critical-grid-nine" : room.checks.length === 10 ? "critical-grid-ten" : ""}`}>
@@ -3196,7 +3198,7 @@ function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoo
   const pmObservation = pmBalanceObservation(room.samples);
   const actionLabel = room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK";
   const cycle = latestCycle(room.samples, "OFFICE");
-  const routineClosed = routineClosedForRoom(latest, cycle, room.status);
+  const markedClosed = routineClosedForRoom(latest, cycle, room.status);
   const closedStateText = latest && ["Sat", "Sun"].includes(berlinWeekday(latest.timestamp))
     ? cycle?.dayKey === berlinCalendar(latest.timestamp).dayKey && cycle.begin !== null
       ? "Weekend monitoring · awaiting next validated BEGIN"
@@ -3209,7 +3211,7 @@ function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoo
   return (
     <aside className="office-rail" aria-labelledby="office-heading">
       <div className="office-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h2 id="office-heading">OFFICE</h2></div></div>
-      <div className={`office-state overall-${room.status}`}><LevelMark status={room.status} /><div><strong>{routineClosed ? "CLOSED" : room.statusLabel}</strong><span>{routineClosed ? closedStateText : `${room.checks.filter((check) => check.level === "normal").length}/${room.checks.length} checks clear`}</span>{cycle?.begin ? <span className="cycle-begin-stamp">{beginWording} {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div></div>
+      <div className={`office-state overall-${room.status}`}><LevelMark status={room.status} /><div><strong>{markedClosed ? "CLOSED" : room.statusLabel}</strong><span>{markedClosed ? closedStateText : `${room.checks.filter((check) => check.level === "normal").length}/${room.checks.length} checks clear`}</span>{cycle?.begin ? <span className="cycle-begin-stamp">{beginWording} {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div></div>
       <div className="office-metrics">
         <Metric label="Health" value={fmt(latest?.health)} scale="/100" source="airQ™" note="airQ™ secondary index; raw channels drive operational interpretation" grade={indexGrade(latest?.health ?? null)} />
         <Metric label="Performance" value={fmt(latest?.performance)} scale="/100" source="airQ™" note="airQ™ secondary index; raw channels drive operational interpretation" grade={indexGrade(latest?.performance ?? null)} />
@@ -3242,9 +3244,9 @@ function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoo
         <OfficePairTrend label="PM balance / sound max" primaryUnit="µg/m³" secondaryUnit="dB" reading={pmObservation ? `${fmt(pmObservation.value, 1)} µg/m³ · ${fmt(latest?.soundMax)} dB` : undefined} samples={room.samples} primary={pmBalanceValue} secondary={(s) => s.soundMax} gradeFor={officePmGrade} sampleGrade={officePmSampleGrade} analysisMinutes={analysisMinutes} />
       </section>
       <div className="office-checks">{visibleChecks.map((check) => <div key={check.label}><span>{check.label}</span><strong className={`text-${check.level}`}>{check.status}</strong></div>)}</div>
-      <div className={`office-summary office-meaning action-${room.status} ${routineClosed ? "meaning-panel-closed" : ""}`}>
-        <strong>{routineClosed ? "CLOSED-PERIOD MONITORING" : `MEANINGFUL ACTION · ${actionLabel}`}</strong>
-        <p className="office-action-text">{routineClosed ? "Routine actions are paused until the next validated BEGIN; live sensor trends remain visible." : room.action}</p>
+      <div className={`office-summary office-meaning action-${room.status}`}>
+        <strong>MEANINGFUL ACTION · {actionLabel}</strong>
+        <p className="office-action-text">{room.action}</p>
         <small>{room.summary}</small>
       </div>
     </aside>

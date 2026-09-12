@@ -112,9 +112,11 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
 
 test("weekend presentation fails closed until a room-specific BEGIN is active", () => {
   assert.match(page, /if \(weekday === "Sat" \|\| weekday === "Sun"\) return !activityCycleIsOpen\(currentCycle, latest\.timestamp\)/);
-  assert.equal(page.match(/const routineClosed = routineClosedForRoom\(latest, cycle, room\.status\);/g)?.length, 2);
+  assert.equal(page.match(/const markedClosed = routineClosedForRoom\(latest, cycle, room\.status\);/g)?.length, 2);
   assert.match(page, /currentWeekend[\s\S]*activeWeekendCycles[\s\S]*`CLOSED/);
-  assert.match(page, /Routine actions are paused until the next validated BEGIN/);
+  assert.match(page, /const routineClosed = Boolean\(cycle\?\.dayKey/);
+  const officeSection = page.slice(page.indexOf("function OfficeRail("), page.indexOf("function OfficePairTrend("));
+  assert.doesNotMatch(officeSection, /CLOSED-PERIOD MONITORING/);
 });
 
 test("LAB HEPA card includes a provisional airflow-rate assessment", () => {
