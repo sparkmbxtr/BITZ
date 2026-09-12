@@ -97,17 +97,15 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
   assert.match(page, /weekdayOfficeClose && berlinCalendar\(close\)\.minuteOfDay < 16 \* 60 \+ 40/);
   assert.match(page, /const weekend = weekday === "Sat" \|\| weekday === "Sun"/);
   assert.match(page, /previousClose && transition\.timestamp < previousClose \+ 10 \* 60_000/);
-  assert.match(page, /cycles\.push\(\{[\s\S]*close: resolvedClose,[\s\S]*peopleRange: peopleRange === "0–1" \? "1" : peopleRange \? "1–2" : null/);
+  assert.match(page, /cycles\.push\(\{[\s\S]*close: resolvedClose,[\s\S]*peopleRange,/);
+  assert.doesNotMatch(page, /peopleRange === "0–1" \? "1"/);
   assert.match(page, /direction === "CLOSE" \? 90 : 20/);
   assert.match(page, /if \(close === null && officeCloseCandidates\.length\)/);
   assert.match(page, /const ventilatedDeparture = tvocChange !== null && co2Change !== null/);
   assert.match(page, /tvocChange >= coupledTvocThreshold &&[\s\S]*co2Change <= -coupledCo2Drop && soundChange <= -coupledSoundDrop/);
   assert.match(page, /\(co2Drop \/ co2Scale\) \* \.9/);
-  assert.match(page, /function labCorroboratedBeginEventTime/);
-  assert.match(page, /signal\.key === "temperature" \|\| signal\.key === "tvoc"/);
-  assert.match(page, /acousticOnset - 60 \* 60_000 && sample\.timestamp <= acousticOnset \+ 60 \* 60_000/);
-  assert.match(page, /Math\.sign\(earlyDelta\) === Math\.sign\(laterDelta\)/);
-  assert.match(page, /labCorroboratedBeginEventTime\(day, begin, centres, scales\)/);
+  // Executable synthetic sequences in lab-begin.test.mjs cover every LAB
+  // entry path; string checks alone previously approved silent false entry.
   // OFFICE BEGIN timestamps and rendered curve alignment are exercised with
   // sensor sequences in office-activity.test.mjs.
 });

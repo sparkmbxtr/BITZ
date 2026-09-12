@@ -649,47 +649,66 @@ function labDepartureCloseEventTime(
   return null;
 }
 
-function labCorroboratedBeginEventTime(
+function labCorroboratedBeginEvents(
   samples: Sample[],
-  acousticOnset: number,
   centres: Map<ActivitySignal["key"], number>,
   scales: Map<ActivitySignal["key"], number>,
 ) {
+  const nightMax = centres.get("soundMax");
+  if (nightMax === undefined) return [];
+  const threshold = Math.max(3.5, Math.min(8, (scales.get("soundMax") ?? 4) * .55));
   const corroboratingSignals = ACTIVITY_SIGNALS.filter((signal) =>
-    signal.key === "co2" || signal.key === "humidityAbs" ||
-    signal.key === "temperature" || signal.key === "tvoc"
+    signal.key === "co2" || signal.key === "humidityAbs"
   );
-  const candidates = samples.filter((sample) =>
-    sample.timestamp >= acousticOnset - 60 * 60_000 && sample.timestamp <= acousticOnset + 60 * 60_000
-  );
+  const onsets: number[] = [];
 
-  for (const sample of candidates) {
+  for (const sample of samples) {
     const timestamp = sample.timestamp;
-    const soundCentre = centres.get("sound");
-    const soundMaxCentre = centres.get("soundMax");
-    const soundNow = median(valuesBetween(samples, SOUND_SIGNAL, timestamp - 2 * 60_000, timestamp + 12 * 60_000));
-    const soundMaxNow = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp - 2 * 60_000, timestamp + 12 * 60_000));
-    const soundActive = soundCentre !== undefined && soundNow !== null &&
-      soundNow - soundCentre >= Math.max(.8, (scales.get("sound") ?? 2.5) * .2);
-    const soundMaxActive = soundMaxCentre !== undefined && soundMaxNow !== null &&
-      soundMaxNow - soundMaxCentre >= Math.max(2.5, (scales.get("soundMax") ?? 4) * .3);
-    if (!soundActive && !soundMaxActive) continue;
+    // The marker must be on a changed raw acoustic record, never a flat record
+    // whose forward median happens to contain a later event. A night-level
+    // difference or an isolated construction/process peak is not occupancy.
+    if (sample.soundMax === null || !Number.isFinite(sample.soundMax) || sample.soundMax < nightMax + threshold) continue;
+    const before = samples.filter((point) => point.timestamp >= timestamp - 20 * 60_000 && point.timestamp < timestamp);
+    const following = samples.filter((point) => point.timestamp >= timestamp && point.timestamp <= timestamp + 18 * 60_000);
+    if (before.length < 4 || following.length < 5 ||
+      before[0].timestamp > timestamp - 12 * 60_000 ||
+      following.at(-1)!.timestamp < timestamp + 16 * 60_000) continue;
+    const window = [...before, ...following];
+    if (window.some((point, index) => point.soundMax === null || !Number.isFinite(point.soundMax) ||
+      (index > 0 && (point.timestamp <= window[index - 1].timestamp || point.timestamp - window[index - 1].timestamp > 5 * 60_000)))) continue;
+    const maxBefore = median(before.map((point) => point.soundMax!))!;
+    const activeLevel = Math.max(nightMax, maxBefore) + threshold;
+    if (maxBefore > nightMax + threshold || sample.soundMax < activeLevel || before.at(-1)!.soundMax! >= activeLevel) continue;
+    const active = following.filter((point) => point.timestamp <= timestamp + 12 * 60_000 && point.soundMax! >= activeLevel);
+    if (active.length < 3 || active.at(-1)!.timestamp < timestamp + 4 * 60_000) continue;
 
+    // Require a nearby, persistent occupancy-compatible change above the
+    // pre-existing local trend. Temperature/TVOC drift and falling CO2 alone
+    // cannot corroborate LAB entry; OFFICE retains its independent detector.
     const corroborated = corroboratingSignals.some((signal) => {
-      const before = median(valuesBetween(samples, signal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
-      const early = median(valuesBetween(samples, signal, timestamp, timestamp + 6 * 60_000));
-      const later = median(valuesBetween(samples, signal, timestamp + 8 * 60_000, timestamp + 18 * 60_000));
-      if (before === null || early === null || later === null) return false;
-      const threshold = Math.max(signal.changeFloor * .15, (scales.get(signal.key) ?? signal.changeFloor) * .08);
-      const earlyDelta = early - before;
-      const laterDelta = later - before;
-      return Math.abs(earlyDelta) >= threshold &&
-        Math.abs(laterDelta) >= threshold * 2 && Math.sign(earlyDelta) === Math.sign(laterDelta);
+      if (window.some((point) => signal.select(point) === null || !Number.isFinite(signal.select(point)))) return false;
+      const older = before.filter((point) => point.timestamp <= timestamp - 12 * 60_000);
+      const recent = before.filter((point) => point.timestamp >= timestamp - 10 * 60_000);
+      if (older.length < 2 || recent.length < 2) return false;
+      const olderValue = median(older.map((point) => signal.select(point)!))!;
+      const recentValue = median(recent.map((point) => signal.select(point)!))!;
+      const olderTime = median(older.map((point) => point.timestamp))!;
+      const recentTime = median(recent.map((point) => point.timestamp))!;
+      const slope = (recentValue - olderValue) / (recentTime - olderTime);
+      const residual = (point: Sample) => signal.select(point)! - (recentValue + slope * (point.timestamp - recentTime));
+      const floor = signal.key === "co2" ? 2 : .02;
+      const change = Math.max(floor, (scales.get(signal.key) ?? signal.changeFloor) * .08);
+      const onset = window.some((point) => Math.abs(point.timestamp - timestamp) <= 5 * 60_000 && residual(point) >= change);
+      const early = following.filter((point) => point.timestamp <= timestamp + 8 * 60_000);
+      const later = following.filter((point) => point.timestamp >= timestamp + 10 * 60_000);
+      return onset && early.length >= 3 && later.length >= 2 &&
+        median(early.map(residual))! >= change && median(later.map(residual))! >= change * 2 &&
+        median(early.map((point) => signal.select(point)!))! - recentValue >= change &&
+        median(later.map((point) => signal.select(point)!))! - recentValue >= change * 2;
     });
-    if (corroborated) return timestamp;
+    if (corroborated) onsets.push(timestamp);
   }
-
-  return acousticOnset;
+  return onsets;
 }
 
 const officeFourChannelCache = new WeakMap<Sample[], number[]>();
@@ -1066,6 +1085,9 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
     // Four-way trajectory agreement is an entry candidate in its own right,
     // including when changes are too small to pass the overnight level gates.
     const officeTrajectoryBegins = new Set(room === "OFFICE" ? officeFourChannelBeginEvents(day) : []);
+    // All LAB entry paths use the same evidence gate, including weekends.
+    // A missing onset must stay undetected, never fall back to ambient drift.
+    const labBegins = new Set(room === "LAB" ? labCorroboratedBeginEvents(day, centres, scales) : []);
     if (weekend) {
       const weekendWindow = morningCandidates.filter((candidate) =>
         candidate.minuteOfDay >= 6 * 60 && candidate.minuteOfDay <= 23 * 60 + 30
@@ -1075,7 +1097,8 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
           ...candidate,
           acoustic: acousticTransitionSignature(day, candidate.timestamp, centres, scales, "BEGIN"),
         }))
-        .filter((candidate) => officeTrajectoryBegins.has(candidate.timestamp) || candidate.acoustic.matched ||
+        .filter((candidate) => room === "LAB" ? labBegins.has(candidate.timestamp) :
+          officeTrajectoryBegins.has(candidate.timestamp) || candidate.acoustic.matched ||
           (candidate.changed >= 3 && candidate.score >= 3.4));
       const closeCandidates = weekendWindow
         .map((candidate) => ({
@@ -1095,20 +1118,18 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
       for (const transition of transitions) {
         if (openAt === null && transition.kind === "BEGIN") {
           if (previousClose && transition.timestamp < previousClose + 10 * 60_000) continue;
-          const resolved = transition.acoustic.matched
+          const resolved = room === "LAB" ? transition.timestamp : transition.acoustic.matched
             ? acousticTransitionEventTime(day, transition.timestamp, scales, "BEGIN")
             : transition.timestamp;
           if (resolved === null) continue;
-          openAt = room === "LAB" && transition.acoustic.matched
-            ? labCorroboratedBeginEventTime(day, resolved, centres, scales)
-            : room === "OFFICE"
+          openAt = room === "OFFICE"
               ? officeCorroboratedBeginEventTime(day, resolved, centres, scales, previousClose === null ? Number.NEGATIVE_INFINITY : previousClose + 10 * 60_000)
               : resolved;
           if (previousClose !== null && openAt < previousClose + 10 * 60_000) {
             openAt = null;
             continue;
           }
-          beginMethod = transition.acoustic.matched ? "ACOUSTIC" : "MULTICHANNEL";
+          beginMethod = room === "LAB" || transition.acoustic.matched ? "ACOUSTIC" : "MULTICHANNEL";
           continue;
         }
 
@@ -1125,7 +1146,7 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
             close: resolvedClose,
             closeMethod: "ACOUSTIC",
             end: resolvedClose,
-            peopleRange: peopleRange === "0–1" ? "1" : peopleRange ? "1–2" : null,
+            peopleRange,
           });
           previousClose = resolvedClose;
           openAt = null;
@@ -1142,7 +1163,7 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
           close: null,
           closeMethod: null,
           end: null,
-          peopleRange: peopleRange === "0–1" ? "1" : peopleRange ? "1–2" : null,
+          peopleRange,
         });
       }
       continue;
@@ -1164,13 +1185,13 @@ function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
       .filter((candidate) => candidate.acoustic.matched && (room === "OFFICE" || candidate.changed >= 2));
     let begin: number | null = null;
     let beginMethod: ActivityMethod | null = null;
-    if (acousticMorning.length) {
+    if (room === "LAB") {
+      begin = morningWindow.find((candidate) => labBegins.has(candidate.timestamp))?.timestamp ?? null;
+      beginMethod = begin === null ? null : "ACOUSTIC";
+    } else if (acousticMorning.length) {
       const firstEpisode = acousticMorning.filter((candidate) => candidate.timestamp <= acousticMorning[0].timestamp + 20 * 60_000);
       const candidate = firstEpisode.reduce((best, current) => current.acoustic.score > best.acoustic.score ? current : best);
       begin = acousticTransitionEventTime(day, candidate.timestamp, scales, "BEGIN");
-      if (room === "LAB" && begin !== null) {
-        begin = labCorroboratedBeginEventTime(day, begin, centres, scales);
-      }
       beginMethod = "ACOUSTIC";
     } else if (morning.length) {
       const firstEpisode = morning.filter((candidate) => candidate.timestamp <= morning[0].timestamp + 20 * 60_000);
