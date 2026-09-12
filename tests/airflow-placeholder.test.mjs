@@ -13,7 +13,7 @@ vm.runInNewContext(stripTypeScriptTypes(page.slice(start, end)) +
   "\nexports.estimate=airflowAdjustmentEstimate;exports.compact=compactAirflowStatus;exports.matches=labDaySupportsSavingReview;exports.checksClear=labSavingChecksClear;exports.hepa=hepaAssessment;", context);
 const { estimate, compact, matches, checksClear, hepa } = context.exports;
 
-// Synthetic observations only. The placeholder is deliberately not computed
+// Synthetic observations only. The reduction range is deliberately not computed
 // from concentration ratios or interpreted as a safe ventilation reduction.
 function series(date, endMinute = 12 * 60, offset = "+02:00") {
   const midnight = Date.parse(`${date}T00:00:00${offset}`);
@@ -28,9 +28,10 @@ const show = (samples, office = [], clear = true) => estimate(samples, office, s
 const hasMatch = (samples) => matches(samples, samples.at(-1));
 const isDay = (point, samples) => point.timestamp >= samples[0].timestamp + 6 * 60 * 60_000;
 
-test("quiet Saturday and Sunday use the explicit planning placeholder during daytime", () => {
+test("quiet Saturday and Sunday use the explicit negative planning range during daytime", () => {
   for (const date of ["2026-09-12", "2026-09-13"]) {
-    assert.equal(show(series(date)), "PLACEHOLDER 《−50%》");
+    assert.equal(show(series(date)), "ESTIMATE 《−50–60%》 POSSIBLE");
+    assert.notEqual(show(series(date)), "ESTIMATE 《0%》 POSSIBLE");
   }
 });
 
@@ -39,8 +40,8 @@ test("a weekend date alone cannot bypass the night/day evidence requirement", ()
   assert.match(new Date(earlySaturday.at(-1).timestamp).toISOString(), /^2026-09-11/);
   assert.equal(show(earlySaturday), "ESTIMATE 《0%》 POSSIBLE");
   assert.equal(show(series("2026-09-12", 6 * 60 + 58)), "ESTIMATE 《0%》 POSSIBLE");
-  assert.equal(show(series("2026-09-12", 7 * 60)), "PLACEHOLDER 《−50%》");
-  assert.equal(show(series("2026-09-13", 23 * 60)), "PLACEHOLDER 《−50%》");
+  assert.equal(show(series("2026-09-12", 7 * 60)), "ESTIMATE 《−50–60%》 POSSIBLE");
+  assert.equal(show(series("2026-09-13", 23 * 60)), "ESTIMATE 《−50–60%》 POSSIBLE");
 });
 
 test("weekday equality is not a weekend trigger and night time cannot independently show a reduction", () => {
@@ -55,7 +56,7 @@ test("contaminant/noise rises and oxygen shifts still block the saving review", 
   for (const [key, delta] of Object.entries(shifts)) {
     const changed = base.map((point) => isDay(point, base) ? { ...point, [key]: point[key] + delta } : point);
     assert.equal(hasMatch(changed), false, key);
-    assert.doesNotMatch(show(changed), /PLACEHOLDER/, key);
+    assert.doesNotMatch(show(changed), /−50–60%/, key);
   }
 });
 
@@ -67,7 +68,7 @@ test("daytime CO2 clearance and ordinary LAB climate drift can support the plann
       humidity: 45 - progress * 3, humidityAbs: 8 + progress * .6,
       sound: 68 - progress * 2, soundMax: 70 - progress * 2 };
   });
-  assert.equal(show(samples), "PLACEHOLDER 《−50%》");
+  assert.equal(show(samples), "ESTIMATE 《−50–60%》 POSSIBLE");
 });
 
 test("lower contaminant readings are clearance rather than a baseline mismatch", () => {
@@ -75,7 +76,7 @@ test("lower contaminant readings are clearance rather than a baseline mismatch",
   const lower = { co2: 450, tvoc: 10, hcho: 1, co: .1, pm1: 0, pm25: .1, pm4: .1, pm10: .1, sound: 65, soundMax: 67 };
   for (const [key, value] of Object.entries(lower)) {
     const samples = base.map((point) => isDay(point, base) ? { ...point, [key]: value } : point);
-    assert.equal(show(samples), "PLACEHOLDER 《−50%》", key);
+    assert.equal(show(samples), "ESTIMATE 《−50–60%》 POSSIBLE", key);
   }
 });
 
@@ -100,7 +101,7 @@ test("renewed accumulation below a high night reference is still a veto", () => 
       [key]: !isDay(point, base) ? nightValue : index >= 345 ? renewed : cleared,
     }));
     assert.equal(hasMatch(samples), false, key);
-    assert.doesNotMatch(show(samples), /PLACEHOLDER/, key);
+    assert.doesNotMatch(show(samples), /−50–60%/, key);
   }
 });
 
@@ -126,12 +127,12 @@ test("all existing LAB safety and integrity checks must be present and clear", (
   const now = room.latest.timestamp;
   const clear = (candidate) => checksClear(candidate, true, now);
   assert.equal(clear(room), true);
-  assert.equal(hepa(samples, [], samples.at(-1), clear(room)).airflow, "PLACEHOLDER 《−50%》");
+  assert.equal(hepa(samples, [], samples.at(-1), clear(room)).airflow, "ESTIMATE 《−50–60%》 POSSIBLE");
   for (const label of labels) {
     for (const level of ["watch", "action", "unknown"]) {
       const changed = { ...room, checks: room.checks.map((check) => check.label === label ? { ...check, level } : check) };
       assert.equal(clear(changed), false, `${label}: ${level}`);
-      assert.doesNotMatch(show(samples, [], clear(changed)), /PLACEHOLDER/);
+      assert.doesNotMatch(show(samples, [], clear(changed)), /−50–60%/);
     }
     assert.equal(clear({ ...room, checks: room.checks.filter((check) => check.label !== label) }), false);
   }
@@ -141,7 +142,7 @@ test("all existing LAB safety and integrity checks must be present and clear", (
   assert.equal(checksClear(room, true, now + 8 * 60_000 + 1), false, "stale cached CURRENT status");
   assert.equal(checksClear(room, true, now - 1), false, "future timestamp");
   assert.equal(clear({ ...room, latest: null }), false, "missing latest sample");
-  assert.doesNotMatch(estimate(samples, [], samples.at(-1)), /PLACEHOLDER/);
+  assert.doesNotMatch(estimate(samples, [], samples.at(-1)), /−50–60%/);
 });
 
 test("matching uses measured night variability rather than exact floating-point equality", () => {
@@ -150,7 +151,7 @@ test("matching uses measured night variability rather than exact floating-point 
     co2: point.co2 + (isDay(point, base) ? 2 : index % 2 ? -1 : 1),
     temperature: point.temperature + (isDay(point, base) ? .05 : index % 2 ? -.03 : .03),
   }));
-  assert.equal(show(samples), "PLACEHOLDER 《−50%》");
+  assert.equal(show(samples), "ESTIMATE 《−50–60%》 POSSIBLE");
 });
 
 test("an unstable night cannot inflate the matching tolerance without limit", () => {
@@ -168,7 +169,7 @@ test("late drift and short sustained activity cannot hide in a matching whole-da
     const samples = base.map((point) => point.timestamp >= start && point.timestamp <= end
       ? { ...point, co2: point.co2 + 15 } : point);
     assert.equal(hasMatch(samples), false);
-    assert.doesNotMatch(show(samples), /PLACEHOLDER/);
+    assert.doesNotMatch(show(samples), /−50–60%/);
   }
 });
 
@@ -200,25 +201,25 @@ test("neither another date nor OFFICE data can supply a missing LAB night refere
   const current = series("2026-09-12");
   const missingNight = current.filter((point) => isDay(point, current));
   assert.equal(matches([...series("2026-09-11"), ...missingNight], current.at(-1)), false);
-  assert.doesNotMatch(show(missingNight, current), /PLACEHOLDER/);
+  assert.doesNotMatch(show(missingNight, current), /−50–60%/);
 });
 
 test("future records are excluded and duplicate records cannot manufacture coverage", () => {
   const base = series("2026-09-12");
   const future = { ...base.at(-1), timestamp: base.at(-1).timestamp + 120_000, co2: 5000 };
   assert.equal(matches([...base, future], base.at(-1)), true);
-  assert.equal(estimate([...base, future], [], base.at(-1), true), "PLACEHOLDER 《−50%》");
+  assert.equal(estimate([...base, future], [], base.at(-1), true), "ESTIMATE 《−50–60%》 POSSIBLE");
   assert.equal(matches([...base, { ...base[200] }], base.at(-1)), false);
   assert.equal(matches([...base].reverse(), base.at(-1)), true);
 });
 
 test("night coverage follows Berlin calendar boundaries across both DST changes", () => {
   for (const [date, offset] of [["2026-03-29", "+01:00"], ["2026-10-25", "+02:00"]]) {
-    assert.equal(show(series(date, 12 * 60, offset)), "PLACEHOLDER 《−50%》", date);
+    assert.equal(show(series(date, 12 * 60, offset)), "ESTIMATE 《−50–60%》 POSSIBLE", date);
   }
 });
 
-test("the planning placeholder never replaces an existing excursion assessment", () => {
+test("the negative planning range never replaces an existing excursion assessment", () => {
   const samples = series("2026-09-12").map((point, index) => ({ ...point, tvoc: index >= 350 ? 400 : 30 }));
   assert.match(show(samples), /^ESTIMATE 《\+/);
 });
@@ -230,12 +231,12 @@ test("a detected weekend LAB visit hides the unoccupied-mode planning figure", (
     const peak = t >= 11 * 60 && t % 4 === 0;
     return { ...point, co2: 500 + elapsed * 1.5, humidityAbs: 8 + elapsed * .004, soundMax: peak ? 90 : 70 };
   });
-  assert.doesNotMatch(show(samples), /PLACEHOLDER/);
+  assert.doesNotMatch(show(samples), /−50–60%/);
 });
 
-test("compact and full-size labels both preserve placeholder meaning", () => {
-  assert.equal(compact("PLACEHOLDER 《−50%》"), "PLACEHOLDER −50%");
-  assert.match(page, /Planning figure \/\/ system design pending/);
+test("compact and full-size labels both preserve estimated-range meaning", () => {
+  assert.equal(compact("ESTIMATE 《−50–60%》 POSSIBLE"), "EST. −50–60% POSS.");
+  assert.match(page, /Planning estimate \/\/ system design pending/);
 });
 
 test("the planning figure leaves sensor observations unchanged", () => {
@@ -243,6 +244,6 @@ test("the planning figure leaves sensor observations unchanged", () => {
   const before = JSON.stringify(samples);
   samples.forEach(Object.freeze);
   Object.freeze(samples);
-  assert.equal(show(samples), "PLACEHOLDER 《−50%》");
+  assert.equal(show(samples), "ESTIMATE 《−50–60%》 POSSIBLE");
   assert.equal(JSON.stringify(samples), before);
 });

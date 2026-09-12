@@ -1539,14 +1539,13 @@ function airflowAdjustmentEstimate(samples: Sample[], officeSamples: Sample[], l
       cycle.begin !== null && cycle.begin <= latest.timestamp &&
       (cycle.close === null || cycle.close > latest.timestamp)
     );
-    if (!activeVisit) return "PLACEHOLDER 《−50%》";
+    if (!activeVisit) return "ESTIMATE 《−50–60%》 POSSIBLE";
   }
   return "ESTIMATE 《0%》 POSSIBLE";
 }
 
 function compactAirflowStatus(status: string) {
   return status
-    .replace("PLACEHOLDER 《−50%》", "PLACEHOLDER −50%")
     .replace("ESTIMATE 《", "EST. ")
     .replace("》 POSSIBLE", " POSS.")
     .replace("》 REQUIRED", " REQ.");
@@ -3100,7 +3099,7 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
                   <span className="airflow-status-full">{hepa.airflow}</span>
                   <span className="airflow-status-short">{compactAirflowStatus(hepa.airflow)}</span>
                 </strong>
-                <small>{hepa.airflow.startsWith("PLACEHOLDER") ? "Planning figure // system design pending" : hepa.airflowNote}</small>
+                <small>{hepa.airflow.startsWith("ESTIMATE 《−") ? "Planning estimate // system design pending" : hepa.airflowNote}</small>
               </div>
             </div>
           ) : null}
