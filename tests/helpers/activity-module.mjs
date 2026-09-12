@@ -10,6 +10,6 @@ export function loadActivityModule(source = readFileSync(new URL("../../app/page
   if (start < 0 || end < start) throw new Error("Activity module boundaries changed");
   const exports = {};
   const code = stripTypeScriptTypes(source.slice(start, end));
-  vm.runInNewContext(code + "\nexports.activityCycles = activityCycles; exports.labDepartureCloseEventTime = typeof labDepartureCloseEventTime === 'function' ? labDepartureCloseEventTime : null;", { exports });
+  vm.runInNewContext(code + "\nexports.activityCycles = activityCycles; exports.activityCycleIsOpen = activityCycleIsOpen; exports.routineClosedForRoom = routineClosedForRoom; exports.labDepartureCloseEventTime = typeof labDepartureCloseEventTime === 'function' ? labDepartureCloseEventTime : null;", { exports });
   return exports;
 }

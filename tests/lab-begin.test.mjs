@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadActivityModule } from "./helpers/activity-module.mjs";
 
-const { activityCycles } = loadActivityModule();
+const { activityCycles, activityCycleIsOpen, routineClosedForRoom } = loadActivityModule();
 const minute = 60_000;
 
 // Synthetic regression fixtures only: no private measurements or context.
@@ -35,6 +35,37 @@ test("silent environmental drift cannot create LAB BEGIN on weekdays or weekends
   for (const date of ["2026-09-11", "2026-09-12", "2026-09-13"]) {
     assert.equal(begins(series({ date, begin: 7 * 60, sound: "quiet", gas: "none", drift: true })).length, 0, date);
   }
+});
+
+test("weekend rooms remain CLOSED until BEGIN, open only during a cycle, and close again after CLOSE", () => {
+  const latest = series({ date: "2026-09-12", end: 12 * 60 }).at(-1);
+  const openCycle = {
+    dayKey: "2026-09-12", begin: expected("2026-09-12", 10 * 60 + 44), beginMethod: "ACOUSTIC",
+    close: null, closeMethod: null, end: null, peopleRange: "0–1",
+  };
+  assert.equal(routineClosedForRoom(latest, null, "normal"), true, "no validated entry");
+  assert.equal(activityCycleIsOpen(openCycle, latest.timestamp), true);
+  assert.equal(routineClosedForRoom(latest, openCycle, "normal"), false, "validated active visit");
+  const completedCycle = { ...openCycle, close: expected("2026-09-12", 11 * 60 + 30), closeMethod: "ACOUSTIC" };
+  assert.equal(activityCycleIsOpen(completedCycle, latest.timestamp), false);
+  assert.equal(routineClosedForRoom(latest, completedCycle, "normal"), true, "validated visit ended");
+});
+
+test("safety and data-integrity states outrank a weekend CLOSED presentation", () => {
+  const latest = series({ date: "2026-09-13", end: 12 * 60 }).at(-1);
+  assert.equal(routineClosedForRoom(latest, null, "action"), false);
+  assert.equal(routineClosedForRoom(latest, null, "unknown"), false);
+  assert.equal(routineClosedForRoom(latest, null, "watch"), true);
+});
+
+test("weekday rooms do not become CLOSED merely because BEGIN is absent", () => {
+  const latest = series({ date: "2026-09-14", end: 12 * 60 }).at(-1);
+  assert.equal(routineClosedForRoom(latest, null, "normal"), false);
+  const priorDay = {
+    dayKey: "2026-09-13", begin: expected("2026-09-13", 9 * 60), beginMethod: "ACOUSTIC",
+    close: expected("2026-09-13", 11 * 60), closeMethod: "ACOUSTIC", end: null, peopleRange: "0–1",
+  };
+  assert.equal(routineClosedForRoom(latest, priorDay, "normal"), false, "yesterday's CLOSE cannot close today");
 });
 
 test("even a coordinated chemical rise cannot bypass the LAB sound requirement", () => {

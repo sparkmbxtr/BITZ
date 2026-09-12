@@ -110,15 +110,23 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
   // sensor sequences in office-activity.test.mjs.
 });
 
+test("weekend presentation fails closed until a room-specific BEGIN is active", () => {
+  assert.match(page, /if \(weekday === "Sat" \|\| weekday === "Sun"\) return !activityCycleIsOpen\(currentCycle, latest\.timestamp\)/);
+  assert.equal(page.match(/const routineClosed = routineClosedForRoom\(latest, cycle, room\.status\);/g)?.length, 2);
+  assert.match(page, /currentWeekend[\s\S]*activeWeekendCycles[\s\S]*`CLOSED/);
+  assert.match(page, /Routine actions are paused until the next validated BEGIN/);
+});
+
 test("LAB HEPA card includes a provisional airflow-rate assessment", () => {
   assert.match(page, /<span>HEPA STATUS<\/span>/);
-  assert.match(page, /<span>AIRFLOW RATE<\/span>/);
+  assert.match(page, /<span>AIRFLOW CHANGE<br \/>TO SAVE POWER<\/span>/);
   assert.match(page, /className="hepa-status-half airflow-rate-half"/);
   assert.match(css, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(css, /\.hepa-status-half \{[^}]*grid-template-rows: auto auto 1fr/);
   assert.match(page, /LAB_VOLUME_ESTIMATE_M3 = 50/);
   assert.match(page, /LAB_FLOOR_AREA_ESTIMATE_M2 = 18/);
-  assert.match(page, /latestCalendar\.minuteOfDay < 6 \* 60 \? "ESTIMATE 《−50–60%》 POSSIBLE" : "ESTIMATE 《0%》 POSSIBLE"/);
+  assert.match(page, /savingChecksClear && \(weekday === "Sat" \|\| weekday === "Sun"\) && labDaySupportsSavingReview/);
+  assert.match(page, /if \(!activeVisit\) return "ESTIMATE 《−50–60%》 POSSIBLE"/);
   assert.match(page, /function empiricalDecayRate/);
   assert.match(page, /empiricalDecayRate\(officeSamples[\s\S]*"NIGHT"/);
   assert.match(page, /empiricalDecayRate\(officeSamples[\s\S]*"DAY"/);
