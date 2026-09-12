@@ -1380,7 +1380,7 @@ function empiricalDecayRate(samples: Sample[], selector: (sample: Sample) => num
   return median(rates);
 }
 
-function labDayMatchesNightReference(samples: Sample[], latest: Sample) {
+function labDaySupportsSavingReview(samples: Sample[], latest: Sample) {
   if (!Number.isFinite(latest.timestamp)) return false;
   const latestCalendar = berlinCalendar(latest.timestamp);
   // A completed night reference plus at least one hour of daytime evidence.
@@ -1403,36 +1403,50 @@ function labDayMatchesNightReference(samples: Sample[], latest: Sample) {
     points[points.length - 1].timestamp >= end - 5 * 60_000 &&
     points.every((point, index) => index === 0 || point.timestamp - points[index - 1].timestamp <= 5 * 60_000);
 
-  // Equality bands are display-comparison heuristics, not sensor accuracy or
-  // safety limits. Ordinary night variation is allowed, with a small bounded
-  // band so a noisy night cannot make a large daytime change count as equal.
-  const channels: Array<{ key: keyof Sample; resolution: number; maxDrift: number }> = [
-    { key: "co2", resolution: 1, maxDrift: 20 },
-    { key: "tvoc", resolution: 1, maxDrift: 25 },
-    { key: "hcho", resolution: .1, maxDrift: 1 },
-    { key: "co", resolution: .01, maxDrift: .03 },
-    { key: "oxygen", resolution: .01, maxDrift: .03 },
-    { key: "pm1", resolution: .1, maxDrift: .3 },
-    { key: "pm25", resolution: .1, maxDrift: .3 },
-    { key: "pm4", resolution: .1, maxDrift: .3 },
-    { key: "pm10", resolution: .1, maxDrift: .5 },
-    { key: "temperature", resolution: .1, maxDrift: .4 },
-    { key: "humidity", resolution: 1, maxDrift: 3 },
-    { key: "humidityAbs", resolution: .01, maxDrift: .12 },
-    { key: "sound", resolution: 1, maxDrift: 2.5 },
-    { key: "soundMax", resolution: 1, maxDrift: 4 },
+  // Current conditions must also pass the existing LAB display bands. A high
+  // operational night reference cannot redefine an elevated level as clear.
+  const withinLabBands = (sample: Sample) => [
+    co2Grade(sample.co2), tvocGrade(sample.tvoc), oxygenGrade(sample.oxygen),
+    temperatureGrade(sample.temperature, "LAB"), humidityGrade(sample.humidity), labPmSampleGrade(sample),
+  ].every((grade) => grade.level === "great" || grade.level === "good");
+  if (!withinLabBands(latest) || !daytime.filter((point) => point.sample.timestamp >= recentStart)
+    .every((point) => withinLabBands(point.sample))) return false;
+
+  // These are comparison bands, not sensor accuracy or safety limits. Lower
+  // contaminant/noise readings are compatible with clearance. Climate follows
+  // the existing LAB bands; oxygen retains a bounded two-sided stability check.
+  const channels: Array<{ key: keyof Sample; resolution: number; maxDrift: number; mode: "upper" | "stable" | "climate" }> = [
+    { key: "co2", resolution: 1, maxDrift: 20, mode: "upper" },
+    { key: "tvoc", resolution: 1, maxDrift: 25, mode: "upper" },
+    { key: "hcho", resolution: .1, maxDrift: 1, mode: "upper" },
+    { key: "co", resolution: .01, maxDrift: .03, mode: "upper" },
+    { key: "oxygen", resolution: .01, maxDrift: .03, mode: "stable" },
+    { key: "pm1", resolution: .1, maxDrift: .3, mode: "upper" },
+    { key: "pm25", resolution: .1, maxDrift: .3, mode: "upper" },
+    { key: "pm4", resolution: .1, maxDrift: .3, mode: "upper" },
+    { key: "pm10", resolution: .1, maxDrift: .5, mode: "upper" },
+    { key: "temperature", resolution: .1, maxDrift: .4, mode: "climate" },
+    { key: "humidity", resolution: 1, maxDrift: 3, mode: "climate" },
+    { key: "humidityAbs", resolution: .01, maxDrift: .12, mode: "climate" },
+    { key: "sound", resolution: 1, maxDrift: 2.5, mode: "upper" },
+    { key: "soundMax", resolution: 1, maxDrift: 4, mode: "upper" },
   ];
-  return channels.every(({ key, resolution, maxDrift }) => {
-    const valid = (sample: Sample) => typeof sample[key] === "number" && Number.isFinite(sample[key]);
+  return channels.every(({ key, resolution, maxDrift, mode }) => {
+    const valid = (sample: Sample) => typeof sample[key] === "number" && Number.isFinite(sample[key]) &&
+      (key === "temperature" || sample[key]! >= 0) && (key !== "co2" || sample[key]! > 0);
     const nightPoints = night.map((point) => point.sample).filter(valid);
     const dayPoints = daytime.map((point) => point.sample).filter(valid);
     const recentPoints = dayPoints.filter((sample) => sample.timestamp >= recentStart);
     if (!valid(latest) || !hasCoverage(nightPoints, nightStart, dayStart) ||
       !hasCoverage(dayPoints, dayStart, latest.timestamp) || !hasCoverage(recentPoints, recentStart, latest.timestamp)) return false;
+    // Temperature, RH and absolute humidity can move together with air handling
+    // and daily weather. They remain observed, without requiring night equality
+    // or making an external weather service part of this gate.
+    if (mode === "climate") return true;
     const centre = median(nightPoints.map((sample) => sample[key]!))!;
     const deviation = median(nightPoints.map((sample) => Math.abs(sample[key]! - centre)))!;
     const tolerance = Math.max(resolution, Math.min(maxDrift, deviation * 3));
-    const matches = (value: number) => Math.abs(value - centre) <= tolerance + 1e-9;
+    const matches = (value: number) => (mode === "upper" ? value - centre : Math.abs(value - centre)) <= tolerance + 1e-9;
     if (!matches(median(dayPoints.map((sample) => sample[key]!))!) ||
       !matches(median(recentPoints.map((sample) => sample[key]!))!) || !matches(latest[key]!)) return false;
     // Short sustained changes must not disappear inside a whole-day median.
@@ -1444,12 +1458,43 @@ function labDayMatchesNightReference(samples: Sample[], latest: Sample) {
       blocks.set(block, values);
     }
     if (![...blocks.values()].every((values) => matches(median(values)!))) return false;
+    // A new accumulation can sit below an elevated night baseline. Compare
+    // consecutive 15-minute windows in the latest hour and the current raw
+    // value against the recent low, so falling overnight CO2 cannot mask it.
+    if (mode === "upper") {
+      const trajectory: number[] = [];
+      for (let start = recentStart; start < latest.timestamp; start += 15 * 60_000) {
+        const values = recentPoints.filter((sample) => sample.timestamp >= start && sample.timestamp < start + 15 * 60_000)
+          .map((sample) => sample[key]!);
+        const value = median(values);
+        if (value === null) return false;
+        trajectory.push(value);
+      }
+      const recentLow = Math.min(...trajectory);
+      let previousLow = trajectory[0];
+      for (const value of trajectory.slice(1)) {
+        if (value - previousLow > maxDrift + 1e-9) return false;
+        previousLow = Math.min(previousLow, value);
+      }
+      if (latest[key]! - recentLow > maxDrift + 1e-9) return false;
+    }
     // Preserve isolated raw acoustic events rather than averaging them away.
     return key !== "soundMax" || dayPoints.every((sample) => sample.soundMax! <= 90);
   });
 }
 
-function airflowAdjustmentEstimate(samples: Sample[], officeSamples: Sample[], latest: Sample) {
+function labSavingChecksClear(room: Pick<RoomData, "status" | "checks" | "latest">, live = false, now = Date.now()) {
+  // Recheck the feed at render time: a cached CURRENT check cannot keep a
+  // planning figure visible after a paused feed exceeds the existing 8-minute freshness rule.
+  if (!live || !room.latest || !Number.isFinite(now) || !Number.isFinite(room.latest.timestamp) ||
+    room.latest.timestamp > now || now - room.latest.timestamp > 8 * 60_000) return false;
+  const required = ["CO release", "O₂ displacement", "Propane-associated pattern", "Nitrogen (N₂) displacement pattern",
+    "Volatile-gas pattern", "Formaldehyde elevation", "Particle pattern", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
+  return room.status === "normal" && room.checks.every((check) => check.level === "normal") &&
+    required.every((label) => room.checks.some((check) => check.label === label && check.level === "normal"));
+}
+
+function airflowAdjustmentEstimate(samples: Sample[], officeSamples: Sample[], latest: Sample, savingChecksClear = false) {
   const latestCalendar = berlinCalendar(latest.timestamp);
   const sameDay = samples.filter((sample) => Number.isFinite(sample.timestamp) && sample.timestamp <= latest.timestamp &&
     berlinCalendar(sample.timestamp).dayKey === latestCalendar.dayKey);
@@ -1489,7 +1534,7 @@ function airflowAdjustmentEstimate(samples: Sample[], officeSamples: Sample[], l
   // This is the user's planning figure for the future control system, not a
   // measured saving, a safe operating limit, or a command to change airflow.
   const weekday = berlinWeekday(latest.timestamp);
-  if ((weekday === "Sat" || weekday === "Sun") && labDayMatchesNightReference(sameDay, latest)) {
+  if (savingChecksClear && (weekday === "Sat" || weekday === "Sun") && labDaySupportsSavingReview(sameDay, latest)) {
     const activeVisit = activityCycles(sameDay, "LAB").some((cycle) =>
       cycle.begin !== null && cycle.begin <= latest.timestamp &&
       (cycle.close === null || cycle.close > latest.timestamp)
@@ -1507,7 +1552,7 @@ function compactAirflowStatus(status: string) {
     .replace("》 REQUIRED", " REQ.");
 }
 
-function hepaAssessment(samples: Sample[], officeSamples: Sample[], latest: Sample | null) {
+function hepaAssessment(samples: Sample[], officeSamples: Sample[], latest: Sample | null, savingChecksClear = false) {
   const observation = pmBalanceObservation(samples);
   if (!latest || !observation || latest.timestamp - observation.timestamp > 10 * 60_000) return null;
   if (observation.pm25 === null || observation.pm10 === null) return null;
@@ -1522,7 +1567,7 @@ function hepaAssessment(samples: Sample[], officeSamples: Sample[], latest: Samp
   const limit10 = Math.max(10, (baseline10 ?? 0) + 5);
   const withinBand = (sample: { pm25: number; pm10: number }) => sample.pm25 <= limit25 && sample.pm10 <= limit10;
   const currentWithin = withinBand(observation);
-  const airflow = airflowAdjustmentEstimate(samples, officeSamples, latest);
+  const airflow = airflowAdjustmentEstimate(samples, officeSamples, latest, savingChecksClear);
 
   if (!currentWithin) {
     return {
@@ -2636,7 +2681,7 @@ export default function Home() {
       </header>
       {!data.live ? <div className="preview-banner">{data.message ?? "Establishing secure airQ connection · Preparing LIVE data display"}</div> : null}
       <div className="room-layout">
-        <LabPanel room={displayedLabRoom} officeSamples={data.rooms.office.samples} outdoor={data.outdoor ?? null} refreshing={refreshing} analysisMinutes={data.analysisMinutes} />
+        <LabPanel room={displayedLabRoom} officeSamples={data.rooms.office.samples} outdoor={data.outdoor ?? null} refreshing={refreshing} analysisMinutes={data.analysisMinutes} live={data.live} />
         <OfficeRail room={displayedOfficeRoom} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes} />
       </div>
       <footer className="wallboard-footer">
@@ -2936,7 +2981,7 @@ function ApiKeySetup({ checking, onConnected }: { checking: boolean; onConnected
   );
 }
 
-function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes }: { room: RoomData; officeSamples: Sample[]; outdoor: OutdoorData | null; refreshing: boolean; analysisMinutes: number }) {
+function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, live = false }: { room: RoomData; officeSamples: Sample[]; outdoor: OutdoorData | null; refreshing: boolean; analysisMinutes: number; live?: boolean }) {
   const latest = room.latest;
   const pmObservation = pmBalanceObservation(room.samples);
   const currentSoundGrade = activeSoundGrade(latest?.soundMax ?? null);
@@ -2945,7 +2990,7 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes }:
   const outdoorParticles = outdoor?.particleLatest ?? null;
   const humidityAdaptationActive = labHumidityAdaptation(room, outdoor);
   const performanceGrade = labPerformanceGrade(latest?.performance ?? null, latest, humidityAdaptationActive, room.checks);
-  const hepa = hepaAssessment(room.samples, officeSamples, latest);
+  const hepa = hepaAssessment(room.samples, officeSamples, latest, labSavingChecksClear(room, live));
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
   const cycle = latestCycle(room.samples, "LAB");
   const beginWording = cycle?.begin
