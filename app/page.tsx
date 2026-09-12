@@ -1380,9 +1380,79 @@ function empiricalDecayRate(samples: Sample[], selector: (sample: Sample) => num
   return median(rates);
 }
 
+function labDayMatchesNightReference(samples: Sample[], latest: Sample) {
+  if (!Number.isFinite(latest.timestamp)) return false;
+  const latestCalendar = berlinCalendar(latest.timestamp);
+  // A completed night reference plus at least one hour of daytime evidence.
+  if (latestCalendar.minuteOfDay < 7 * 60) return false;
+  const day = samples.filter((sample) => Number.isFinite(sample.timestamp) && sample.timestamp <= latest.timestamp)
+    .map((sample) => ({ sample, ...berlinCalendar(sample.timestamp) }))
+    .filter((point) => point.dayKey === latestCalendar.dayKey)
+    .sort((left, right) => left.sample.timestamp - right.sample.timestamp);
+  if (new Set(day.map((point) => point.sample.timestamp)).size !== day.length) return false;
+  const night = day.filter((point) => point.minuteOfDay < 6 * 60);
+  const daytime = day.filter((point) => point.minuteOfDay >= 6 * 60);
+  if (!night.length || !daytime.length || night[0].minuteOfDay > 5 || daytime[0].minuteOfDay > 6 * 60 + 5) return false;
+  // Derive each boundary from its local source time, including DST nights.
+  const nightStart = Math.floor(night[0].sample.timestamp / 60_000) * 60_000 - night[0].minuteOfDay * 60_000;
+  const dayStart = Math.floor(daytime[0].sample.timestamp / 60_000) * 60_000 - (daytime[0].minuteOfDay - 6 * 60) * 60_000;
+  const recentStart = latest.timestamp - 60 * 60_000;
+  const hasCoverage = (points: Sample[], start: number, end: number) =>
+    points.length >= Math.ceil((end - start) / 120_000 * .8) &&
+    points[0].timestamp <= start + 5 * 60_000 &&
+    points[points.length - 1].timestamp >= end - 5 * 60_000 &&
+    points.every((point, index) => index === 0 || point.timestamp - points[index - 1].timestamp <= 5 * 60_000);
+
+  // Equality bands are display-comparison heuristics, not sensor accuracy or
+  // safety limits. Ordinary night variation is allowed, with a small bounded
+  // band so a noisy night cannot make a large daytime change count as equal.
+  const channels: Array<{ key: keyof Sample; resolution: number; maxDrift: number }> = [
+    { key: "co2", resolution: 1, maxDrift: 20 },
+    { key: "tvoc", resolution: 1, maxDrift: 25 },
+    { key: "hcho", resolution: .1, maxDrift: 1 },
+    { key: "co", resolution: .01, maxDrift: .03 },
+    { key: "oxygen", resolution: .01, maxDrift: .03 },
+    { key: "pm1", resolution: .1, maxDrift: .3 },
+    { key: "pm25", resolution: .1, maxDrift: .3 },
+    { key: "pm4", resolution: .1, maxDrift: .3 },
+    { key: "pm10", resolution: .1, maxDrift: .5 },
+    { key: "temperature", resolution: .1, maxDrift: .4 },
+    { key: "humidity", resolution: 1, maxDrift: 3 },
+    { key: "humidityAbs", resolution: .01, maxDrift: .12 },
+    { key: "sound", resolution: 1, maxDrift: 2.5 },
+    { key: "soundMax", resolution: 1, maxDrift: 4 },
+  ];
+  return channels.every(({ key, resolution, maxDrift }) => {
+    const valid = (sample: Sample) => typeof sample[key] === "number" && Number.isFinite(sample[key]);
+    const nightPoints = night.map((point) => point.sample).filter(valid);
+    const dayPoints = daytime.map((point) => point.sample).filter(valid);
+    const recentPoints = dayPoints.filter((sample) => sample.timestamp >= recentStart);
+    if (!valid(latest) || !hasCoverage(nightPoints, nightStart, dayStart) ||
+      !hasCoverage(dayPoints, dayStart, latest.timestamp) || !hasCoverage(recentPoints, recentStart, latest.timestamp)) return false;
+    const centre = median(nightPoints.map((sample) => sample[key]!))!;
+    const deviation = median(nightPoints.map((sample) => Math.abs(sample[key]! - centre)))!;
+    const tolerance = Math.max(resolution, Math.min(maxDrift, deviation * 3));
+    const matches = (value: number) => Math.abs(value - centre) <= tolerance + 1e-9;
+    if (!matches(median(dayPoints.map((sample) => sample[key]!))!) ||
+      !matches(median(recentPoints.map((sample) => sample[key]!))!) || !matches(latest[key]!)) return false;
+    // Short sustained changes must not disappear inside a whole-day median.
+    const blocks = new Map<number, number[]>();
+    for (const sample of dayPoints) {
+      const block = Math.floor((sample.timestamp - dayStart) / (15 * 60_000));
+      const values = blocks.get(block) ?? [];
+      values.push(sample[key]!);
+      blocks.set(block, values);
+    }
+    if (![...blocks.values()].every((values) => matches(median(values)!))) return false;
+    // Preserve isolated raw acoustic events rather than averaging them away.
+    return key !== "soundMax" || dayPoints.every((sample) => sample.soundMax! <= 90);
+  });
+}
+
 function airflowAdjustmentEstimate(samples: Sample[], officeSamples: Sample[], latest: Sample) {
   const latestCalendar = berlinCalendar(latest.timestamp);
-  const sameDay = samples.filter((sample) => berlinCalendar(sample.timestamp).dayKey === latestCalendar.dayKey);
+  const sameDay = samples.filter((sample) => Number.isFinite(sample.timestamp) && sample.timestamp <= latest.timestamp &&
+    berlinCalendar(sample.timestamp).dayKey === latestCalendar.dayKey);
   const night = sameDay.filter((sample) => berlinCalendar(sample.timestamp).minuteOfDay < 6 * 60);
   const recent = sameDay.filter((sample) => sample.timestamp >= latest.timestamp - 15 * 60_000);
   const channelMedian = (source: Sample[], selector: (sample: Sample) => number | null) =>
@@ -1419,14 +1489,14 @@ function airflowAdjustmentEstimate(samples: Sample[], officeSamples: Sample[], l
   // This is the user's planning figure for the future control system, not a
   // measured saving, a safe operating limit, or a command to change airflow.
   const weekday = berlinWeekday(latest.timestamp);
-  if (weekday === "Sat" || weekday === "Sun") {
+  if ((weekday === "Sat" || weekday === "Sun") && labDayMatchesNightReference(sameDay, latest)) {
     const activeVisit = activityCycles(sameDay, "LAB").some((cycle) =>
       cycle.begin !== null && cycle.begin <= latest.timestamp &&
       (cycle.close === null || cycle.close > latest.timestamp)
     );
     if (!activeVisit) return "PLACEHOLDER 《−50%》";
   }
-  return latestCalendar.minuteOfDay < 6 * 60 ? "ESTIMATE 《−50–60%》 POSSIBLE" : "ESTIMATE 《0%》 POSSIBLE";
+  return "ESTIMATE 《0%》 POSSIBLE";
 }
 
 function compactAirflowStatus(status: string) {
