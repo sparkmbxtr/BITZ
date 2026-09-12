@@ -3095,7 +3095,7 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
                 <small>{hepa.note}</small>
               </div>
               <div className="hepa-status-half airflow-rate-half">
-                <span>AIRFLOW RATE</span>
+                <span>AIRFLOW CHANGE<br />TO SAVE POWER</span>
                 <strong aria-label={hepa.airflow} title={hepa.airflow}>
                   <span className="airflow-status-full">{hepa.airflow}</span>
                   <span className="airflow-status-short">{compactAirflowStatus(hepa.airflow)}</span>
