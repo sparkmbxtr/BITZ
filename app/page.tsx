@@ -1416,11 +1416,22 @@ function airflowAdjustmentEstimate(samples: Sample[], officeSamples: Sample[], l
     const maximum = Math.min(50, strongest.adjustment + recoverySpread);
     return `ESTIMATE 《+${strongest.adjustment}–${maximum}%》 REQUIRED`;
   }
+  // This is the user's planning figure for the future control system, not a
+  // measured saving, a safe operating limit, or a command to change airflow.
+  const weekday = berlinWeekday(latest.timestamp);
+  if (weekday === "Sat" || weekday === "Sun") {
+    const activeVisit = activityCycles(sameDay, "LAB").some((cycle) =>
+      cycle.begin !== null && cycle.begin <= latest.timestamp &&
+      (cycle.close === null || cycle.close > latest.timestamp)
+    );
+    if (!activeVisit) return "PLACEHOLDER 《−50%》";
+  }
   return latestCalendar.minuteOfDay < 6 * 60 ? "ESTIMATE 《−50–60%》 POSSIBLE" : "ESTIMATE 《0%》 POSSIBLE";
 }
 
 function compactAirflowStatus(status: string) {
   return status
+    .replace("PLACEHOLDER 《−50%》", "PLACEHOLDER −50%")
     .replace("ESTIMATE 《", "EST. ")
     .replace("》 POSSIBLE", " POSS.")
     .replace("》 REQUIRED", " REQ.");
@@ -2974,7 +2985,7 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes }:
                   <span className="airflow-status-full">{hepa.airflow}</span>
                   <span className="airflow-status-short">{compactAirflowStatus(hepa.airflow)}</span>
                 </strong>
-                <small>{hepa.airflowNote}</small>
+                <small>{hepa.airflow.startsWith("PLACEHOLDER") ? "Planning figure // system design pending" : hepa.airflowNote}</small>
               </div>
             </div>
           ) : null}
