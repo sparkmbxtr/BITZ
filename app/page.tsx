@@ -78,6 +78,9 @@ type Grade = { label: string; level: GradeLevel };
 
 const ACOUSTIC_CHECK_LABEL = "Sound peak >90 dB";
 const REPORT_PENDING_MESSAGE = "Recent week’s report has not been generated yet.";
+// Retain the authenticated weekly-report flow while feedback determines whether
+// the dashboard should expose its download control again.
+const SHOW_WEEKLY_REPORT_DOWNLOAD = false;
 const DISPLAY_SESSION_STORAGE_KEY = "bitz-display-session-v1";
 const DISPLAY_SESSION_HEADER = "X-BITZ-Display-Session";
 const LAB_FLOOR_AREA_ESTIMATE_M2 = 18;
@@ -1642,9 +1645,9 @@ export default function Home() {
         <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 · Code Engine: https://github.com/sparkmbxtr/BITZ · If this is not your own device, select Lock (top right) before leaving.</span>
         <div className="footer-report-cluster">
           <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
-          <button className="report-trigger" type="button" onClick={openReportInput} aria-haspopup="dialog">REPORT</button>
+          {SHOW_WEEKLY_REPORT_DOWNLOAD ? <button className="report-trigger" type="button" onClick={openReportInput} aria-haspopup="dialog">REPORT</button> : null}
         </div>
-        {reportOpen ? (
+        {SHOW_WEEKLY_REPORT_DOWNLOAD && reportOpen ? (
           <section className="report-popover" role="dialog" aria-modal="true" aria-labelledby="report-title">
             <div className="report-popover-heading">
               <div>

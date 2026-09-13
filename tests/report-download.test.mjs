@@ -7,7 +7,13 @@ const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8")
 const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
 const route = await readFile(new URL("../app/api/report/route.ts", import.meta.url), "utf8");
 
-test("weekly report uses one OK/Cancel confirmation", () => {
+test("weekly report control is hidden behind a reversible flag", () => {
+  assert.match(page, /const SHOW_WEEKLY_REPORT_DOWNLOAD = false;/);
+  assert.match(page, /SHOW_WEEKLY_REPORT_DOWNLOAD \? <button className="report-trigger"/);
+  assert.match(page, /SHOW_WEEKLY_REPORT_DOWNLOAD && reportOpen/);
+});
+
+test("retained weekly report code uses one OK/Cancel confirmation", () => {
   assert.match(page, />REPORT<\/button>/);
   assert.match(page, /dashboardFetch\(\`\/api\/report\?availability=/);
   assert.match(page, /Recent week’s report has not been generated yet/i);
