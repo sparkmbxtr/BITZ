@@ -113,7 +113,10 @@ test("OFFICE activity timing prioritizes sustained sound-max transitions", () =>
 test("weekend presentation fails closed until a room-specific BEGIN is active", () => {
   assert.match(page, /if \(weekday === "Sat" \|\| weekday === "Sun"\) return !activityCycleIsOpen\(currentCycle, latest\.timestamp\)/);
   assert.equal(page.match(/const markedClosed = routineClosedForRoom\(latest, cycle, room\.status\);/g)?.length, 2);
-  assert.match(page, /currentWeekend[\s\S]*activeWeekendCycles[\s\S]*`CLOSED/);
+  const headerStatus = page.slice(page.indexOf("const bioengineeringDayStatus"), page.indexOf("async function toggleFullscreen"));
+  assert.match(headerStatus, /activeWeekendCycles[\s\S]*`BEGIN:/);
+  assert.match(headerStatus, /closeTimes\.length[\s\S]*`CLOSE:/);
+  assert.doesNotMatch(headerStatus, /`CLOSED/);
   assert.match(page, /const routineClosed = Boolean\(cycle\?\.dayKey/);
   const officeSection = page.slice(page.indexOf("function OfficeRail("), page.indexOf("function OfficePairTrend("));
   assert.doesNotMatch(officeSection, /CLOSED-PERIOD MONITORING/);

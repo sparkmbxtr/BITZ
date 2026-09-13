@@ -2510,7 +2510,9 @@ export default function Home() {
   const bioengineeringDayStatus = currentWeekend
     ? activeWeekendCycles.length
       ? `BEGIN: ${berlinShortTime(Math.min(...activeWeekendCycles.map((cycle) => cycle.begin!)))}`
-      : `CLOSED${closeTimes.length ? ` · CLOSE: ${berlinShortTime(Math.max(...closeTimes))}` : ""}`
+      : closeTimes.length
+        ? `CLOSE: ${berlinShortTime(Math.max(...closeTimes))}`
+        : ""
     : [
         bioengineeringBegin !== null ? `BEGIN: ${berlinShortTime(bioengineeringBegin)}` : null,
         bioengineeringClose !== null ? `CLOSE: ${berlinShortTime(bioengineeringClose)}` : null,
