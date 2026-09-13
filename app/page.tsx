@@ -3063,17 +3063,18 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
     .filter((check) => evidenceOrder.includes(check.label))
     .sort((left, right) => evidenceOrder.indexOf(left.label) - evidenceOrder.indexOf(right.label));
   const oxygenEmergency = room.checks.some((check) => check.label === "O₂ displacement" && check.level === "action");
+  const officialAlertAdvice = "This is a test system; follow official instructions from authorised managers and directors.";
   const criticalDisplay = routineClosed
     ? { label: "CLOSED", level: "normal", note: "Routine action prompts are paused after CLOSE; sensor trends remain visible for the next active period." }
     : oxygenEmergency
-    ? { label: "EVACUATE", level: "evacuate", note: "Leave the LAB and follow the LAB emergency procedure." }
+    ? { label: "ALERT", level: "critical", note: `Calculated early-warning ALERT. ${officialAlertAdvice}` }
     : room.status === "action"
-      ? { label: "ALERT", level: "action", note: "Critical warning active — follow the highlighted LAB procedure." }
+      ? { label: "ALERT", level: "action", note: `Calculated early-warning ALERT. ${officialAlertAdvice}` }
       : room.status === "watch"
-        ? { label: "CHECK", level: "watch", note: "A check condition is active; ALERT or EVACUATE will replace this status if triggered." }
+        ? { label: "CHECK", level: "watch", note: `A check condition is active; a calculated early-warning ALERT will replace this status if triggered. ${officialAlertAdvice}` }
         : room.status === "unknown"
           ? { label: "STATUS CHECK", level: "unknown", note: "Current status is being verified." }
-          : { label: "SAFE", level: "normal", note: "Critical warnings such as ALERT or EVACUATE will be displayed here." };
+          : { label: "SAFE", level: "normal", note: `Calculated early-warning ALERT will be displayed here. ${officialAlertAdvice}` };
   return (
     <section className="lab-panel" aria-labelledby="lab-heading">
       <div className="room-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h1 id="lab-heading">BIOENGINEERING S1 LAB</h1></div>{refreshing ? <span className="refresh-label">UPDATING</span> : null}</div>

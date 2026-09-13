@@ -396,7 +396,7 @@ line.activity-close { stroke: var(--amber); }
 .critical-message span { color: #e6f3ed; font-size: clamp(.84rem, .78vw, 1rem); font-weight: 680; line-height: 1.25; }
 .critical-message-watch { color: var(--amber); background: rgba(99, 65, 10, .9); }
 .critical-message-action { color: var(--orange); background: rgba(112, 43, 12, .92); }
-.critical-message-evacuate { color: #fff; background: #a51414; border-color: #ff6b5d; }
+.critical-message-critical { color: #fff; background: #a51414; border-color: #ff6b5d; }
 .critical-message-unknown { color: var(--unknown); background: rgba(60, 70, 73, .9); }
 
 .office-rail { display: grid; grid-template-rows: repeat(6, auto); align-content: start; gap: 7px; padding-left: 12px; border-left: 1px solid var(--border); }
