@@ -73,11 +73,13 @@ test("short landscape laptops fit the complete wallboard into the viewport", () 
   assert.match(page, /wallboard-auto-fit/);
 });
 
-test("PAIR is adjacent to CODES and visible whenever the screen is portrait", () => {
-  assert.match(page, /className="footer-context-cluster"/);
+test("PAIR remains available only when the screen is portrait", () => {
+  assert.match(page, /className="footer-pair-cluster"/);
   assert.match(page, /className="pair-trigger" href="\/pair"/);
   assert.match(css, /\.pair-trigger \{ display: none;/);
   assert.match(css, /@media \(orientation: portrait\) \{\s*\.pair-trigger \{ display: inline-flex; \}/);
+  assert.doesNotMatch(page, /context-trigger|context-popover|>CODES<|\/api\/context/);
+  assert.doesNotMatch(css, /context-trigger|context-popover|context-input-row|context-password-row/);
 });
 
 test("fitted landscape decision cards do not clip their two text rows", () => {
@@ -85,41 +87,9 @@ test("fitted landscape decision cards do not clip their two text rows", () => {
   assert.match(css, /\.meaning-evidence b\.meaning-status \{\s*height: auto;\s*min-height: 0;/);
 });
 
-test("OFFICE activity timing prioritizes sustained sound-max transitions", () => {
-  assert.match(page, /const SOUND_MAX_SIGNAL: ActivitySignal/);
-  assert.match(page, /direction === "BEGIN"\s*\? maxSustained && soundSustained/);
-  assert.match(page, /acousticCloseCandidates\.length[\s\S]*resolvedAcousticCloses[\s\S]*officeCloseCandidates\.length/);
-  assert.match(page, /candidate\.acoustic\.matched && \(room === "OFFICE" \|\| candidate\.changed >= 2\)/);
-  assert.match(page, /sustained sound-max drop and exit silence/);
-  assert.match(page, /first sustained quiet record after the trailing/);
-  assert.match(page, /timestamp \+ 30 \* 60_000/);
-  assert.match(page, /const renewedActivity = confirmation\.some/);
-  assert.match(page, /weekdayOfficeClose && berlinCalendar\(close\)\.minuteOfDay < 16 \* 60 \+ 40/);
-  assert.match(page, /const weekend = weekday === "Sat" \|\| weekday === "Sun"/);
-  assert.match(page, /previousClose && transition\.timestamp < previousClose \+ 10 \* 60_000/);
-  assert.match(page, /cycles\.push\(\{[\s\S]*close: resolvedClose,[\s\S]*peopleRange,/);
-  assert.doesNotMatch(page, /peopleRange === "0–1" \? "1"/);
-  assert.match(page, /direction === "CLOSE" \? 90 : 20/);
-  assert.match(page, /if \(close === null && officeCloseCandidates\.length\)/);
-  assert.match(page, /const ventilatedDeparture = tvocChange !== null && co2Change !== null/);
-  assert.match(page, /tvocChange >= coupledTvocThreshold &&[\s\S]*co2Change <= -coupledCo2Drop && soundChange <= -coupledSoundDrop/);
-  assert.match(page, /\(co2Drop \/ co2Scale\) \* \.9/);
-  // Executable synthetic sequences in lab-begin.test.mjs cover every LAB
-  // entry path; string checks alone previously approved silent false entry.
-  // OFFICE BEGIN timestamps and rendered curve alignment are exercised with
-  // sensor sequences in office-activity.test.mjs.
-});
-
-test("weekend presentation fails closed until a room-specific BEGIN is active", () => {
-  assert.match(page, /if \(weekday === "Sat" \|\| weekday === "Sun"\) return !activityCycleIsOpen\(currentCycle, latest\.timestamp\)/);
-  assert.equal(page.match(/const markedClosed = routineClosedForRoom\(latest, cycle, room\.status\);/g)?.length, 2);
-  const headerStatus = page.slice(page.indexOf("const bioengineeringDayStatus"), page.indexOf("async function toggleFullscreen"));
-  assert.match(headerStatus, /activeWeekendCycles[\s\S]*`BEGIN:/);
-  assert.match(headerStatus, /closeTimes\.length[\s\S]*`CLOSE:/);
-  assert.doesNotMatch(headerStatus, /`CLOSED/);
-  assert.match(page, /const routineClosed = Boolean\(cycle\?\.dayKey/);
-  const officeSection = page.slice(page.indexOf("function OfficeRail("), page.indexOf("function OfficePairTrend("));
-  assert.doesNotMatch(officeSection, /CLOSED-PERIOD MONITORING/);
+test("dashboard contains no calculated room-transition or personnel layer", () => {
+  assert.doesNotMatch(page, /STATE1|STATE2|activityCycles|ActivityCycle|peopleRange|approximatePeopleAfterBegin|occupancyText/);
+  assert.doesNotMatch(css, /activity-event-label|activity-time-grid|cycle-begin-stamp|day-end-stamps|closed-period-copy/);
 });
 
 test("LAB HEPA card includes a provisional airflow-rate assessment", () => {
@@ -131,7 +101,7 @@ test("LAB HEPA card includes a provisional airflow-rate assessment", () => {
   assert.match(page, /LAB_VOLUME_ESTIMATE_M3 = 50/);
   assert.match(page, /LAB_FLOOR_AREA_ESTIMATE_M2 = 18/);
   assert.match(page, /savingChecksClear && \(weekday === "Sat" \|\| weekday === "Sun"\) && labDaySupportsSavingReview/);
-  assert.match(page, /if \(!activeVisit\) return "ESTIMATE 《−50–60%》 POSSIBLE"/);
+  assert.match(page, /return "ESTIMATE 《−50–60%》 POSSIBLE"/);
   assert.match(page, /function empiricalDecayRate/);
   assert.match(page, /empiricalDecayRate\(officeSamples[\s\S]*"NIGHT"/);
   assert.match(page, /empiricalDecayRate\(officeSamples[\s\S]*"DAY"/);

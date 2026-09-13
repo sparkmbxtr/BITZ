@@ -24,7 +24,7 @@ OUT = base.OUTDIR / f"airq_monitoring_weekly_{base.REPORT_RANGE}.pdf"
 PAIR_DEFS = [
     ("health", "performance", "airQ index trajectories"),
     ("tvoc", "hcho", "volatile-gas co-movement"),
-    ("co2", "humidityAbs", "occupancy and moisture response"),
+    ("co2", "humidityAbs", "carbon-dioxide and moisture response"),
     ("temperature", "humidity", "thermal and relative-humidity response"),
     ("oxygen", "co", "gas-channel cross-check"),
     ("sound", "soundMax", "acoustic average and raw-peak response"),
@@ -75,9 +75,6 @@ def pair_key(fig):
         mpl.lines.Line2D([], [], color=base.WHITE, lw=2.2, label="15-minute trajectory"),
         Rectangle((0, 0), 1, 1, fc=base.GREEN, alpha=0.22, label="GOOD RANGE"),
         Rectangle((0, 0), 1, 1, fc=base.RED, alpha=0.32, label="ABOVE / BELOW LIMIT"),
-        mpl.lines.Line2D([], [], color=base.CYAN, lw=1.0, ls="--", label="BEGIN"),
-        mpl.lines.Line2D([], [], color=base.AMBER, lw=1.0, ls="--", label="CLOSE"),
-        Rectangle((0, 0), 1, 1, fc=base.WORK_WINDOW, alpha=0.30, label="BEGIN -30 min to CLOSE +30 min"),
         Rectangle((0, 0), 1, 1, fc="#859595", alpha=0.18, label="Saturday"),
         Rectangle((0, 0), 1, 1, fc=base.AMBER, alpha=0.13, label="volatile event"),
         mpl.lines.Line2D([], [], color=base.RED, marker="o", lw=0, markersize=5, label=">90 dB raw"),
@@ -213,7 +210,7 @@ def pair_chart_page(pdf, room, page_no, first, second, reason):
     ax2.patch.set_visible(False)
     ax2.tick_params(axis="x", bottom=False, top=False, labelbottom=False, labeltop=False)
 
-    base.add_daily_spans(ax, room, label_events=True)
+    base.add_daily_spans(ax)
     for event in base.DATA["rooms"][room]["volatileEvents"]:
         if (first in {"tvoc", "hcho"} or second in {"tvoc", "hcho"}) and event["durationMinutes"] >= 30:
             t0 = base.local_dt(event["onset"])
@@ -301,9 +298,6 @@ def pm_key(fig):
         mpl.lines.Line2D([], [], color=base.WHITE, lw=2.2, label="15-minute trajectory"),
         Rectangle((0, 0), 1, 1, fc=base.GREEN, alpha=0.22, label="GOOD RANGE"),
         Rectangle((0, 0), 1, 1, fc=base.RED, alpha=0.32, label="ABOVE LIMIT"),
-        mpl.lines.Line2D([], [], color=base.CYAN, lw=1.0, ls="--", label="BEGIN"),
-        mpl.lines.Line2D([], [], color=base.AMBER, lw=1.0, ls="--", label="CLOSE"),
-        Rectangle((0, 0), 1, 1, fc=base.WORK_WINDOW, alpha=0.30, label="BEGIN -30 min to CLOSE +30 min"),
         Rectangle((0, 0), 1, 1, fc="#859595", alpha=0.18, label="Saturday"),
     ]
     fig.legend(
@@ -343,7 +337,7 @@ def pm_chart_page(pdf, room, page_no):
     ax = fig.add_axes([0.064, 0.148, 0.872, 0.610])
     ax.set_facecolor(base.PANEL)
     ax.grid(True, axis="both", linewidth=0.45)
-    base.add_daily_spans(ax, room, label_events=True)
+    base.add_daily_spans(ax)
     for field, colour in zip(PM_FIELDS, PM_COLOURS):
         ax.plot(df.index, finite_series(df[field]), color=colour, lw=0.38, alpha=0.18, zorder=1)
         ax.plot(df5.index, finite_series(df5[field]), color=colour, lw=0.90, alpha=0.55, zorder=2)

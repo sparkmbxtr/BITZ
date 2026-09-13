@@ -38,7 +38,6 @@ AMBER = "#FFC45C"
 RED = "#FF6666"
 BLUE = "#80CFFF"
 PURPLE = "#C7A5FF"
-WORK_WINDOW = "#B9A7FF"
 RAW_TRACE = "#9FD7FF"
 FOOTER = "BIOENGINEERING LAB, BITZ"
 LIVE_MONITOR = "LIVE monitoring system: https://spark.bioengineering.workers.dev"
@@ -210,193 +209,17 @@ def stats_rows(room):
         ])
     return out
 
-def activity_rows(room):
-    r=DATA["rooms"][room]
-    rows=[]
-    for a in r["activities"]:
-        rows.append([
-            day_label(a["date"]),
-            "CONTROL" if a["controlDay"] else "OPERATING",
-            f"BEGIN {hm(a['begin'])}" if a["begin"] else "NOT DETECTED",
-            a["peopleRange"] or "-",
-            f"CLOSE {hm(a['close'])}" if a["close"] else "NOT DETECTED",
-        ])
-    return rows
-
-def room_summary_page(pdf, room, page_no):
-    r=DATA["rooms"][room]
-    fig=figure()
-    page_header(fig, f"{room} - WEEKLY SUMMARY",
-                f"Coverage: {DATA['coverage']['label']} | Location: near Oberschneiding-Schierlhof, Straubing-Bogen | Rooms evaluated independently",
-                page_no)
-    ax=panel(fig,[0.025,0.075,0.68,0.825],"EXACT ANALYTICAL TABLE | COMPLETE WEEK")
-    columns=["Parameter","Unit","Start","End","Minimum / time","Median","Maximum / time","Weekly night ref","End delta vs ref","End delta vs original"]
-    widths=[0.145,0.06,0.065,0.065,0.135,0.065,0.135,0.085,0.095,0.095]
-    draw_table(ax,stats_rows(room),columns,widths,bbox=(0.01,0.015,0.98,0.885),font=6.7,header_font=6.7,row_height_scale=1.05)
-
-    axa=panel(fig,[0.72,0.635,0.255,0.265],"BEGIN / CLOSE | EUROPE/BERLIN",GREEN)
-    draw_table(axa,activity_rows(room),["Date","Role","BEGIN","People","CLOSE"],[0.18,0.16,0.23,0.15,0.23],bbox=(0.02,0.04,0.96,0.82),font=7.0,header_font=7.0)
-
-    axi=panel(fig,[0.72,0.435,0.255,0.185],"INDEX-VALUE DECISION",CYAN)
-    ia=r["indexAssessment"]
-    axi.text(0.04,0.74,f"Health airQ(TM): r = {ia['healthCorrelation']:.2f} | " + ("meaningful secondary trajectory" if ia["healthMeaningful"] else "limited additional information"),fontsize=10.4,fontweight="bold",color=GREEN)
-    axi.text(0.04,0.52,f"Performance airQ(TM): r = {ia['performanceCorrelation']:.2f} | " + ("meaningful secondary trajectory" if ia["performanceMeaningful"] else "limited additional information"),fontsize=10.4,fontweight="bold",color=GREEN if ia["performanceMeaningful"] else MUTED)
-    axi.text(0.04,0.29,wrap(ia["summary"],59),fontsize=MIN_TEXT,color=WHITE,va="top",linespacing=1.28)
-
-    axe=panel(fig,[0.72,0.265,0.255,0.155],"MAJOR EVENT EXTREMA",AMBER)
-    max_sound=max(r["acousticEvents"],key=lambda x:x["peak"]) if r["acousticEvents"] else None
-    tv=r["weeklyStats"]["tvoc"]
-    hcho=r["weeklyStats"]["hcho"]
-    lines=[
-        f"Raw sound_max >90 dB episodes: {len(r['acousticEvents'])}" + (f" | highest {max_sound['peak']:.1f} dB at {local_s(max_sound['peakTime'])}" if max_sound else ""),
-        f"Volatile-gas episodes: {len(r['volatileEvents'])} | TVOC maximum {tv['max']:.1f} ppb at {local_s(tv['maxTime'])}",
-        f"Formaldehyde-signal maximum {hcho['max']:.2f} µg/m³ at {local_s(hcho['maxTime'])}",
-    ]
-    for i,t in enumerate(lines): axe.text(0.04,0.75-i*0.25,wrap(t,59),fontsize=9.8,color=WHITE,va="top",linespacing=1.22)
-
-    axc=panel(fig,[0.72,0.075,0.255,0.175],"ROOM-SPECIFIC CONCLUSION",GREEN)
-    if room=="LAB":
-        txt=(f"Five operating days produced five BEGIN and five CLOSE events. Saturday CO2 was {abs(r['controlComparison']['co2']['difference']):.1f} ppm lower and TVOC {abs(r['controlComparison']['tvoc']['difference']):.1f} ppb lower than weekday medians, while PM2.5 was unchanged. "
-             "The PM1/PM2.5/PM4/PM10 balance remained within the LAB's own low particle history, supporting effective HEPA particle control for this week. Propane and nitrogen remain NOT INFERRED until dedicated sensors are installed.")
-    else:
-        txt=("Five operating-day BEGIN events were detected. CLOSE was corroborated on four days and deliberately left not detected on 1 September. Saturday CO2 and sound were lower, but TVOC and the formaldehyde signal were higher than weekday medians; occupancy and volatile-source or air-exchange behaviour therefore remain separate analytical dimensions.")
-    axc.text(0.04,0.79,wrap(txt,61),fontsize=9.7,color=WHITE,va="top",linespacing=1.27)
-    axc.text(0.04,0.10,"People ranges are exploratory sensor inferences, not attendance records.",fontsize=MIN_TEXT,color=MUTED)
-    pdf.savefig(fig,facecolor=BG); plt.close(fig)
-
-def baseline_event_page(pdf, room, page_no):
-    r=DATA["rooms"][room]
-    fig=figure()
-    page_header(fig,f"{room} - DAILY REFERENCES AND EVENT REGISTER",
-                "Same-date 00:00-06:00 operational night medians | Raw acoustic peaks retained before aggregation | Saturday control separated",
-                page_no)
-
-    ax1=panel(fig,[0.025,0.665,0.95,0.235],"DAILY NIGHT REFERENCE AND ACTIVITY MAP",CYAN)
-    cols=["Date","Role","Night records","Coverage","Quality","Conditional channels","BEGIN evidence","People","CLOSE evidence","Day records"]
-    rows=[]
-    for a in r["activities"]:
-        b=r["baselines"][a["date"]]; d=r["daily"][a["date"]]
-        rows.append([day_label(a["date"]),"CONTROL" if a["controlDay"] else "OPERATING",b["recordCount"],b["coverage"],b["quality"],", ".join(b["conditionalChannels"]),"DETECTED" if a["begin"] else "-",a["peopleRange"] or "-","DETECTED" if a["close"] else "-",d["recordCount"]])
-    draw_table(ax1,rows,cols,[0.085,0.085,0.08,0.095,0.14,0.19,0.09,0.065,0.09,0.075],bbox=(0.01,0.04,0.98,0.82),font=7.3,header_font=7.1)
-
-    ax2=panel(fig,[0.025,0.435,0.95,0.215],"SELECTED NIGHT-REFERENCE VALUES | ALL OTHER PARAMETERS REMAIN IN THE WORKBOOK",GREEN)
-    bf=["co2","tvoc","hcho","pm1","pm25","pm4","pm10","oxygen","co","sound","soundMax","temperature","humidity","humidityAbs"]
-    compact_headers={
-        "co2":"CO2", "tvoc":"TVOC", "hcho":"HCHO", "oxygen":"O2", "co":"CO",
-        "sound":"Sound avg", "soundMax":"Sound max", "temperature":"Temp.",
-        "humidity":"Rel. humidity", "humidityAbs":"Abs. humidity",
-    }
-    cols=["Date",*[(compact_headers.get(f,DATA["fieldMeta"][f]["label"])+"\n"+DATA["fieldMeta"][f]["unit"]) for f in bf]]
-    rows=[]
-    for date in DATA["dates"]:
-        b=r["baselines"][date]["values"]
-        rows.append([day_label(date),*[fmt(b[f],3 if abs(b[f])<100 else 1) for f in bf]])
-    draw_table(ax2,rows,cols,[0.08,*([0.064]*len(bf))],bbox=(0.01,0.05,0.98,0.79),font=6.8,header_font=6.6)
-
-    ax3=panel(fig,[0.025,0.075,0.47,0.345],f"ALL RAW SOUND_MAX >90 dB EPISODES | n={len(r['acousticEvents'])}",RED)
-    ac_cols=["ID","Date/onset","Peak","Last >90","Recovery","Sound avg","CO2","TVOC","HCHO","PM2.5","O2"]
-    ac_rows=[]
-    for x in r["acousticEvents"]:
-        ac_rows.append([x["episodeId"].split("-")[-1],f"{x['date']}\n{hm(x['onset'])}",f"{x['peak']:.1f} dB\n{hm(x['peakTime'])}",hm(x["lastAbove"]),hm(x["recovery"]),fmt(x["soundAverage"],1),fmt(x["co2"],0),fmt(x["tvoc"],1),fmt(x["hcho"],2),fmt(x["pm25"],1),fmt(x["oxygen"],3)])
-    draw_table(ax3,ac_rows or [["-","No episodes","-","-","-","-","-","-","-","-","-"]],ac_cols,[0.06,0.12,0.10,0.08,0.08,0.09,0.07,0.08,0.09,0.08,0.08],bbox=(0.01,0.04,0.98,0.82),font=6.4,header_font=6.3)
-    ax3.text(0.015,0.012,"Raw device-review events only; not statutory exposure conclusions.",fontsize=MIN_TEXT,color=MUTED)
-
-    ax4=panel(fig,[0.505,0.075,0.47,0.345],f"ALL VOLATILE-GAS / MIXTURE-SIGNAL EPISODES | n={len(r['volatileEvents'])}",AMBER)
-    vg_cols=["ID","Date/onset","Peak","Recovery","Duration","TVOC peak/ref","HCHO peak/ref","Support","Persistence"]
-    vg_rows=[]
-    for x in r["volatileEvents"]:
-        vg_rows.append([x["eventId"].split("-")[-1],f"{x['date']}\n{hm(x['onset'])}",hm(x["peakTime"]),hm(x["recovery"]),f"{x['durationMinutes']:.0f} min",f"{x['tvocPeak']:.1f}/{x['tvocBaseline']:.1f}",f"{x['hchoPeak']:.1f}/{x['hchoBaseline']:.1f}",wrap(x["support"],20),x["persistence"]])
-    draw_table(ax4,vg_rows or [["-","No episodes","-","-","-","-","-","-","-"]],vg_cols,[0.055,0.12,0.07,0.07,0.085,0.11,0.11,0.22,0.10],bbox=(0.01,0.04,0.98,0.82),font=6.3,header_font=6.2)
-    ax4.text(0.015,0.012,"Mixture or cross-sensitivity signal; no compound identity assigned.",fontsize=MIN_TEXT,color=MUTED)
-
-    pdf.savefig(fig,facecolor=BG); plt.close(fig)
-
 def room_df(room):
     df=pd.DataFrame(DATA["rooms"][room]["samples"])
     df["time"]=pd.to_datetime(df["timestamp"],unit="ms",utc=True).dt.tz_convert("Europe/Berlin")
     return df.set_index("time").sort_index()
 
-def activity_windows(room):
-    activities=DATA["rooms"][room]["activities"]
-    operating=[a for a in activities if not a["controlDay"]]
-
-    def average_clock_minutes(key):
-        values=[]
-        for activity in operating:
-            if activity[key] is not None:
-                event_time=local_dt(activity[key])
-                values.append(event_time.hour*60+event_time.minute+event_time.second/60)
-        return int(round(float(np.mean(values)))) if values else None
-
-    averages={key:average_clock_minutes(key) for key in ("begin","close")}
-    windows=[]
-    for activity in operating:
-        day=pd.Timestamp(activity["date"],tz="Europe/Berlin")
-        item={"date":activity["date"]}
-        for key in ("begin","close"):
-            if activity[key] is not None:
-                item[key]=pd.Timestamp(local_dt(activity[key]))
-                item[f"{key}Average"]=False
-            elif averages[key] is not None:
-                item[key]=day+pd.Timedelta(minutes=averages[key])
-                item[f"{key}Average"]=True
-            else:
-                item[key]=None
-                item[f"{key}Average"]=False
-        windows.append(item)
-    return windows
-
-def add_daily_spans(ax, room, label_events=False):
-    r=DATA["rooms"][room]
+def add_daily_spans(ax):
     for date in DATA["dates"]:
-        d=pd.Timestamp(date,tz="Europe/Berlin")
-        ax.axvspan(d,d+pd.Timedelta(hours=6),color="#142B30",alpha=0.38,zorder=0)
+        day=pd.Timestamp(date,tz="Europe/Berlin")
+        ax.axvspan(day,day+pd.Timedelta(hours=6),color="#142B30",alpha=0.38,zorder=0)
         if date==DATA["saturday"]:
-            ax.axvspan(d,d+pd.Timedelta(days=1),color="#859595",alpha=0.08,zorder=0)
-    for window in activity_windows(room):
-        if window["begin"] is not None and window["close"] is not None:
-            band_start=window["begin"]-pd.Timedelta(minutes=30)
-            band_end=window["close"]+pd.Timedelta(minutes=30)
-            event_day=window["begin"].normalize()
-            if not (
-                window["begin"].normalize()==window["close"].normalize()==event_day
-                and band_start.normalize()==band_end.normalize()==event_day
-            ):
-                raise ValueError(
-                    f"Unsafe activity band for {room} {window['date']}: "
-                    f"{band_start.isoformat()} to {band_end.isoformat()}"
-                )
-            ax.axvspan(
-                band_start,
-                band_end,
-                color=WORK_WINDOW,alpha=0.105,zorder=0.12,
-            )
-            ax.axvline(band_start,color=WORK_WINDOW,ls=":",lw=0.7,alpha=0.80,zorder=0.2)
-            ax.axvline(band_end,color=WORK_WINDOW,ls=":",lw=0.7,alpha=0.80,zorder=0.2)
-        if window["begin"] is not None:
-            ax.axvline(window["begin"],color=CYAN,ls=":" if window["beginAverage"] else "--",lw=1.0,alpha=0.88,zorder=4)
-        if window["close"] is not None:
-            ax.axvline(window["close"],color=AMBER,ls=":" if window["closeAverage"] else "--",lw=1.0,alpha=0.88,zorder=4)
-        if label_events:
-            blend=mpl.transforms.blended_transform_factory(ax.transData,ax.transAxes)
-            if window["begin"] is not None:
-                suffix=" (avg)" if window["beginAverage"] else ""
-                ax.text(
-                    window["begin"],0.985,
-                    f"BEGIN {window['begin'].strftime('%H:%M')}{suffix}",
-                    transform=blend,ha="center",va="top",fontsize=10.5,
-                    fontweight="bold",color=CYAN,clip_on=True,zorder=6,
-                    bbox=dict(boxstyle="round,pad=0.16",fc=BG,ec=CYAN,lw=0.65,alpha=0.92),
-                )
-            if window["close"] is not None:
-                suffix=" (avg)" if window["closeAverage"] else ""
-                ax.text(
-                    window["close"],0.900,
-                    f"CLOSE {window['close'].strftime('%H:%M')}{suffix}",
-                    transform=blend,ha="center",va="top",fontsize=10.5,
-                    fontweight="bold",color=AMBER,clip_on=True,zorder=6,
-                    bbox=dict(boxstyle="round,pad=0.16",fc=BG,ec=AMBER,lw=0.65,alpha=0.92),
-                )
+            ax.axvspan(day,day+pd.Timedelta(days=1),color="#859595",alpha=0.08,zorder=0)
 
 def baseline_series(room, field, index):
     vals=[]
@@ -456,7 +279,7 @@ def add_value_bands(ax, field, room):
     ax.set_ylim(ylo,yhi)
 
 def paired_chart(fig, rect, room, df5, df15, f1, f2=None, title=None, thresholds=None,
-                 label_events=False, sound_events=False, volatile_spans=False, outdoor=False):
+                 sound_events=False, volatile_spans=False, outdoor=False):
     ax=fig.add_axes(rect)
     ax.set_facecolor(PANEL)
     ax.grid(True,axis="both",linewidth=0.45)
@@ -536,7 +359,7 @@ def paired_chart(fig, rect, room, df5, df15, f1, f2=None, title=None, thresholds
         )
         for legend_text, colour in zip(legend.get_texts(), (CYAN, AMBER)):
             legend_text.set_color(colour)
-    add_daily_spans(ax,room,label_events=label_events)
+    add_daily_spans(ax)
     ax.set_xlim(pd.Timestamp(local_dt(DATA["coverage"]["from"])),pd.Timestamp(local_dt(DATA["coverage"]["to"])))
     ax.xaxis.set_major_locator(mdates.HourLocator(byhour=[0,12],tz=TZ))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m %H:%M",tz=TZ))
@@ -557,9 +380,6 @@ def chart_page_key(fig):
         Rectangle((0, 0), 1, 1, fc=RED, alpha=0.35, label="ABOVE / BELOW LIMIT"),
         Rectangle((0, 0), 1, 1, fc=CYAN, alpha=0.18, label="below ref"),
         Rectangle((0, 0), 1, 1, fc=AMBER, alpha=0.18, label="above ref"),
-        mpl.lines.Line2D([], [], color=CYAN, lw=1.0, ls="--", label="BEGIN"),
-        mpl.lines.Line2D([], [], color=AMBER, lw=1.0, ls="--", label="CLOSE"),
-        Rectangle((0, 0), 1, 1, fc=WORK_WINDOW, alpha=0.30, label="BEGIN -30 min to CLOSE +30 min"),
         mpl.lines.Line2D([], [], color=CYAN, marker="o", markeredgecolor=WHITE, lw=0, markersize=5, label="MIN"),
         mpl.lines.Line2D([], [], color=AMBER, marker="o", markeredgecolor=WHITE, lw=0, markersize=5, label="MAX"),
         mpl.lines.Line2D([], [], color=RED, marker="o", lw=0, markersize=5, label=">90 dB raw"),
@@ -581,7 +401,7 @@ def chart_page_key(fig):
         borderaxespad=0,
     )
 
-def single_chart(fig, rect, room, df, df5, df15, field, *, label_events=False):
+def single_chart(fig, rect, room, df, df5, df15, field):
     ax=fig.add_axes(rect)
     ax.set_facecolor(PANEL)
     ax.grid(True,axis="both",linewidth=0.45)
@@ -593,7 +413,7 @@ def single_chart(fig, rect, room, df, df5, df15, field, *, label_events=False):
     y=df5[field].astype(float)
     baseline=baseline_series(room,field,x)
 
-    add_daily_spans(ax,room,label_events=label_events)
+    add_daily_spans(ax)
     if np.isfinite(baseline).any():
         ax.fill_between(x,y,baseline,where=(y>=baseline),color=AMBER,alpha=0.075,interpolate=True,zorder=0.4)
         ax.fill_between(x,y,baseline,where=(y<baseline),color=CYAN,alpha=0.070,interpolate=True,zorder=0.4)
@@ -697,117 +517,9 @@ def chart_page(pdf,room,page_no,field):
         page_no,
     )
     chart_page_key(fig)
-    single_chart(fig,[0.055,0.145,0.900,0.655],room,df,df5,df15,field,label_events=True)
+    single_chart(fig,[0.055,0.145,0.900,0.655],room,df,df5,df15,field)
     pdf.savefig(fig,facecolor=BG)
     plt.close(fig)
-
-def methods_page(pdf,page_no):
-    fig=figure()
-    page_header(fig,"METHODS, ACTIVE RULES AND REVIEW BOUNDARIES",
-                "Rules are reproduced in full in the accompanying workbook | Official references are linked below",
-                page_no)
-    boxes=[
-        (0.025,0.66,0.305,0.24,"REFERENCE MODEL",CYAN,[
-            "Each room/date uses its own 00:00-06:00 Europe/Berlin median.",
-            "Night count and actual coverage are reported; conditional gas baselines remain labelled.",
-            "First post-cutoff sample is provenance, not delta zero.",
-            "LAB and OFFICE are never subtracted, ranked or assigned common tolerances.",
-        ]),
-        (0.347,0.66,0.305,0.24,"EVENT MODEL",GREEN,[
-            "Five-minute medians retain onset; 15-minute trajectories corroborate direction.",
-            "Cross-channel timing is tested within +/-5 minutes; persistence at 30/60 minutes is retained.",
-            "BEGIN/CLOSE require sensor evidence. Saturday is a no-activity control.",
-            "People range is exploratory and never an attendance record.",
-        ]),
-        (0.67,0.66,0.305,0.24,"RAW ACOUSTIC HANDLING",RED,[
-            "Raw sound_max is scanned before aggregation.",
-            "A consecutive >90 dB run is one episode; a new episode follows any <=90 dB record.",
-            "Onset, peak, final-above and recovery are retained with nearby channels.",
-            "Events are device-review markers, not statutory exposure conclusions.",
-        ]),
-        (0.025,0.38,0.305,0.24,"ROOM-SPECIFIC INFERENCE",AMBER,[
-            "OFFICE CLOSE may use sustained TVOC-rise onset only with falling sound or halted/reversed CO2 and absolute-humidity accumulation.",
-            "LAB CLOSE is independent and does not inherit the OFFICE window rule.",
-            "Single TVOC/HCHO/CO channels remain mixture or cross-sensitivity signals.",
-            "Competing explanations are retained when timing support is insufficient.",
-        ]),
-        (0.347,0.38,0.305,0.24,"LAB TECHNICAL BOUNDARY",GREEN,[
-            "HEPA status uses the combined balance of PM1, PM2.5, PM4 and PM10 plus clearance duration.",
-            "Gas channels are evaluated separately from particle filtration.",
-            "Propane and nitrogen remain NOT INFERRED until dedicated sensors are installed.",
-            "Dedicated operational safety systems remain authoritative; this report is not an alarm system.",
-        ]),
-        (0.67,0.38,0.305,0.24,"CONTEXT AND LEARNING",PURPLE,[
-            "Manual context entries are timestamped observations, never ground truth.",
-            "Raw notes remain in the workbook and are excluded from this shareable PDF.",
-            "Fewer than three dates or less than two weeks of evidence remains OBSERVATION ONLY.",
-            "No first-week context correlation was activated in operational logic.",
-        ]),
-    ]
-    for x,y,w,h,title,accent,items in boxes:
-        ax=panel(fig,[x,y,w,h],title,accent)
-        draw_balanced_bullets(ax, items)
-
-    ax=panel(fig,[0.025,0.075,0.95,0.265],"OFFICIAL REFERENCE MAP | APPLIED ONLY WHEN METRIC, UNIT, AVERAGING TIME AND ROOM CONTEXT MATCH",CYAN)
-    refs=[
-        ["ASR A3.6","CO2 and temperature-linked humidity decisions","CO2 orientation bands: <1000, 1000-2000, >2000 ppm","https://www.baua.de/DE/Angebote/Regelwerk/ASR/ASR-A3-6"],
-        ["ASR A3.5","Use-period room temperature","Work/posture conditional; no invented universal chart threshold","https://www.baua.de/DE/Angebote/Regelwerk/ASR/ASR-A3-5"],
-        ["TRGS 900","Applicable LAB formaldehyde and CO workplace references","Formal comparison requires compatible sampling and metric","https://www.baua.de/DE/Angebote/Regelwerk/TRGS/TRGS-900"],
-        ["UBA/AIR","OFFICE indoor formaldehyde guidance only","100 µg/m³ indoor guidance; also not to be exceeded for 30 minutes","https://www.umweltbundesamt.de/themen/gesundheit/umwelteinfluesse-auf-den-menschen/chemische-stoffe/formaldehyd"],
-        ["Noise boundary","airQ sound and sound_max","No direct workplace limit applied because LEX,8h and dB(C) peak equivalence are unavailable","Raw >90 dB events remain non-regulatory device-review markers"],
-    ]
-    draw_table(ax,refs,["Authority","Report application","Decision boundary","Official source"],[0.12,0.25,0.30,0.33],bbox=(0.01,0.04,0.98,0.80),font=7.3,header_font=7.3)
-    pdf.savefig(fig,facecolor=BG); plt.close(fig)
-
-def overview_page(pdf,page_no):
-    fig=figure()
-    page_header(fig,"LAB and OFFICE - Overview",
-                f"First-week executive map | {DATA['coverage']['label']} | near Oberschneiding-Schierlhof, Straubing-Bogen",
-                page_no)
-    # Scope and integrity banner.
-    axi=panel(fig,[0.025,0.79,0.95,0.11],"SCOPE, DATA INTEGRITY AND INTERPRETIVE BOUNDARY",CYAN)
-    total=DATA["rooms"]["LAB"]["quality"]["records"]+DATA["rooms"]["OFFICE"]["quality"]["records"]
-    axi.text(0.025,0.62,f"{total:,} exact room records | LAB {DATA['rooms']['LAB']['quality']['records']:,} | OFFICE {DATA['rooms']['OFFICE']['quality']['records']:,} | median cadence 2.02 min | 6 complete local dates | 3 timestamped context observations",fontsize=10.8,fontweight="bold",color=GREEN)
-    axi.text(0.025,0.27,"LAB and OFFICE are separate environments. Every delta uses the same-date, same-room 00:00-06:00 operational night median. Saturday is a no-activity control. No cross-room subtraction, ranking, merged tolerance or causal claim from a single gas channel.",fontsize=MIN_TEXT,color=WHITE)
-
-    for idx,room in enumerate(["LAB","OFFICE"]):
-        x=0.025+idx*0.485; r=DATA["rooms"][room]
-        operating=[a for a in r["activities"] if not a["controlDay"]]
-        begins=[hm(a["begin"]) for a in operating if a["begin"]]
-        closes=[hm(a["close"]) for a in operating if a["close"]]
-        people=[]
-        for a in operating:
-            if a["peopleRange"]:
-                people.extend(int(v) for v in a["peopleRange"].split("-") if v.isdigit())
-        ax=panel(fig,[x,0.555,0.465,0.215],f"{room} | WEEKLY OPERATING SUMMARY",GREEN if room=="LAB" else CYAN)
-        summary_rows=[
-            ["BEGIN","5/5 operating days",f"range {min(begins)}-{max(begins)}"],
-            ["CLOSE",f"{len(closes)}/5 operating days",f"range {min(closes)}-{max(closes)}" if closes else "not resolved"],
-            ["People range","Exploratory",f"~{min(people)}-{max(people)} across first-hour estimates" if people else "insufficient evidence"],
-            ["Acoustic",f"{len(r['acousticEvents'])} raw >90 dB episodes",f"peak {max([e['peak'] for e in r['acousticEvents']],default=float('nan')):.1f} dB" if r['acousticEvents'] else "none"],
-            ["Volatile gas",f"{len(r['volatileEvents'])} mixture-signal episodes",f"TVOC max {r['weeklyStats']['tvoc']['max']:.1f} ppb"],
-            ["Night references","6/6 dates",f"~{r['baselines'][DATA['dates'][0]]['recordCount']} records per 00:00-06:00 window"],
-        ]
-        draw_table(ax,summary_rows,["Element","Finding","Range / detail"],[0.22,0.37,0.37],bbox=(0.02,0.05,0.96,0.78),font=7.7,header_font=7.5)
-
-        ax2=panel(fig,[x,0.31,0.465,0.225],f"{room} | SATURDAY CONTROL VS WEEKDAY MEDIAN",AMBER)
-        cr=r["controlComparison"]
-        rows=[]
-        for f in ["co2","tvoc","hcho","pm25","sound","soundMax","temperature","humidity"]:
-            meta=DATA["fieldMeta"][f]; q=cr[f]
-            rows.append([meta["label"],meta["unit"],fmt(q["weekdayMedian"]),fmt(q["saturdayMedian"]),fmt(q["difference"])])
-        draw_table(ax2,rows,["Parameter","Unit","Weekday","Saturday","Difference"],[0.28,0.13,0.18,0.18,0.18],bbox=(0.02,0.04,0.96,0.80),font=7.1,header_font=7.0)
-
-        ax3=panel(fig,[x,0.105,0.465,0.18],f"{room} | WEEKLY DECISION",GREEN)
-        if room=="LAB":
-            text=(f"{r['quality']['records']:,} raw records; {len(r['acousticEvents'])} raw >90 dB episodes; {len(r['volatileEvents'])} volatile-gas episodes. Saturday's lower CO2 and TVOC with unchanged PM2.5 helps separate occupancy/process activity from the already low particle background. HEPA particle performance was consistent with the LAB's own history. Propane and nitrogen remain NOT INFERRED pending dedicated sensors.")
-        else:
-            text=(f"{r['quality']['records']:,} raw records; {len(r['acousticEvents'])} raw >90 dB episode; {len(r['volatileEvents'])} volatile-gas episodes. Saturday's lower CO2 and sound but higher volatile signals shows why OFFICE occupancy, open-air exchange and source episodes must be evaluated independently. CLOSE was not detected on 1 September and remains deliberately blank.")
-        ax3.text(0.035,0.78,wrap(text,83),fontsize=10.2,color=WHITE,va="top",linespacing=1.28)
-
-    # Compact navigation line summarizes every following section without repeating daily exact timestamps.
-    fig.text(0.5,0.073,"WHAT FOLLOWS | LAB exact table -> LAB daily references/events -> LAB trajectories (2 pages) -> OFFICE exact table -> OFFICE daily references/events -> OFFICE trajectories (2 pages) -> methods/rules",ha="center",fontsize=MIN_TEXT,fontweight="bold",color=MUTED)
-    pdf.savefig(fig,facecolor=BG); plt.close(fig)
 
 def build_weekly_pdf():
     with PdfPages(OUT, metadata={
@@ -827,4 +539,3 @@ def build_weekly_pdf():
 
 if __name__ == "__main__":
     build_weekly_pdf()
-

@@ -7,7 +7,7 @@ const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8")
 const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
 const route = await readFile(new URL("../app/api/report/route.ts", import.meta.url), "utf8");
 
-test("weekly report uses one OK/Cancel confirmation without asking for a name", () => {
+test("weekly report uses one OK/Cancel confirmation", () => {
   assert.match(page, />REPORT<\/button>/);
   assert.match(page, /dashboardFetch\(\`\/api\/report\?availability=/);
   assert.match(page, /Recent week’s report has not been generated yet/i);
@@ -16,7 +16,6 @@ test("weekly report uses one OK/Cancel confirmation without asking for a name", 
   assert.match(page, /type="submit" disabled={reportState === "sending"}>\{reportState === "sending" \? "DOWNLOADING…" : "OK"\}/);
   assert.match(page, /reportDownloading\.current \|\|/);
   assert.match(page, /dashboardFetch\("\/api\/report", \{\s*method: "POST"/);
-  assert.doesNotMatch(page, /reportName|REPORT_ALLOWED_NAMES|REPORT_HIDDEN_TEST_NAME|report-name-guide|Enter your first name/);
 });
 
 test("only the exact latest Monday-Saturday report can be served", () => {
@@ -40,19 +39,16 @@ test("weekly report publication verifies before the current pointer is switched"
   assert.match(worker, /This single pointer write is the activation boundary/);
 });
 
-test("new downloads do not log names; historical export remains separate", () => {
-  assert.match(worker, /CREATE TABLE IF NOT EXISTS report_downloads/);
-  assert.match(worker, /listReportDownloads/);
-  assert.doesNotMatch(route, /acceptedFirstName|REPORT_ALLOWED_NAMES|REPORT_HIDDEN_TEST_NAME|addReportDownload\(/);
+test("the retired report-download logging surface is absent", () => {
+  assert.doesNotMatch(worker, /CREATE TABLE IF NOT EXISTS report_downloads|listReportDownloads|addReportDownload|first_name/);
+  assert.doesNotMatch(route, /downloadLog|airq_weekly_report_downloads\.csv|listReportDownloads|addReportDownload/);
   assert.match(route, /Dashboard login required/);
-  assert.match(route, /airq_weekly_report_downloads\.csv/);
-  assert.match(route, /downloadLog.*csv/);
 });
 
 const auth = loadTypeScriptModule(new URL("../lib/dashboard-auth.ts", import.meta.url), { globals: { btoa, atob } });
 
 async function reportFixture({ sessionSecret = "report-test-session-secret", reportAvailable = true } = {}) {
-  const calls = { load: 0, head: 0, logs: 0, nameWrites: 0 };
+  const calls = { load: 0, head: 0 };
   const pdf = new TextEncoder().encode("%PDF-1.7\n" + "x".repeat(1100) + "\n%%EOF");
   const stub = {
     headWeeklyReport: async (reportName) => { calls.head++; return reportAvailable ? { reportName, byteSize: pdf.length } : null; },
@@ -60,8 +56,6 @@ async function reportFixture({ sessionSecret = "report-test-session-secret", rep
       calls.load++;
       return reportAvailable ? { reportName, byteSize: pdf.length, chunks: [Buffer.from(pdf).toString("base64")] } : null;
     },
-    listReportDownloads: async () => { calls.logs++; return []; },
-    addReportDownload: async () => { calls.nameWrites++; throw new Error("Name collection must stay disabled"); },
   };
   const api = loadTypeScriptModule(new URL("../app/api/report/route.ts", import.meta.url), { globals: {
     btoa, atob, Uint8Array,
@@ -88,10 +82,10 @@ test("anonymous availability, POST and direct GET download attempts fail closed"
     assert.equal(result.status, 401);
     assert.match(result.headers.get("cache-control"), /no-store/);
   }
-  assert.deepEqual(calls, { load: 0, head: 0, logs: 0, nameWrites: 0 });
+  assert.deepEqual(calls, { load: 0, head: 0 });
 });
 
-test("cookie and signed display-session users can download without sending a name", async () => {
+test("cookie and signed display-session users can download", async () => {
   for (const mode of ["cookie", "header"]) {
     const { api, calls, request, cookie, token, pdf } = await reportFixture();
     const headers = mode === "cookie" ? { cookie } : { "x-bitz-display-session": token };
@@ -103,19 +97,8 @@ test("cookie and signed display-session users can download without sending a nam
     assert.match(result.headers.get("content-disposition"), /^attachment;/);
     assert.match(result.headers.get("cache-control"), /private, no-store/);
     assert.deepEqual(new Uint8Array(await result.arrayBuffer()), pdf);
-    assert.equal(calls.nameWrites, 0);
     assert.equal(calls.load, 1);
   }
-});
-
-test("legacy name payloads are ignored and never logged", async () => {
-  const { api, calls, request, cookie } = await reportFixture();
-  const result = await api.POST(request("POST", "", {
-    headers: { cookie, "content-type": "application/json" },
-    body: JSON.stringify({ firstName: "Test-only identity" }),
-  }));
-  assert.equal(result.status, 200);
-  assert.equal(calls.nameWrites, 0);
 });
 
 test("GET cannot download even with a valid dashboard session", async () => {
@@ -141,16 +124,11 @@ test("missing current report returns a clear unavailable response", async () => 
   assert.match((await result.json()).error, /not been generated yet/);
 });
 
-test("dashboard login alone cannot export historical names or publish reports", async () => {
-  const { api, calls, request, cookie } = await reportFixture();
+test("dashboard login alone cannot publish reports", async () => {
+  const { api, request, cookie } = await reportFixture();
   for (const headers of [{}, { cookie }]) {
-    assert.equal((await api.GET(request("GET", "?downloadLog=csv&download=1", { headers }))).status, 401);
     assert.equal((await api.PUT(request("PUT", "", { headers }))).status, 401);
   }
-  assert.equal(calls.logs, 0);
-  const headers = { authorization: "Bearer report-test-export-token" };
-  assert.equal((await api.GET(request("GET", "?downloadLog=csv", { headers }))).status, 200);
-  assert.equal(calls.logs, 1);
 });
 
 test("all chart paths are generated from ascending unique timestamps", () => {

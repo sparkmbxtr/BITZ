@@ -240,16 +240,6 @@ test("the negative planning range never replaces an existing excursion assessmen
   assert.match(show(samples), /^ESTIMATE 《\+/);
 });
 
-test("a detected weekend LAB visit hides the unoccupied-mode planning figure", () => {
-  const samples = series("2026-09-12").map((point, index) => {
-    const t = index * 2;
-    const elapsed = Math.max(0, Math.min(20, t - 11 * 60 + 2));
-    const peak = t >= 11 * 60 && t % 4 === 0;
-    return { ...point, co2: 500 + elapsed * 1.5, humidityAbs: 8 + elapsed * .004, soundMax: peak ? 90 : 70 };
-  });
-  assert.doesNotMatch(show(samples), /−50–60%/);
-});
-
 test("compact and full-size labels both preserve estimated-range meaning", () => {
   assert.equal(compact("ESTIMATE 《−50–60%》 POSSIBLE"), "EST. −50–60% POSS.");
   assert.match(page, /Planning estimate \/\/ system design pending/);

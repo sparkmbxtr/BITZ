@@ -9,15 +9,7 @@ const REPORT_PENDING_MESSAGE = "Recent week’s report has not been generated ye
 const REPORT_MAX_BYTES = 25 * 1024 * 1024;
 const REPORT_CHUNK_BYTES = 256 * 1024;
 
-type ReportDownload = {
-  id: string;
-  createdAt: number;
-  firstName: string;
-  reportName: string;
-};
-
 type ReportLogStub = {
-  listReportDownloads(from: number, to: number, limit?: number): Promise<ReportDownload[]>;
   stageWeeklyReport(report: StoredWeeklyReport): Promise<unknown>;
   getStagedWeeklyReport(reportId: string): Promise<StoredWeeklyReport | null>;
   activateWeeklyReport(reportId: string): Promise<unknown>;
@@ -85,24 +77,6 @@ async function exportAuthorized(request: Request) {
 async function dashboardAuthorized(request: Request) {
   const secret = runtimeBinding<string>("DASHBOARD_SESSION_SECRET");
   return Boolean(secret && await isAuthorized(request, secret));
-}
-
-function csvCell(value: string | number) {
-  const text = String(value);
-  return `"${text.replaceAll('"', '""')}"`;
-}
-
-function berlinTimestamp(timestamp: number) {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/Berlin",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).format(timestamp);
 }
 
 function berlinCalendarDate(timestamp: number) {
@@ -196,51 +170,8 @@ function validPdf(bytes: Uint8Array) {
   return prefix.startsWith("%PDF-") && suffix.includes("%%EOF");
 }
 
-async function exportDownloadLog(request: Request) {
-  if (!await exportAuthorized(request)) return json({ error: "Unauthorized" }, 401);
-
-  const stub = reportLog();
-  if (!stub) return json({ error: "Report log is unavailable" }, 503);
-
-  const url = new URL(request.url);
-  const now = Date.now();
-  const requestedFrom = Number(url.searchParams.get("from"));
-  const requestedTo = Number(url.searchParams.get("to"));
-  const from = Number.isFinite(requestedFrom) && requestedFrom >= 0 ? requestedFrom : 0;
-  const to = Number.isFinite(requestedTo) && requestedTo > 0 ? Math.min(requestedTo, now + 60_000) : now;
-  if (from > to) return json({ error: "Invalid time range" }, 400);
-
-  try {
-    const entries = await stub.listReportDownloads(from, to, 5000);
-    const rows = [
-      ["Download ID", "Downloaded at (Europe/Berlin)", "Downloaded at (UTC)", "First name", "Report"],
-      ...entries.map((entry) => [
-        entry.id,
-        berlinTimestamp(entry.createdAt),
-        new Date(entry.createdAt).toISOString(),
-        entry.firstName,
-        entry.reportName,
-      ]),
-    ];
-    const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
-    return new Response(csv, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": 'attachment; filename="airq_weekly_report_downloads.csv"',
-        "Cache-Control": "private, no-store, max-age=0",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
-  } catch {
-    return json({ error: "Report log could not be read" }, 503);
-  }
-}
-
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  // Historical records retain their separate export authorization.
-  if (url.searchParams.get("downloadLog") === "csv") return exportDownloadLog(request);
   if (!await dashboardAuthorized(request)) return json({ error: "Dashboard login required" }, 401);
   // Downloads require an explicit POST; GET is availability-only.
   if (url.searchParams.has("download")) return json({ error: "Use POST to download the report" }, 405);
@@ -258,7 +189,6 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   if (!await dashboardAuthorized(request)) return json({ error: "Dashboard login required" }, 401);
   if (!sameOrigin(request)) return json({ error: "Origin rejected" }, 403);
-  // No name is requested, read, or logged, including from older dashboard tabs.
   return downloadReport();
 }
 

@@ -59,7 +59,6 @@ type RoomData = {
   samples: Sample[];
   latest: Sample | null;
   checks: Check[];
-  occupancy: { label: string; confidence: string };
   summary: string;
   action: string;
 };
@@ -76,18 +75,6 @@ type DashboardData = {
 
 type GradeLevel = "great" | "good" | "watch" | "action" | "unknown";
 type Grade = { label: string; level: GradeLevel };
-type ContextArea = "LAB" | "OFFICE" | "OUTDOOR";
-type ActivityMethod = "ACOUSTIC" | "TVOC" | "MULTICHANNEL";
-type ActivityCycle = {
-  dayKey: string;
-  begin: number | null;
-  beginMethod: ActivityMethod | null;
-  close: number | null;
-  closeMethod: ActivityMethod | null;
-  end: number | null;
-  peopleRange: string | null;
-};
-type ActivityEvent = { timestamp: number; label: "BEGIN" | "CLOSE"; method: ActivityMethod; x: number; peopleRange: string | null };
 
 const ACOUSTIC_CHECK_LABEL = "Sound peak >90 dB";
 const REPORT_PENDING_MESSAGE = "Recent week’s report has not been generated yet.";
@@ -236,13 +223,12 @@ function demoRoom(name: "LAB" | "OFFICE"): RoomData {
   return {
     name,
     status: "normal",
-    statusLabel: lab ? "MONITORED CONDITIONS NORMAL" : "MONITORED STATE NORMAL",
+    statusLabel: "AVAILABLE CHANNELS NORMAL",
     samples,
     latest: samples.at(-1) ?? null,
-    occupancy: { label: lab ? "2–4 likely" : "1–3 likely", confidence: "medium confidence" },
     summary: lab
       ? "An earlier vapour response is returning toward the LAB reference without a particle rise."
-      : "A gentle CO₂ rise with stable PM is consistent with light occupancy; no unusual outdoor-air pattern is visible.",
+      : "A gentle CO₂ rise with stable PM is visible; no unusual outdoor-air pattern is visible.",
     action: lab
       ? "No immediate change is suggested; revisit the hood or process only if TVOC reverses or remains elevated for 30 minutes."
       : "No immediate change is suggested; revisit if CO₂ and VOC rise together or PM enters with a ventilation change.",
@@ -286,8 +272,8 @@ function fmt(value: number | null | undefined, digits = 0) {
 }
 
 function chronologicalByTimestamp<T extends { timestamp: number }>(samples: T[]) {
-  // The live API already returns strictly ordered, deduplicated records. Keep
-  // that array identity so all charts share one cached BEGIN/CLOSE analysis.
+  // The live API already returns strictly ordered, deduplicated records.
+  // Preserve that array identity when no normalization is needed.
   let previousTimestamp = Number.NEGATIVE_INFINITY;
   let alreadyChronological = true;
   for (const sample of samples) {
@@ -402,11 +388,6 @@ function berlinCalendar(timestamp: number) {
   };
 }
 
-function beganWording(beginTimestamp: number, latestTimestamp: number | null | undefined, currentDayWording: "TODAY BEGAN" | "DAY BEGAN") {
-  if (latestTimestamp && berlinCalendar(beginTimestamp).dayKey !== berlinCalendar(latestTimestamp).dayKey) return "YESTERDAY BEGAN";
-  return currentDayWording;
-}
-
 function berlinShortTime(timestamp: number) {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Berlin",
@@ -421,916 +402,11 @@ function berlinCompactDate(timestamp: number) {
   return `${month}${day}${year.slice(-2)}`;
 }
 
-function berlinContextStamp(timestamp: number) {
-  const [year, month, day] = berlinCalendar(timestamp).dayKey.split("-");
-  return `${day}.${month}.${year.slice(-2)} · ${berlinClock(timestamp)} · EUROPE/BERLIN`;
-}
-
 function median(values: number[]) {
   if (!values.length) return null;
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-}
-
-type ActivitySignal = {
-  key: "co2" | "tvoc" | "humidityAbs" | "temperature" | "sound" | "soundMax";
-  select: (sample: Sample) => number | null;
-  changeFloor: number;
-  settleFloor: number;
-};
-
-const ACTIVITY_SIGNALS: ActivitySignal[] = [
-  { key: "co2", select: (sample) => sample.co2, changeFloor: 20, settleFloor: 45 },
-  { key: "tvoc", select: (sample) => sample.tvoc, changeFloor: 25, settleFloor: 80 },
-  { key: "humidityAbs", select: (sample) => sample.humidityAbs, changeFloor: .12, settleFloor: .3 },
-  { key: "temperature", select: (sample) => sample.temperature, changeFloor: .15, settleFloor: .4 },
-  { key: "sound", select: (sample) => sample.sound, changeFloor: 2.5, settleFloor: 4 },
-];
-
-const SOUND_SIGNAL = ACTIVITY_SIGNALS.find((signal) => signal.key === "sound")!;
-const SOUND_MAX_SIGNAL: ActivitySignal = {
-  key: "soundMax",
-  select: (sample) => sample.soundMax,
-  changeFloor: 4,
-  settleFloor: 7,
-};
-
-const activityCycleCache: Record<"LAB" | "OFFICE", WeakMap<Sample[], ActivityCycle[]>> = {
-  LAB: new WeakMap<Sample[], ActivityCycle[]>(),
-  OFFICE: new WeakMap<Sample[], ActivityCycle[]>(),
-};
-
-function valuesBetween(samples: Sample[], signal: ActivitySignal, start: number, end: number) {
-  return samples
-    .filter((sample) => sample.timestamp >= start && sample.timestamp <= end)
-    .map(signal.select)
-    .filter((value): value is number => value !== null && Number.isFinite(value));
-}
-
-function transitionScore(
-  samples: Sample[],
-  timestamp: number,
-  scales: Map<ActivitySignal["key"], number>,
-) {
-  let changed = 0;
-  let score = 0;
-  for (const signal of ACTIVITY_SIGNALS) {
-    const before = median(valuesBetween(samples, signal, timestamp - 14 * 60_000, timestamp - 2 * 60_000));
-    const after = median(valuesBetween(samples, signal, timestamp + 2 * 60_000, timestamp + 14 * 60_000));
-    if (before === null || after === null) continue;
-    const ratio = Math.abs(after - before) / (scales.get(signal.key) ?? signal.changeFloor);
-    if (ratio >= 1) changed += 1;
-    score += Math.min(ratio, 2.5);
-  }
-  return { changed, score };
-}
-
-function signedWindowDelta(
-  samples: Sample[],
-  signal: ActivitySignal,
-  timestamp: number,
-) {
-  const before = median(valuesBetween(samples, signal, timestamp - 14 * 60_000, timestamp - 2 * 60_000));
-  const after = median(valuesBetween(samples, signal, timestamp + 2 * 60_000, timestamp + 14 * 60_000));
-  return before === null || after === null ? null : after - before;
-}
-
-function acousticTransitionSignature(
-  samples: Sample[],
-  timestamp: number,
-  centres: Map<ActivitySignal["key"], number>,
-  scales: Map<ActivitySignal["key"], number>,
-  direction: "BEGIN" | "CLOSE",
-) {
-  const soundBefore = median(valuesBetween(samples, SOUND_SIGNAL, timestamp - 18 * 60_000, timestamp - 4 * 60_000));
-  const soundEarly = median(valuesBetween(samples, SOUND_SIGNAL, timestamp + 2 * 60_000, timestamp + 10 * 60_000));
-  const soundLate = median(valuesBetween(samples, SOUND_SIGNAL, timestamp + 10 * 60_000, timestamp + 24 * 60_000));
-  const maxBefore = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp - 18 * 60_000, timestamp - 4 * 60_000));
-  const maxEarly = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp + 2 * 60_000, timestamp + 10 * 60_000));
-  const maxLate = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp + 10 * 60_000, timestamp + 24 * 60_000));
-  if ([soundBefore, soundEarly, soundLate, maxBefore, maxEarly, maxLate].some((value) => value === null)) {
-    return { matched: false, score: 0 };
-  }
-
-  const soundThreshold = Math.max(1.2, Math.min(4, (scales.get("sound") ?? 2.5) * .45));
-  const maxThreshold = Math.max(3.5, Math.min(8, (scales.get("soundMax") ?? 4) * .55));
-  const sign = direction === "BEGIN" ? 1 : -1;
-  const soundChange = sign * (soundEarly! - soundBefore!);
-  const soundPersistence = sign * (soundLate! - soundBefore!);
-  const maxChange = sign * (maxEarly! - maxBefore!);
-  const maxPersistence = sign * (maxLate! - maxBefore!);
-  const maxSustained = maxChange >= maxThreshold && maxPersistence >= maxThreshold * .55;
-  const soundSustained = soundChange >= soundThreshold && soundPersistence >= soundThreshold * .45;
-
-  const soundCentre = centres.get("sound");
-  const maxCentre = centres.get("soundMax");
-  const soundNearNight = direction === "CLOSE" && soundCentre !== undefined &&
-    soundLate! <= soundCentre + Math.max(2.5, soundThreshold * 1.8);
-  const maxNearNight = direction === "CLOSE" && maxCentre !== undefined &&
-    maxLate! <= maxCentre + Math.max(5, maxThreshold * 1.5);
-
-  const byKey = new Map(ACTIVITY_SIGNALS.map((signal) => [signal.key, signal] as const));
-  const co2Change = signedWindowDelta(samples, byKey.get("co2")!, timestamp);
-  const humidityChange = signedWindowDelta(samples, byKey.get("humidityAbs")!, timestamp);
-  const occupancyStopped = direction === "CLOSE" && co2Change !== null && humidityChange !== null &&
-    co2Change <= Math.max(15, (scales.get("co2") ?? 20) * .5) &&
-    humidityChange <= Math.max(.08, (scales.get("humidityAbs") ?? .12) * .5);
-
-  const matched = direction === "BEGIN"
-    ? maxSustained && soundSustained
-    : maxSustained && (soundSustained || soundNearNight || maxNearNight || occupancyStopped);
-  const score = (maxChange / maxThreshold) * 2 +
-    Math.max(0, soundChange / soundThreshold) +
-    Number(maxNearNight) * .7 + Number(soundNearNight) * .6 + Number(occupancyStopped) * .45;
-  return { matched, score };
-}
-
-function acousticTransitionEventTime(
-  samples: Sample[],
-  candidateTimestamp: number,
-  scales: Map<ActivitySignal["key"], number>,
-  direction: "BEGIN" | "CLOSE",
-) {
-  const sign = direction === "BEGIN" ? 1 : -1;
-  const maxThreshold = Math.max(3.5, Math.min(8, (scales.get("soundMax") ?? 4) * .55));
-  const candidates = samples
-    .filter((sample) => sample.timestamp >= candidateTimestamp - 20 * 60_000 &&
-      sample.timestamp <= candidateTimestamp + (direction === "CLOSE" ? 90 : 20) * 60_000)
-    .sort((left, right) => left.timestamp - right.timestamp);
-
-  // A CLOSE belongs at the first sustained quiet record after the trailing
-  // edge of the departure noise episode.  Never timestamp the leading edge
-  // or an internal dip while later sound-max peaks are still present.
-  if (direction === "CLOSE") {
-    const nightCentre = median(samples
-      .filter((sample) => berlinCalendar(sample.timestamp).minuteOfDay < 6 * 60)
-      .map(SOUND_MAX_SIGNAL.select)
-      .filter((value): value is number => value !== null && Number.isFinite(value)));
-    const activeLevel = (nightCentre ?? 0) + Math.max(4, maxThreshold * .75);
-    for (const sample of candidates) {
-      const timestamp = sample.timestamp;
-      const before = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp - 10 * 60_000, timestamp - 2 * 60_000));
-      const quiet = valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp, timestamp + 16 * 60_000);
-      if (before === null || before < activeLevel || quiet.length < 5 || median(quiet) === null || median(quiet)! >= activeLevel) continue;
-
-      // Confirm the complete trailing edge. A short dip within the departure
-      // episode is not CLOSE when sound-max becomes active again later in the
-      // available confirmation tail.
-      const confirmationEnd = Math.min(
-        timestamp + 30 * 60_000,
-        candidates.at(-1)?.timestamp ?? timestamp,
-      );
-      const confirmation = valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp, confirmationEnd);
-      const renewedActivity = confirmation.some((value) => value >= activeLevel);
-      if (!renewedActivity) return timestamp;
-    }
-
-    // Do not fall back to the leading edge of a sound decrease when the full
-    // departure tail has not produced a confirmed quiet boundary.
-    return null;
-  }
-
-  for (const sample of candidates) {
-    const timestamp = sample.timestamp;
-    const before = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
-    const current = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp, timestamp + 4 * 60_000));
-    const following = median(valuesBetween(samples, SOUND_MAX_SIGNAL, timestamp + 4 * 60_000, timestamp + 12 * 60_000));
-    if (before === null || current === null || following === null) continue;
-    if (
-      sign * (current - before) >= maxThreshold * .7 &&
-      sign * (following - before) >= maxThreshold * .55
-    ) return timestamp;
-  }
-  return candidateTimestamp;
-}
-
-function labDepartureCloseEventTime(
-  samples: Sample[],
-  from: number,
-  to: number,
-  centres: Map<ActivitySignal["key"], number>,
-  scales: Map<ActivitySignal["key"], number>,
-) {
-  const nightMax = centres.get("soundMax");
-  if (nightMax === undefined) return null;
-  const activeLevel = nightMax + Math.max(4, Math.min(8, (scales.get("soundMax") ?? 4) * .55));
-  const day = [...samples].sort((left, right) => left.timestamp - right.timestamp);
-  for (let index = 1; index < day.length; index += 1) {
-    const sample = day[index];
-    const previous = day[index - 1];
-    if (sample.timestamp < from || sample.timestamp > to) continue;
-    // LAB machinery keeps the acoustic median near its night level even while
-    // departure produces intermittent peaks. Detect their trailing edge, not
-    // a later median-window change. Confirmation never changes the event time.
-    if (sample.soundMax === null || previous.soundMax === null ||
-      !Number.isFinite(sample.soundMax) || !Number.isFinite(previous.soundMax) ||
-      sample.soundMax >= activeLevel || previous.soundMax < activeLevel ||
-      sample.timestamp - previous.timestamp > 5 * 60_000) continue;
-    const preceding = valuesBetween(day, SOUND_MAX_SIGNAL, sample.timestamp - 40 * 60_000, previous.timestamp);
-    if (preceding.filter((value) => value >= activeLevel).length < 3) continue;
-    const tail = day.filter((point) => point.timestamp >= sample.timestamp &&
-      point.timestamp <= sample.timestamp + 30 * 60_000);
-    if (tail.length < 10 || tail.at(-1)!.timestamp < sample.timestamp + 28 * 60_000) continue;
-    if (tail.some((point, tailIndex) => point.soundMax === null || !Number.isFinite(point.soundMax) ||
-      point.soundMax >= activeLevel || (tailIndex > 0 && point.timestamp - tail[tailIndex - 1].timestamp > 5 * 60_000))) continue;
-    const beforeSound = median(valuesBetween(day, SOUND_SIGNAL, sample.timestamp - 20 * 60_000, previous.timestamp));
-    const afterSound = median(tail.map(SOUND_SIGNAL.select).filter((value): value is number => value !== null && Number.isFinite(value)));
-    const co2 = ACTIVITY_SIGNALS.find((signal) => signal.key === "co2")!;
-    const humidity = ACTIVITY_SIGNALS.find((signal) => signal.key === "humidityAbs")!;
-    const co2Change = signedWindowDelta(day, co2, sample.timestamp);
-    const humidityChange = signedWindowDelta(day, humidity, sample.timestamp);
-    const occupancyStopped = co2Change !== null && humidityChange !== null &&
-      co2Change <= Math.max(15, (scales.get("co2") ?? 20) * .5) &&
-      humidityChange <= Math.max(.08, (scales.get("humidityAbs") ?? .12) * .5);
-    const quieter = beforeSound !== null && afterSound !== null && beforeSound - afterSound >= .5;
-    if (quieter || occupancyStopped) return sample.timestamp;
-  }
-  return null;
-}
-
-function labCorroboratedBeginEvents(
-  samples: Sample[],
-  centres: Map<ActivitySignal["key"], number>,
-  scales: Map<ActivitySignal["key"], number>,
-) {
-  const nightMax = centres.get("soundMax");
-  if (nightMax === undefined) return [];
-  const threshold = Math.max(3.5, Math.min(8, (scales.get("soundMax") ?? 4) * .55));
-  const corroboratingSignals = ACTIVITY_SIGNALS.filter((signal) =>
-    signal.key === "co2" || signal.key === "humidityAbs"
-  );
-  const onsets: number[] = [];
-
-  for (const sample of samples) {
-    const timestamp = sample.timestamp;
-    // The marker must be on a changed raw acoustic record, never a flat record
-    // whose forward median happens to contain a later event. A night-level
-    // difference or an isolated construction/process peak is not occupancy.
-    if (sample.soundMax === null || !Number.isFinite(sample.soundMax) || sample.soundMax < nightMax + threshold) continue;
-    const before = samples.filter((point) => point.timestamp >= timestamp - 20 * 60_000 && point.timestamp < timestamp);
-    const following = samples.filter((point) => point.timestamp >= timestamp && point.timestamp <= timestamp + 18 * 60_000);
-    if (before.length < 4 || following.length < 5 ||
-      before[0].timestamp > timestamp - 12 * 60_000 ||
-      following.at(-1)!.timestamp < timestamp + 16 * 60_000) continue;
-    const window = [...before, ...following];
-    if (window.some((point, index) => point.soundMax === null || !Number.isFinite(point.soundMax) ||
-      (index > 0 && (point.timestamp <= window[index - 1].timestamp || point.timestamp - window[index - 1].timestamp > 5 * 60_000)))) continue;
-    const maxBefore = median(before.map((point) => point.soundMax!))!;
-    const activeLevel = Math.max(nightMax, maxBefore) + threshold;
-    if (maxBefore > nightMax + threshold || sample.soundMax < activeLevel || before.at(-1)!.soundMax! >= activeLevel) continue;
-    const active = following.filter((point) => point.timestamp <= timestamp + 12 * 60_000 && point.soundMax! >= activeLevel);
-    if (active.length < 3 || active.at(-1)!.timestamp < timestamp + 4 * 60_000) continue;
-
-    // Require a nearby, persistent occupancy-compatible change above the
-    // pre-existing local trend. Temperature/TVOC drift and falling CO2 alone
-    // cannot corroborate LAB entry; OFFICE retains its independent detector.
-    const corroborated = corroboratingSignals.some((signal) => {
-      if (window.some((point) => signal.select(point) === null || !Number.isFinite(signal.select(point)))) return false;
-      const older = before.filter((point) => point.timestamp <= timestamp - 12 * 60_000);
-      const recent = before.filter((point) => point.timestamp >= timestamp - 10 * 60_000);
-      if (older.length < 2 || recent.length < 2) return false;
-      const olderValue = median(older.map((point) => signal.select(point)!))!;
-      const recentValue = median(recent.map((point) => signal.select(point)!))!;
-      const olderTime = median(older.map((point) => point.timestamp))!;
-      const recentTime = median(recent.map((point) => point.timestamp))!;
-      const slope = (recentValue - olderValue) / (recentTime - olderTime);
-      const residual = (point: Sample) => signal.select(point)! - (recentValue + slope * (point.timestamp - recentTime));
-      const floor = signal.key === "co2" ? 2 : .02;
-      const change = Math.max(floor, (scales.get(signal.key) ?? signal.changeFloor) * .08);
-      const onset = window.some((point) => Math.abs(point.timestamp - timestamp) <= 5 * 60_000 && residual(point) >= change);
-      const early = following.filter((point) => point.timestamp <= timestamp + 8 * 60_000);
-      const later = following.filter((point) => point.timestamp >= timestamp + 10 * 60_000);
-      return onset && early.length >= 3 && later.length >= 2 &&
-        median(early.map(residual))! >= change && median(later.map(residual))! >= change * 2 &&
-        median(early.map((point) => signal.select(point)!))! - recentValue >= change &&
-        median(later.map((point) => signal.select(point)!))! - recentValue >= change * 2;
-    });
-    if (corroborated) onsets.push(timestamp);
-  }
-  return onsets;
-}
-
-const officeFourChannelCache = new WeakMap<Sample[], number[]>();
-
-function officeFourChannelBeginEvents(samples: Sample[]) {
-  const cached = officeFourChannelCache.get(samples);
-  if (cached) return cached;
-  const events: number[] = [];
-  // These are the four traces paired on the OFFICE gas/climate graphs. HCHO
-  // is separate from TVOC, and their joint change can corroborate a quiet
-  // entry without requiring a later acoustic event.
-  const signals = [
-    { key: "co2", floor: 2, rising: true },
-    { key: "humidityAbs", floor: .015, rising: true },
-    { key: "tvoc", floor: 2, rising: false },
-    { key: "hcho", floor: .05, rising: false },
-  ] as const;
-  const intervals = samples.slice(1).map((sample, index) => sample.timestamp - samples[index].timestamp)
-    .filter((interval) => interval > 0);
-  const cadence = median(intervals);
-  if (cadence === null || cadence > 10 * 60_000) return events;
-  const window = Math.max(18 * 60_000, cadence * 3);
-  const maxGap = Math.max(6 * 60_000, cadence * 1.6);
-  for (const sample of samples) {
-    const timestamp = sample.timestamp;
-    const before = samples.filter((entry) => entry.timestamp >= timestamp - window && entry.timestamp < timestamp);
-    const after = samples.filter((entry) => entry.timestamp >= timestamp && entry.timestamp <= timestamp + window);
-    if (before.length < 3 || after.length < 3 ||
-      before.at(-1)!.timestamp - before[0].timestamp < 8 * 60_000 ||
-      after.at(-1)!.timestamp - timestamp < Math.max(10 * 60_000, cadence * 2)) continue;
-    const times = [...before, ...after].map((entry) => entry.timestamp);
-    if (times.some((time, index) => index > 0 && time - times[index - 1] > maxGap)) continue;
-
-    const coordinated = signals.every(({ key, floor, rising }) => {
-      const reference = before.filter((entry) => entry[key] !== null && Number.isFinite(entry[key]));
-      const confirmation = after.filter((entry) => entry[key] !== null && Number.isFinite(entry[key]));
-      const current = sample[key];
-      if (current === null || !Number.isFinite(current) || reference.length < 3 || confirmation.length < 3 ||
-        confirmation.at(-1)!.timestamp - timestamp < Math.max(10 * 60_000, cadence * 2)) return false;
-
-      // Extrapolate each channel's local pre-entry trajectory. This tests for
-      // a new bend in the curve, rather than its accumulated overnight level.
-      const meanTime = reference.reduce((sum, entry) => sum + (entry.timestamp - timestamp) / 60_000, 0) / reference.length;
-      const meanValue = reference.reduce((sum, entry) => sum + entry[key]!, 0) / reference.length;
-      let variance = 0;
-      let covariance = 0;
-      for (const entry of reference) {
-        const dt = (entry.timestamp - timestamp) / 60_000 - meanTime;
-        variance += dt * dt;
-        covariance += dt * (entry[key]! - meanValue);
-      }
-      if (variance === 0) return false;
-      const slope = covariance / variance;
-      const expected = (time: number) => meanValue + slope * ((time - timestamp) / 60_000 - meanTime);
-      const noise = median(reference.map((entry) => Math.abs(entry[key]! - expected(entry.timestamp)))) ?? 0;
-      const threshold = Math.max(floor, noise * 4);
-      const early = confirmation.filter((entry) => entry.timestamp <= timestamp + Math.max(6 * 60_000, cadence));
-      const later = confirmation.filter((entry) => entry.timestamp >= timestamp + Math.max(8 * 60_000, cadence));
-      const earlyChange = median(early.map((entry) => entry[key]! - expected(entry.timestamp)));
-      const laterChange = median(later.map((entry) => entry[key]! - expected(entry.timestamp)));
-      if (early.length < 2 || later.length < 2 || earlyChange === null || laterChange === null) return false;
-      if (rising) {
-        const previousLevel = median(reference.slice(-2).map((entry) => entry[key]!))!;
-        const earlyLevel = median(early.map((entry) => entry[key]!))!;
-        const laterLevel = median(later.map((entry) => entry[key]!))!;
-        // A decay flattening after CLOSE also bends above an extrapolated
-        // falling line. Require actual CO2/moisture accumulation for entry.
-        if (earlyLevel - previousLevel < floor * .5 || laterLevel - previousLevel < floor) return false;
-      }
-      const direction = rising ? 1 : Math.sign(earlyChange);
-      const changed = confirmation.filter((entry) => direction * (entry[key]! - expected(entry.timestamp)) >= threshold * .5);
-      return direction * (current - expected(timestamp)) >= threshold * .25 &&
-        direction * earlyChange >= threshold && direction * laterChange >= threshold * 2 &&
-        changed.length / confirmation.length >= .75;
-    });
-    if (coordinated) events.push(timestamp);
-  }
-  officeFourChannelCache.set(samples, events);
-  return events;
-}
-
-function officeCorroboratedBeginEventTime(
-  samples: Sample[],
-  candidateTimestamp: number,
-  centres: Map<ActivitySignal["key"], number>,
-  scales: Map<ActivitySignal["key"], number>,
-  earliestTimestamp = Number.NEGATIVE_INFINITY,
-) {
-  const fourChannelOnset = officeFourChannelBeginEvents(samples).find((timestamp) =>
-    timestamp >= Math.max(earliestTimestamp, candidateTimestamp - 60 * 60_000) &&
-    timestamp <= candidateTimestamp + 60 * 60_000
-  );
-  const co2Signal = ACTIVITY_SIGNALS.find((signal) => signal.key === "co2")!;
-  const humiditySignal = ACTIVITY_SIGNALS.find((signal) => signal.key === "humidityAbs")!;
-  const candidates = samples.filter((sample) =>
-    sample.timestamp >= Math.max(earliestTimestamp, candidateTimestamp - 60 * 60_000) &&
-    sample.timestamp <= candidateTimestamp + 60 * 60_000
-  );
-
-  for (const sample of candidates) {
-    const timestamp = sample.timestamp;
-    // Forward windows confirm a rise; the marker itself must sit on a rising
-    // raw record, not a preceding flat record whose window includes the rise.
-    const preceding = samples.filter((entry) => entry.timestamp >= timestamp - 16 * 60_000 && entry.timestamp <= timestamp - 2 * 60_000 && entry.co2 !== null);
-    const older = preceding.filter((entry) => entry.timestamp <= timestamp - 10 * 60_000);
-    const recent = preceding.filter((entry) => entry.timestamp >= timestamp - 8 * 60_000);
-    const olderCo2 = median(older.map((entry) => entry.co2!));
-    const recentCo2 = median(recent.map((entry) => entry.co2!));
-    const olderTime = median(older.map((entry) => entry.timestamp));
-    const recentTime = median(recent.map((entry) => entry.timestamp));
-    const following = samples.filter((entry) => entry.timestamp >= timestamp && entry.timestamp <= timestamp + 18 * 60_000 && entry.co2 !== null && entry.humidityAbs !== null);
-    if (sample.co2 === null || older.length < 2 || recent.length < 2 ||
-      olderCo2 === null || recentCo2 === null || olderTime === null || recentTime === null ||
-      recentTime <= olderTime || following.length < 4 ||
-      following.at(-1)!.timestamp < timestamp + 10 * 60_000) continue;
-    const observationTimes = [...preceding.map((entry) => entry.timestamp), ...following.map((entry) => entry.timestamp)];
-    if (observationTimes.some((time, index) => index > 0 && time - observationTimes[index - 1] > 6 * 60_000)) continue;
-    const co2Slope = (recentCo2 - olderCo2) / (recentTime - olderTime);
-    const expectedCo2 = recentCo2 + co2Slope * (timestamp - recentTime);
-    const co2Before = median(valuesBetween(samples, co2Signal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
-    const co2Early = median(valuesBetween(samples, co2Signal, timestamp, timestamp + 6 * 60_000));
-    const co2Later = median(valuesBetween(samples, co2Signal, timestamp + 8 * 60_000, timestamp + 18 * 60_000));
-    const humidityBefore = median(valuesBetween(samples, humiditySignal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
-    const humidityEarly = median(valuesBetween(samples, humiditySignal, timestamp, timestamp + 6 * 60_000));
-    const humidityLater = median(valuesBetween(samples, humiditySignal, timestamp + 8 * 60_000, timestamp + 18 * 60_000));
-    if (co2Before === null || co2Early === null || co2Later === null ||
-      humidityBefore === null || humidityEarly === null || humidityLater === null) continue;
-
-    const co2Rise = co2Early - co2Before;
-    const co2Persistence = co2Later - co2Before;
-    const humidityRise = humidityEarly - humidityBefore;
-    const humidityPersistence = humidityLater - humidityBefore;
-    const co2OnsetThreshold = Math.max(2, (scales.get("co2") ?? 20) * .08);
-    const humidityOnsetThreshold = Math.max(.02, (scales.get("humidityAbs") ?? .12) * .08);
-    const co2Confirmed = sample.co2 - expectedCo2 >= co2OnsetThreshold &&
-      co2Rise >= co2OnsetThreshold && co2Persistence >= co2OnsetThreshold * 2;
-    const humidityConfirmed = humidityRise >= humidityOnsetThreshold &&
-      humidityPersistence >= humidityOnsetThreshold * 2;
-    // Quiet visits can produce repeated peaks without lifting a 22-minute
-    // median. Either sound channel can corroborate the CO2/humidity onset.
-    const soundConcurrent = [SOUND_SIGNAL, SOUND_MAX_SIGNAL].some((signal) => {
-      const reference = median(valuesBetween(samples, signal, timestamp - 18 * 60_000, timestamp - 4 * 60_000)) ?? centres.get(signal.key);
-      if (reference === undefined) return false;
-      const threshold = signal.key === "sound" ? Math.max(.6, (scales.get("sound") ?? 2.5) * .15) : Math.max(2.5, (scales.get("soundMax") ?? 4) * .3);
-      const active = samples.filter((entry) => {
-        const value = signal.select(entry);
-        return entry.timestamp >= timestamp - 2 * 60_000 && entry.timestamp <= timestamp + 12 * 60_000 &&
-          value !== null && value - reference >= threshold;
-      });
-      return active.length >= 2 && active.at(-1)!.timestamp - active[0].timestamp >= 2 * 60_000;
-    });
-    if (co2Confirmed && humidityConfirmed && soundConcurrent) return Math.min(fourChannelOnset ?? timestamp, timestamp);
-  }
-
-  return fourChannelOnset ?? candidateTimestamp;
-}
-
-function officeCloseSignature(
-  samples: Sample[],
-  timestamp: number,
-  scales: Map<ActivitySignal["key"], number>,
-) {
-  const minuteOfDay = berlinCalendar(timestamp).minuteOfDay;
-  if (minuteOfDay < 16 * 60 + 20 || minuteOfDay > 18 * 60) return { matched: false, score: 0 };
-
-  const byKey = new Map(ACTIVITY_SIGNALS.map((signal) => [signal.key, signal] as const));
-  const tvocChange = signedWindowDelta(samples, byKey.get("tvoc")!, timestamp);
-  const soundChange = signedWindowDelta(samples, byKey.get("sound")!, timestamp);
-  const co2Change = signedWindowDelta(samples, byKey.get("co2")!, timestamp);
-  const humidityChange = signedWindowDelta(samples, byKey.get("humidityAbs")!, timestamp);
-  const tvocThreshold = Math.max(25, (scales.get("tvoc") ?? 25) * .75);
-  const coupledTvocThreshold = Math.max(10, (scales.get("tvoc") ?? 25) * .3);
-  const coupledCo2Drop = Math.max(5, (scales.get("co2") ?? 20) * .15);
-  const coupledSoundDrop = Math.max(1, (scales.get("sound") ?? 2.5) * .25);
-  const ventilatedDeparture = tvocChange !== null && co2Change !== null &&
-    soundChange !== null && tvocChange >= coupledTvocThreshold &&
-    co2Change <= -coupledCo2Drop && soundChange <= -coupledSoundDrop;
-  if (tvocChange === null || (tvocChange < tvocThreshold && !ventilatedDeparture)) {
-    return { matched: false, score: 0 };
-  }
-
-  const soundDrop = soundChange !== null && soundChange <= -Math.max(2, (scales.get("sound") ?? 2.5) * .5);
-  const co2NotAccumulating = co2Change !== null && co2Change <= Math.max(15, (scales.get("co2") ?? 20) * .5);
-  const humidityNotAccumulating = humidityChange !== null && humidityChange <= Math.max(.08, (scales.get("humidityAbs") ?? .12) * .5);
-  const occupancyDeparture = co2NotAccumulating && humidityNotAccumulating;
-  const matched = ventilatedDeparture || soundDrop || occupancyDeparture;
-  const support = Number(ventilatedDeparture) * 1.25 + Number(soundDrop) +
-    Number(co2NotAccumulating) + Number(humidityNotAccumulating);
-
-  return {
-    matched,
-    score: Math.min(tvocChange / (ventilatedDeparture ? coupledTvocThreshold : tvocThreshold), 3) + support * .55,
-  };
-}
-
-function officeCloseEventTime(
-  samples: Sample[],
-  candidateTimestamp: number,
-  scales: Map<ActivitySignal["key"], number>,
-) {
-  const byKey = new Map(ACTIVITY_SIGNALS.map((signal) => [signal.key, signal] as const));
-  const tvocSignal = byKey.get("tvoc")!;
-  const soundSignal = byKey.get("sound")!;
-  const co2Signal = byKey.get("co2")!;
-  const tvocScale = Math.max(25, scales.get("tvoc") ?? 25);
-  const soundScale = Math.max(2.5, scales.get("sound") ?? 2.5);
-  const candidates = samples.filter((sample) => {
-    const minute = berlinCalendar(sample.timestamp).minuteOfDay;
-    return Math.abs(sample.timestamp - candidateTimestamp) <= 24 * 60_000 &&
-      minute >= 16 * 60 + 20 &&
-      minute <= 18 * 60;
-  });
-
-  // First find the most clearly corroborated TVOC-rise / occupancy-departure
-  // transition. This remains the anchor that prevents an unrelated fluctuation
-  // from becoming a CLOSE event.
-  let best = { timestamp: candidateTimestamp, score: Number.NEGATIVE_INFINITY };
-  for (const sample of candidates) {
-    const timestamp = sample.timestamp;
-    const tvocBefore = median(valuesBetween(samples, tvocSignal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
-    const tvocAfter = median(valuesBetween(samples, tvocSignal, timestamp, timestamp + 6 * 60_000));
-    if (tvocBefore === null || tvocAfter === null) continue;
-    const tvocRise = tvocAfter - tvocBefore;
-    if (tvocRise <= 0) continue;
-
-    const soundBefore = median(valuesBetween(samples, soundSignal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
-    const soundAfter = median(valuesBetween(samples, soundSignal, timestamp, timestamp + 6 * 60_000));
-    const soundDrop = soundBefore === null || soundAfter === null ? 0 : Math.max(0, soundBefore - soundAfter);
-    const co2Before = median(valuesBetween(samples, co2Signal, timestamp - 8 * 60_000, timestamp - 2 * 60_000));
-    const co2After = median(valuesBetween(samples, co2Signal, timestamp, timestamp + 6 * 60_000));
-    const co2Drop = co2Before === null || co2After === null ? 0 : Math.max(0, co2Before - co2After);
-    const co2Scale = Math.max(20, scales.get("co2") ?? 20);
-    const score = tvocRise / tvocScale + (soundDrop / soundScale) * .7 + (co2Drop / co2Scale) * .9;
-
-    if (score > best.score) best = { timestamp, score };
-  }
-
-  // Report when the sustained TVOC spike starts, not its later maximum or the
-  // centre of the change window. Two or more cloud records in the following
-  // six minutes must remain above the local pre-event reference.
-  const anchor = best.timestamp;
-  const localReference = median(valuesBetween(
-    samples,
-    tvocSignal,
-    anchor - 22 * 60_000,
-    anchor - 10 * 60_000,
-  ));
-  if (localReference === null) return anchor;
-
-  const onsetDelta = Math.max(10, tvocScale * .25);
-  const onsetLevel = localReference + onsetDelta;
-  const onsetCandidates = candidates
-    .filter((sample) => sample.timestamp >= anchor - 20 * 60_000 && sample.timestamp <= anchor + 2 * 60_000)
-    .sort((left, right) => left.timestamp - right.timestamp);
-
-  for (const sample of onsetCandidates) {
-    const timestamp = sample.timestamp;
-    const current = tvocSignal.select(sample);
-    if (current === null || current < onsetLevel) continue;
-
-    const previous = median(valuesBetween(samples, tvocSignal, timestamp - 6 * 60_000, timestamp - 2 * 60_000));
-    const following = samples
-      .filter((entry) => entry.timestamp >= timestamp && entry.timestamp <= timestamp + 6 * 60_000)
-      .map(tvocSignal.select)
-      .filter((value): value is number => value !== null && Number.isFinite(value));
-    const sustained = following.filter((value) => value >= onsetLevel);
-
-    if (
-      previous !== null &&
-      current - previous >= onsetDelta * .6 &&
-      sustained.length >= 2
-    ) return timestamp;
-  }
-
-  return anchor;
-}
-
-function departureScore(
-  samples: Sample[],
-  timestamp: number,
-  centres: Map<ActivitySignal["key"], number>,
-  scales: Map<ActivitySignal["key"], number>,
-) {
-  let changed = 0;
-  let score = 0;
-  for (const signal of ACTIVITY_SIGNALS) {
-    const centre = centres.get(signal.key);
-    const after = median(valuesBetween(samples, signal, timestamp, timestamp + 15 * 60_000));
-    if (centre === undefined || after === null) continue;
-    const ratio = Math.abs(after - centre) / (scales.get(signal.key) ?? signal.changeFloor);
-    if (ratio >= 1) changed += 1;
-    score += Math.min(ratio, 2.5);
-  }
-  return { changed, score };
-}
-
-function approximatePeopleAfterBegin(
-  samples: Sample[],
-  begin: number,
-  baselineCentres: Map<ActivitySignal["key"], number>,
-) {
-  const end = begin + 60 * 60_000;
-  const hour = samples.filter((sample) => sample.timestamp >= begin && sample.timestamp <= end);
-  if (!hour.length || (hour.at(-1)?.timestamp ?? 0) < begin + 50 * 60_000) return null;
-
-  const co2Signal = ACTIVITY_SIGNALS.find((signal) => signal.key === "co2")!;
-  const humiditySignal = ACTIVITY_SIGNALS.find((signal) => signal.key === "humidityAbs")!;
-  const soundSignal = ACTIVITY_SIGNALS.find((signal) => signal.key === "sound")!;
-  const co2Start = median(valuesBetween(hour, co2Signal, begin, begin + 12 * 60_000));
-  const co2End = median(valuesBetween(hour, co2Signal, end - 12 * 60_000, end));
-  if (co2Start === null || co2End === null) return null;
-
-  const humidityStart = median(valuesBetween(hour, humiditySignal, begin, begin + 12 * 60_000));
-  const humidityEnd = median(valuesBetween(hour, humiditySignal, end - 12 * 60_000, end));
-  const soundHour = median(valuesBetween(hour, soundSignal, begin, end));
-  const soundBaseline = baselineCentres.get("sound");
-  const co2Rise = Math.max(0, co2End - co2Start);
-
-  // Initial exploratory range: CO₂ supplies the main signal; absolute humidity
-  // and occupied-period sound only widen/support the range. Room volume and
-  // measured air exchange can replace this coarse calibration later.
-  let centre = Math.max(0, (co2Rise - 10) / 45);
-  if (humidityStart !== null && humidityEnd !== null && humidityEnd - humidityStart > .12) centre += .55;
-  if (soundHour !== null && soundBaseline !== undefined && soundHour - soundBaseline > 2.5) centre += .75;
-
-  if (centre < .75) return "0–1";
-  const low = Math.max(1, Math.min(12, Math.floor(centre * .65)));
-  const high = Math.max(low + 1, Math.min(12, Math.ceil(centre * 1.55)));
-  return String(low) + "–" + String(high);
-}
-
-function activityCycles(samples: Sample[], room: "LAB" | "OFFICE") {
-  const cached = activityCycleCache[room].get(samples);
-  if (cached) return cached;
-
-  const grouped = new Map<string, Sample[]>();
-  for (const sample of samples) {
-    const key = berlinCalendar(sample.timestamp).dayKey;
-    const day = grouped.get(key) ?? [];
-    day.push(sample);
-    grouped.set(key, day);
-  }
-
-  const cycles: ActivityCycle[] = [];
-  for (const [dayKey, rawDay] of grouped) {
-    const day = [...rawDay].sort((left, right) => left.timestamp - right.timestamp);
-    const baseline = day.filter((sample) => berlinCalendar(sample.timestamp).minuteOfDay < 6 * 60);
-    if (baseline.length < 10) continue;
-
-    const scales = new Map<ActivitySignal["key"], number>();
-    const centres = new Map<ActivitySignal["key"], number>();
-    for (const signal of [...ACTIVITY_SIGNALS, SOUND_MAX_SIGNAL]) {
-      const values = baseline.map(signal.select).filter((value): value is number => value !== null && Number.isFinite(value));
-      const centre = median(values);
-      if (centre === null) continue;
-      const deviation = median(values.map((value) => Math.abs(value - centre))) ?? 0;
-      centres.set(signal.key, centre);
-      scales.set(signal.key, Math.max(signal.changeFloor, deviation * 5));
-    }
-
-    const transitionCandidates = day.map((sample) => ({
-      timestamp: sample.timestamp,
-      minuteOfDay: berlinCalendar(sample.timestamp).minuteOfDay,
-      ...transitionScore(day, sample.timestamp, scales),
-    }));
-    const morningCandidates = day.map((sample) => ({
-      timestamp: sample.timestamp,
-      minuteOfDay: berlinCalendar(sample.timestamp).minuteOfDay,
-      ...departureScore(day, sample.timestamp, centres, scales),
-    }));
-
-    const weekday = day.length ? berlinWeekday(day[0].timestamp) : null;
-    const weekend = weekday === "Sat" || weekday === "Sun";
-    // Four-way trajectory agreement is an entry candidate in its own right,
-    // including when changes are too small to pass the overnight level gates.
-    const officeTrajectoryBegins = new Set(room === "OFFICE" ? officeFourChannelBeginEvents(day) : []);
-    // All LAB entry paths use the same evidence gate, including weekends.
-    // A missing onset must stay undetected, never fall back to ambient drift.
-    const labBegins = new Set(room === "LAB" ? labCorroboratedBeginEvents(day, centres, scales) : []);
-    if (weekend) {
-      const weekendWindow = morningCandidates.filter((candidate) =>
-        candidate.minuteOfDay >= 6 * 60 && candidate.minuteOfDay <= 23 * 60 + 30
-      );
-      const beginCandidates = weekendWindow
-        .map((candidate) => ({
-          ...candidate,
-          acoustic: acousticTransitionSignature(day, candidate.timestamp, centres, scales, "BEGIN"),
-        }))
-        .filter((candidate) => room === "LAB" ? labBegins.has(candidate.timestamp) :
-          officeTrajectoryBegins.has(candidate.timestamp) || candidate.acoustic.matched ||
-          (candidate.changed >= 3 && candidate.score >= 3.4));
-      const closeCandidates = weekendWindow
-        .map((candidate) => ({
-          ...candidate,
-          acoustic: acousticTransitionSignature(day, candidate.timestamp, centres, scales, "CLOSE"),
-        }))
-        .filter((candidate) => candidate.acoustic.matched);
-
-      let openAt: number | null = null;
-      let beginMethod: ActivityMethod | null = null;
-      let previousClose: number | null = null;
-      const transitions = [
-        ...beginCandidates.map((candidate) => ({ ...candidate, kind: "BEGIN" as const })),
-        ...closeCandidates.map((candidate) => ({ ...candidate, kind: "CLOSE" as const })),
-      ].sort((left, right) => left.timestamp - right.timestamp || (left.kind === "CLOSE" ? -1 : 1));
-
-      for (const transition of transitions) {
-        if (openAt === null && transition.kind === "BEGIN") {
-          if (previousClose && transition.timestamp < previousClose + 10 * 60_000) continue;
-          const resolved = room === "LAB" ? transition.timestamp : transition.acoustic.matched
-            ? acousticTransitionEventTime(day, transition.timestamp, scales, "BEGIN")
-            : transition.timestamp;
-          if (resolved === null) continue;
-          openAt = room === "OFFICE"
-              ? officeCorroboratedBeginEventTime(day, resolved, centres, scales, previousClose === null ? Number.NEGATIVE_INFINITY : previousClose + 10 * 60_000)
-              : resolved;
-          if (previousClose !== null && openAt < previousClose + 10 * 60_000) {
-            openAt = null;
-            continue;
-          }
-          beginMethod = room === "LAB" || transition.acoustic.matched ? "ACOUSTIC" : "MULTICHANNEL";
-          continue;
-        }
-
-        if (openAt !== null && transition.kind === "CLOSE" && transition.timestamp >= openAt + 15 * 60_000) {
-          const resolvedClose = (room === "LAB"
-            ? labDepartureCloseEventTime(day, Math.max(openAt + 15 * 60_000, transition.timestamp - 20 * 60_000), transition.timestamp + 90 * 60_000, centres, scales)
-            : null) ?? acousticTransitionEventTime(day, transition.timestamp, scales, "CLOSE");
-          if (resolvedClose === null || resolvedClose <= openAt) continue;
-          const peopleRange = approximatePeopleAfterBegin(day, openAt, centres);
-          cycles.push({
-            dayKey,
-            begin: openAt,
-            beginMethod,
-            close: resolvedClose,
-            closeMethod: "ACOUSTIC",
-            end: resolvedClose,
-            peopleRange,
-          });
-          previousClose = resolvedClose;
-          openAt = null;
-          beginMethod = null;
-        }
-      }
-
-      if (openAt !== null) {
-        const peopleRange = approximatePeopleAfterBegin(day, openAt, centres);
-        cycles.push({
-          dayKey,
-          begin: openAt,
-          beginMethod,
-          close: null,
-          closeMethod: null,
-          end: null,
-          peopleRange,
-        });
-      }
-      continue;
-    }
-
-    const morningWindow = morningCandidates.filter((candidate) =>
-      candidate.minuteOfDay >= 6 * 60 + 45 &&
-      candidate.minuteOfDay <= 10 * 60 + 30
-    );
-    const morning = morningWindow.filter((candidate) =>
-      (candidate.changed >= 3 && candidate.score >= 3.4) ||
-      (candidate.changed >= 2 && candidate.score >= 2.25)
-    );
-    const acousticMorning = morningWindow
-      .map((candidate) => ({
-        ...candidate,
-        acoustic: acousticTransitionSignature(day, candidate.timestamp, centres, scales, "BEGIN"),
-      }))
-      .filter((candidate) => candidate.acoustic.matched && (room === "OFFICE" || candidate.changed >= 2));
-    let begin: number | null = null;
-    let beginMethod: ActivityMethod | null = null;
-    if (room === "LAB") {
-      begin = morningWindow.find((candidate) => labBegins.has(candidate.timestamp))?.timestamp ?? null;
-      beginMethod = begin === null ? null : "ACOUSTIC";
-    } else if (acousticMorning.length) {
-      const firstEpisode = acousticMorning.filter((candidate) => candidate.timestamp <= acousticMorning[0].timestamp + 20 * 60_000);
-      const candidate = firstEpisode.reduce((best, current) => current.acoustic.score > best.acoustic.score ? current : best);
-      begin = acousticTransitionEventTime(day, candidate.timestamp, scales, "BEGIN");
-      beginMethod = "ACOUSTIC";
-    } else if (morning.length) {
-      const firstEpisode = morning.filter((candidate) => candidate.timestamp <= morning[0].timestamp + 20 * 60_000);
-      begin = firstEpisode.reduce((best, candidate) => candidate.score > best.score ? candidate : best).timestamp;
-      beginMethod = "MULTICHANNEL";
-    }
-    const coordinatedMorning = morningWindow.find((candidate) => officeTrajectoryBegins.has(candidate.timestamp));
-    if (coordinatedMorning && (begin === null || coordinatedMorning.timestamp < begin)) {
-      begin = coordinatedMorning.timestamp;
-      beginMethod = "MULTICHANNEL";
-    }
-    // Refine either entry path using four-way agreement or CO2/humidity with
-    // sound support, within one hour of the candidate and available data.
-    if (room === "OFFICE" && begin !== null) {
-      begin = officeCorroboratedBeginEventTime(day, begin, centres, scales);
-    }
-
-    const eveningWindow = transitionCandidates.filter((candidate) =>
-      candidate.minuteOfDay >= 15 * 60 + 30 &&
-      candidate.minuteOfDay <= 19 * 60 + 30 &&
-      (!begin || candidate.timestamp >= begin + 4 * 60 * 60_000)
-    );
-    const officeCloseCandidates = room === "OFFICE"
-      ? eveningWindow
-          .map((candidate) => ({ ...candidate, closeSignature: officeCloseSignature(day, candidate.timestamp, scales) }))
-          .filter((candidate) => candidate.closeSignature.matched)
-      : [];
-    const acousticCloseCandidates = eveningWindow
-      .map((candidate) => ({
-        ...candidate,
-        acoustic: acousticTransitionSignature(day, candidate.timestamp, centres, scales, "CLOSE"),
-      }))
-      .filter((candidate) => candidate.acoustic.matched && (room === "OFFICE" || candidate.changed >= 2));
-    const strictEvening = eveningWindow.filter((candidate) => candidate.changed >= 3 && candidate.score >= 3.4);
-    const evening = strictEvening.length
-      ? strictEvening
-      : eveningWindow.filter((candidate) => candidate.changed >= 2 && candidate.score >= 2.25);
-    let close: number | null = room === "LAB" && eveningWindow.length
-      ? labDepartureCloseEventTime(day, eveningWindow[0].timestamp, eveningWindow.at(-1)!.timestamp, centres, scales)
-      : null;
-    let closeMethod: ActivityMethod | null = close === null ? null : "ACOUSTIC";
-    if (close === null && acousticCloseCandidates.length) {
-      const resolvedAcousticCloses = acousticCloseCandidates
-        .map((candidate) => acousticTransitionEventTime(day, candidate.timestamp, scales, "CLOSE"))
-        .filter((timestamp): timestamp is number => timestamp !== null)
-        .sort((left, right) => left - right);
-      close = resolvedAcousticCloses[0] ?? null;
-      // Weekday OFFICE occupancy is known to continue until the departure
-      // period around 16:40. This is only a rejection guard: sensor evidence
-      // must still create CLOSE, but an earlier internal quiet dip cannot.
-      const closeWeekday = close ? berlinWeekday(close) : null;
-      const weekdayOfficeClose = closeWeekday !== "Sat" && closeWeekday !== "Sun";
-      if (room === "OFFICE" && close && weekdayOfficeClose && berlinCalendar(close).minuteOfDay < 16 * 60 + 40) {
-        close = null;
-      }
-      closeMethod = close ? "ACOUSTIC" : null;
-    }
-    if (close === null && officeCloseCandidates.length) {
-      const closeCandidate = officeCloseCandidates.reduce((best, candidate) => {
-        const bestWeighted = best.score + best.closeSignature.score - Math.abs(best.minuteOfDay - (16 * 60 + 50)) / 300;
-        const candidateWeighted = candidate.score + candidate.closeSignature.score - Math.abs(candidate.minuteOfDay - (16 * 60 + 50)) / 300;
-        return candidateWeighted > bestWeighted ? candidate : best;
-      });
-      close = officeCloseEventTime(day, closeCandidate.timestamp, scales);
-      closeMethod = "TVOC";
-    } else if (close === null && evening.length) {
-      close = evening.reduce((best, candidate) => {
-        const targetMinute = room === "OFFICE" ? 16 * 60 + 50 : 17 * 60;
-        const bestWeighted = best.score - Math.abs(best.minuteOfDay - targetMinute) / 360;
-        const candidateWeighted = candidate.score - Math.abs(candidate.minuteOfDay - targetMinute) / 360;
-        return candidateWeighted > bestWeighted ? candidate : best;
-      }).timestamp;
-      closeMethod = "MULTICHANNEL";
-    }
-
-    function settledWindow(start: number, end: number) {
-      const relevant = ACTIVITY_SIGNALS.filter((signal) =>
-        signal.key === "co2" || signal.key === "humidityAbs" || signal.key === "temperature" || signal.key === "sound"
-      );
-      const checks = relevant.map((signal) => {
-        const centre = centres.get(signal.key);
-        const current = median(valuesBetween(day, signal, start, end));
-        if (centre === undefined || current === null) return null;
-        const baselineScale = scales.get(signal.key) ?? signal.changeFloor;
-        return {
-          key: signal.key,
-          within: Math.abs(current - centre) <= Math.max(signal.settleFloor, baselineScale * 1.6),
-        };
-      }).filter((check): check is { key: ActivitySignal["key"]; within: boolean } => check !== null);
-      if (checks.length < 3) return false;
-      const core = checks.filter((check) => check.key === "co2" || check.key === "sound");
-      return core.every((check) => check.within) && checks.filter((check) => check.within).length >= 3;
-    }
-
-    let end: number | null = null;
-    if (close) {
-      const afterClose = day.filter((sample) =>
-        sample.timestamp >= close + 20 * 60_000 &&
-        berlinCalendar(sample.timestamp).minuteOfDay <= 23 * 60 + 30
-      );
-      for (const sample of afterClose) {
-        if (
-          settledWindow(sample.timestamp, sample.timestamp + 15 * 60_000) &&
-          settledWindow(sample.timestamp + 15 * 60_000, sample.timestamp + 35 * 60_000)
-        ) {
-          end = sample.timestamp;
-          break;
-        }
-      }
-    }
-
-    const peopleRange = begin ? approximatePeopleAfterBegin(day, begin, centres) : null;
-    if (begin || close || end) cycles.push({ dayKey, begin, beginMethod, close, closeMethod, end, peopleRange });
-  }
-
-  activityCycleCache[room].set(samples, cycles);
-  return cycles;
-}
-
-function activityCycleIsOpen(cycle: ActivityCycle | null, timestamp: number) {
-  if (!cycle || cycle.begin === null || !Number.isFinite(timestamp)) return false;
-  if (cycle.dayKey !== berlinCalendar(timestamp).dayKey || cycle.begin > timestamp) return false;
-  return cycle.close === null || cycle.close > timestamp;
-}
-
-function routineClosedForRoom(latest: Sample | null, cycle: ActivityCycle | null, status: RoomData["status"]) {
-  // Safety/data states always outrank the occupancy presentation. On weekends,
-  // CLOSED is the fail-closed default and only a validated room-specific BEGIN
-  // opens that room. A validated CLOSE returns it to CLOSED.
-  if (!latest || status === "action" || status === "unknown") return false;
-  const dayKey = berlinCalendar(latest.timestamp).dayKey;
-  const currentCycle = cycle?.dayKey === dayKey ? cycle : null;
-  const weekday = berlinWeekday(latest.timestamp);
-  if (weekday === "Sat" || weekday === "Sun") return !activityCycleIsOpen(currentCycle, latest.timestamp);
-  return Boolean(currentCycle?.close !== null && currentCycle?.close !== undefined && latest.timestamp >= currentCycle.close);
-}
-
-function latestCycle(samples: Sample[], room: "LAB" | "OFFICE") {
-  return [...activityCycles(samples, room)].reverse().find((cycle) => cycle.begin || cycle.close || cycle.end) ?? null;
 }
 
 function latestValue(samples: Sample[], selector: (sample: Sample) => number | null) {
@@ -1466,8 +542,8 @@ function labDaySupportsSavingReview(samples: Sample[], latest: Sample) {
     const tolerance = Math.max(resolution, Math.min(maxDrift, deviation * 3));
     const matches = (value: number) => (mode === "upper" ? value - centre : Math.abs(value - centre)) <= tolerance + 1e-9;
     if (!matches(median(recentPoints.map((sample) => sample[key]!))!) || !matches(latest[key]!)) return false;
-    // Short sustained changes must not disappear inside the current closed-state
-    // review window. Old, fully recovered drift must not pin the display to 0%.
+    // Short sustained changes must not disappear inside the current review
+    // window. Old, fully recovered drift must not pin the display to 0%.
     const blocks = new Map<number, number[]>();
     for (const sample of recentPoints) {
       const block = Math.floor((sample.timestamp - recentStart) / (15 * 60_000));
@@ -1553,11 +629,7 @@ function airflowAdjustmentEstimate(samples: Sample[], officeSamples: Sample[], l
   // measured saving, a safe operating limit, or a command to change airflow.
   const weekday = berlinWeekday(latest.timestamp);
   if (savingChecksClear && (weekday === "Sat" || weekday === "Sun") && labDaySupportsSavingReview(sameDay, latest)) {
-    const activeVisit = activityCycles(sameDay, "LAB").some((cycle) =>
-      cycle.begin !== null && cycle.begin <= latest.timestamp &&
-      (cycle.close === null || cycle.close > latest.timestamp)
-    );
-    if (!activeVisit) return "ESTIMATE 《−50–60%》 POSSIBLE";
+    return "ESTIMATE 《−50–60%》 POSSIBLE";
   }
   return "ESTIMATE 《0%》 POSSIBLE";
 }
@@ -1701,9 +773,6 @@ function labHumidityAdaptation(room: RoomData, outdoor: OutdoorData | null) {
   if (!latest || !outdoor || outdoorLatest?.humidity === null || outdoorLatest?.humidity === undefined) return false;
 
   const dayKey = berlinCalendar(latest.timestamp).dayKey;
-  const cycle = activityCycles(room.samples, "LAB").filter((candidate) => candidate.dayKey === dayKey).at(-1) ?? null;
-  if (cycle?.close && latest.timestamp >= cycle.close) return false;
-
   const currentOutdoorHigh = outdoorLatest.humidity > 70;
   const indoorIsTenLower = latest.humidity !== null && outdoorLatest.humidity - latest.humidity >= 10;
   const outdoorWasVeryHighToday = outdoor.samples.some((sample) =>
@@ -1823,7 +892,7 @@ function pointsFor(
     .sort((left, right) => left.sample.timestamp - right.sample.timestamp);
   let previousX = 0;
   return ordered.map((point, index) => {
-    // Curves, clock ticks and BEGIN/CLOSE lines share the entire time axis.
+    // Curves and clock ticks share the entire time axis.
     const proportionalX = ((point.sample.timestamp - domainStart) / timeRange) * 100;
     const x = Math.min(100, Math.max(index === 0 ? 0 : previousX, proportionalX));
     previousX = x;
@@ -1877,7 +946,6 @@ function HistoryTrend({
   levelFor,
   analysisMinutes = 60,
   noSeriesLabel,
-  room,
   climateReference,
   sampleGrade,
 }: {
@@ -1890,7 +958,6 @@ function HistoryTrend({
   levelFor: (value: number | null) => Grade;
   analysisMinutes?: number;
   noSeriesLabel?: string;
-  room: "LAB" | "OFFICE";
   climateReference?: ClimateReference;
   sampleGrade?: (sample: Sample) => Grade;
 }) {
@@ -1960,11 +1027,6 @@ function HistoryTrend({
       return result;
     }, []);
     const ticks = roundedTimeTicks(start, end);
-    const events: ActivityEvent[] = activityCycles(orderedSamples, room).flatMap((cycle) => [
-      ...(cycle.begin && cycle.beginMethod ? [{ timestamp: cycle.begin, label: "BEGIN" as const, method: cycle.beginMethod, peopleRange: cycle.peopleRange }] : []),
-      ...(cycle.close && cycle.closeMethod ? [{ timestamp: cycle.close, label: "CLOSE" as const, method: cycle.closeMethod, peopleRange: null }] : []),
-    ]).filter((event) => event.timestamp >= start && event.timestamp <= end)
-      .map((event) => ({ ...event, x: ((event.timestamp - start) / timeRange) * 100 }));
     const primaryGeometry = build(primary, climateReference?.primary);
     const secondaryGeometry = build(secondary, climateReference?.secondary);
     return {
@@ -1974,10 +1036,9 @@ function HistoryTrend({
       secondaryReferenceArea: secondary ? referenceArea(climateReference?.secondary, secondaryGeometry.scale) : "",
       zones,
       ticks,
-      events,
       recentBoundary: Math.max(0, ((recentStart - start) / timeRange) * 100),
     };
-  }, [orderedSamples, primary, secondary, analysisMinutes, levelFor, room, climateReference, sampleGrade]);
+  }, [orderedSamples, primary, secondary, analysisMinutes, levelFor, climateReference, sampleGrade]);
 
   const showPrimaryAxis = Boolean(primaryUnit);
   const showSecondaryAxis = Boolean(secondaryUnit && secondary);
@@ -1993,7 +1054,6 @@ function HistoryTrend({
           {geometry.secondaryReferenceArea ? <path d={geometry.secondaryReferenceArea} className="outdoor-reference-area outdoor-secondary" /> : null}
           {showPrimaryAxis ? [7, 16, 25].map((y) => <line key={`y-grid-${y}`} x1="0" y1={y} x2="100" y2={y} className="trend-y-grid" />) : null}
           {geometry.ticks.map((tick, index) => <line key={`tick-${index}`} x1={tick.x} y1="2" x2={tick.x} y2="26" className="trend-time-grid" />)}
-          {geometry.events.map((event, index) => <line key={`event-${event.label}-${index}`} x1={event.x} y1="2" x2={event.x} y2="26" className={`activity-time-grid activity-${event.label.toLowerCase()}`} />)}
           <line x1="0" y1="25" x2="100" y2="25" className="trend-grid" />
           <rect x={geometry.recentBoundary} y="3" width={100 - geometry.recentBoundary} height="23" className="recent-window" />
           {geometry.secondary.all ? <path d={geometry.secondary.all} className="trend-secondary trend-history" /> : null}
@@ -2001,27 +1061,6 @@ function HistoryTrend({
           {geometry.secondary.recent ? <path d={geometry.secondary.recent} className="trend-secondary trend-recent" /> : null}
           {geometry.primary.recent ? <path d={geometry.primary.recent} className="trend-primary trend-recent" /> : null}
         </svg>
-        {geometry.events.map((event, index) => {
-          const alignment = event.x <= 20 ? "start" : event.x >= 80 ? "end" : "centre";
-          return (
-            <span
-              key={`event-label-${event.label}-${index}`}
-              className={`activity-event-label activity-${event.label.toLowerCase()} event-align-${alignment}`}
-              style={{ left: `${Math.min(98, Math.max(2, event.x))}%` }}
-              title={
-                event.label === "BEGIN"
-                  ? `${beganWording(event.timestamp, orderedSamples.at(-1)?.timestamp, room === "LAB" && labPmGrade(pmBalanceObservation(orderedSamples)?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")} ${berlinShortTime(event.timestamp)}${event.method === "ACOUSTIC" ? " · sustained sound-led entry transition" : " · coordinated multichannel transition"}`
-                  : room === "OFFICE"
-                    ? event.method === "ACOUSTIC"
-                      ? `CLOSE ${berlinShortTime(event.timestamp)} · sustained sound-max drop and exit silence`
-                      : event.method === "TVOC"
-                        ? `CLOSE ${berlinShortTime(event.timestamp)} · sustained TVOC-rise onset with departure support`
-                        : `CLOSE ${berlinShortTime(event.timestamp)} · coordinated late-day transition`
-                    : `CLOSE ${berlinShortTime(event.timestamp)} · coordinated late-day transition`
-              }
-            >{event.label} {berlinShortTime(event.timestamp)}{event.label === "BEGIN" && event.peopleRange ? ` · ≈${event.peopleRange}` : ""}</span>
-          );
-        })}
         {geometry.primary.current ? (
           <span
             className="current-point"
@@ -2093,10 +1132,6 @@ function TrafficLight({ status }: { status: RoomData["status"] }) {
   );
 }
 
-function occupancyText(room: RoomData) {
-  return room.occupancy.label.includes("likely") ? `${room.occupancy.label} · estimate` : "occupancy / ventilation signal";
-}
-
 function OutdoorWeather({ outdoor }: { outdoor: OutdoorData }) {
   const latest = outdoor.latest;
   if (!latest || (latest.temperature === null && latest.humidity === null)) return null;
@@ -2133,22 +1168,17 @@ export default function Home() {
   const [compactViewport, setCompactViewport] = useState(false);
   const [fitViewport, setFitViewport] = useState(false);
   const [presentationMode, setPresentationMode] = useState(() => readDisplayUpdateValue<DisplayUpdateView>(DISPLAY_UPDATE_VIEW_KEY)?.presentationMode === true);
-  const [contextOpen, setContextOpen] = useState(false);
-  const [contextUnlocked, setContextUnlocked] = useState(false);
-  const [contextPassword, setContextPassword] = useState("");
-  const [contextArea, setContextArea] = useState<ContextArea>("LAB");
-  const [contextNote, setContextNote] = useState("");
-  const [contextTimestamp, setContextTimestamp] = useState<number | null>(null);
-  const [contextState, setContextState] = useState<"idle" | "unlocking" | "sending" | "sent" | "error">("idle");
-  const [contextError, setContextError] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
   const reportDownloading = useRef(false);
   const [reportState, setReportState] = useState<"idle" | "checking" | "ready" | "unavailable" | "sending" | "sent" | "error">("idle");
   const [reportError, setReportError] = useState("");
   const [reportAvailability, setReportAvailability] = useState<ReportAvailability | null>(null);
   const updateState = useRef({ busy: false, presentationMode: false });
-  updateState.current = { busy: contextOpen || reportOpen, presentationMode };
   const restoredUpdateView = useRef(false);
+
+  useEffect(() => {
+    updateState.current = { busy: reportOpen, presentationMode };
+  }, [reportOpen, presentationMode]);
 
   useEffect(() => {
     if (authorized !== true) return;
@@ -2218,16 +1248,6 @@ export default function Home() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [authorized, apiConnected, data.live]);
-
-  const closeContextInput = useCallback(() => {
-    setContextOpen(false);
-    setContextUnlocked(false);
-    setContextPassword("");
-    setContextNote("");
-    setContextState("idle");
-    setContextError("");
-    void dashboardFetch("/api/context-auth", { method: "DELETE" }).catch(() => undefined);
-  }, []);
 
   const closeReportInput = useCallback(() => {
     setReportOpen(false);
@@ -2322,15 +1342,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!contextOpen && !reportOpen) return;
+    if (!reportOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (reportOpen && reportState !== "sending") closeReportInput();
-      if (contextOpen && contextState !== "sending" && contextState !== "unlocking") closeContextInput();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [contextOpen, contextState, closeContextInput, reportOpen, reportState, closeReportInput]);
+  }, [reportOpen, reportState, closeReportInput]);
 
   const loadData = useCallback(async () => {
     setRefreshing(true);
@@ -2490,33 +1509,6 @@ export default function Home() {
   const newestTimestamp = Math.max(data.rooms.lab.latest?.timestamp ?? 0, data.rooms.office.latest?.timestamp ?? 0);
   const ageMinutes = newestTimestamp ? Math.max(0, Math.floor((clock - newestTimestamp) / 60_000)) : null;
   const sourceTime = newestTimestamp ? berlinClock(newestTimestamp) : "—";
-  const newestDayKey = newestTimestamp ? berlinCalendar(newestTimestamp).dayKey : null;
-  const labCycle = newestDayKey
-    ? activityCycles(data.rooms.lab.samples, "LAB").filter((cycle) => cycle.dayKey === newestDayKey).at(-1) ?? null
-    : null;
-  const officeCycle = newestDayKey
-    ? activityCycles(data.rooms.office.samples, "OFFICE").filter((cycle) => cycle.dayKey === newestDayKey).at(-1) ?? null
-    : null;
-  const beginTimes = [labCycle?.begin, officeCycle?.begin]
-    .filter((timestamp): timestamp is number => timestamp !== null && timestamp !== undefined);
-  const closeTimes = [labCycle?.close, officeCycle?.close]
-    .filter((timestamp): timestamp is number => timestamp !== null && timestamp !== undefined);
-  const bioengineeringBegin = beginTimes.length ? Math.min(...beginTimes) : null;
-  const bioengineeringClose = closeTimes.length ? Math.min(...closeTimes) : null;
-  const currentWeekend = newestTimestamp > 0 && ["Sat", "Sun"].includes(berlinWeekday(newestTimestamp));
-  const activeWeekendCycles = currentWeekend
-    ? [labCycle, officeCycle].filter((cycle): cycle is ActivityCycle => activityCycleIsOpen(cycle, newestTimestamp))
-    : [];
-  const bioengineeringDayStatus = currentWeekend
-    ? activeWeekendCycles.length
-      ? `BEGIN: ${berlinShortTime(Math.min(...activeWeekendCycles.map((cycle) => cycle.begin!)))}`
-      : closeTimes.length
-        ? `CLOSE: ${berlinShortTime(Math.max(...closeTimes))}`
-        : ""
-    : [
-        bioengineeringBegin !== null ? `BEGIN: ${berlinShortTime(bioengineeringBegin)}` : null,
-        bioengineeringClose !== null ? `CLOSE: ${berlinShortTime(bioengineeringClose)}` : null,
-      ].filter((part): part is string => part !== null).join(" · ");
 
   async function toggleFullscreen() {
     if (presentationMode) {
@@ -2538,21 +1530,8 @@ export default function Home() {
     setApiConnected(null);
   }
 
-  function openContextInput() {
-    closeReportInput();
-    setContextTimestamp(Date.now());
-    setContextUnlocked(false);
-    setContextPassword("");
-    setContextArea("LAB");
-    setContextNote("");
-    setContextState("idle");
-    setContextError("");
-    setContextOpen(true);
-  }
-
   async function openReportInput() {
     if (reportDownloading.current) return;
-    closeContextInput();
     setReportState("checking");
     setReportError("");
     setReportAvailability(null);
@@ -2628,56 +1607,6 @@ export default function Home() {
     }
   }
 
-  async function unlockContext(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!contextPassword || contextState === "unlocking") return;
-    setContextState("unlocking");
-    setContextError("");
-    try {
-      const response = await dashboardFetch("/api/context-auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: contextPassword }),
-      });
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Password not accepted");
-      setContextUnlocked(true);
-      setContextPassword("");
-      setContextState("idle");
-    } catch (error) {
-      setContextState("error");
-      setContextError(error instanceof Error ? error.message : "Password not accepted");
-    }
-  }
-
-  async function sendContext(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const note = contextNote.trim();
-    if (!contextUnlocked || !note || contextState === "sending") return;
-    setContextState("sending");
-    setContextError("");
-    try {
-      const response = await dashboardFetch("/api/context", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ area: contextArea, note, observedAt: contextTimestamp }),
-      });
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) {
-        if (response.status === 401) setContextUnlocked(false);
-        throw new Error(payload.error ?? "Context could not be sent");
-      }
-      setContextState("sent");
-      setContextUnlocked(false);
-      setContextPassword("");
-      setContextNote("");
-      window.setTimeout(closeContextInput, 900);
-    } catch (error) {
-      setContextState("error");
-      setContextError(error instanceof Error ? error.message : "Context could not be sent");
-    }
-  }
-
   if (authorized !== true) return <AccessGate checking={authorized === null} verifierReady={passwordVerifierReady} onGranted={grantDashboardAccess} />;
   if (apiConnected !== true) {
     if (ownerSetup && apiConnected === false) return <ApiKeySetup checking={false} onConnected={() => setApiConnected(true)} />;
@@ -2693,11 +1622,6 @@ export default function Home() {
         <div className="header-state" aria-live="polite">
           {data.outdoor ? <OutdoorWeather outdoor={data.outdoor} /> : null}
           <PersistentEnvironmentNotices now={clock} />
-          {bioengineeringDayStatus ? (
-            <div className="day-end-stamps" aria-label="Computed LAB or OFFICE activity state">
-              <span>{bioengineeringDayStatus}</span>
-            </div>
-          ) : null}
           <span className={`connection-dot ${data.live ? "is-live" : "is-preview"}`} />
           <span>{data.live ? "LIVE" : "PREVIEW"}</span>
           <span>{data.live ? `Source ${sourceTime} Europe/Berlin` : "24-hour sample history"}</span>
@@ -2712,8 +1636,7 @@ export default function Home() {
         <OfficeRail room={displayedOfficeRoom} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes} />
       </div>
       <footer className="wallboard-footer">
-        <div className="footer-context-cluster">
-          <button className="context-trigger" type="button" onClick={openContextInput} aria-haspopup="dialog">CODES</button>
+        <div className="footer-pair-cluster">
           <a className="pair-trigger" href="/pair" aria-label="Pair a wall display">PAIR</a>
         </div>
         <span>24-hour history shown · latest 60 minutes highlighted · rooms evaluated independently · Direct API access graced by air-Q until 12/2026 · Code Engine: https://github.com/sparkmbxtr/BITZ · If this is not your own device, select Lock (top right) before leaving.</span>
@@ -2721,49 +1644,6 @@ export default function Home() {
           <strong>SPARK RICHARD BIOENGINEERING · {berlinCompactDate(clock)}</strong>
           <button className="report-trigger" type="button" onClick={openReportInput} aria-haspopup="dialog">REPORT</button>
         </div>
-        {contextOpen ? (
-          <section className="context-popover" role="dialog" aria-modal="true" aria-labelledby="context-title">
-            <div className="context-popover-heading">
-              <div>
-                <strong id="context-title">{contextUnlocked ? "INPUT CONTEXT" : "CONTEXT ENGINE ACCESS"}</strong>
-                <time dateTime={new Date(contextTimestamp ?? clock).toISOString()}>{berlinContextStamp(contextTimestamp ?? clock)}</time>
-              </div>
-              <button type="button" onClick={closeContextInput} disabled={contextState === "sending" || contextState === "unlocking"} aria-label="Close context input">×</button>
-            </div>
-            {!contextUnlocked ? (
-              <form className="context-password-row" onSubmit={unlockContext}>
-                <input
-                  autoFocus
-                  type="password"
-                  autoComplete="current-password"
-                  value={contextPassword}
-                  onChange={(event) => setContextPassword(event.target.value)}
-                  aria-label="Context password"
-                  placeholder="PASSWORD"
-                />
-                <button type="submit" disabled={!contextPassword || contextState === "unlocking"}>{contextState === "unlocking" ? "…" : "OPEN"}</button>
-              </form>
-            ) : (
-              <>
-                <div className="context-area-selector" aria-label="Assign area">
-                  {([
-                    ["LAB", "LAB"],
-                    ["OFC", "OFFICE"],
-                    ["OUT", "OUTDOOR"],
-                  ] as const).map(([label, area]) => (
-                    <button key={area} type="button" className={contextArea === area ? "is-selected" : ""} onClick={() => setContextArea(area)} aria-pressed={contextArea === area}>{label}</button>
-                  ))}
-                </div>
-                <form className="context-input-row" onSubmit={sendContext}>
-                  <input autoFocus type="text" maxLength={500} value={contextNote} onChange={(event) => setContextNote(event.target.value)} aria-label="Context note" />
-                  <button type="submit" disabled={!contextNote.trim() || contextState === "sending"}>{contextState === "sending" ? "…" : "SEND"}</button>
-                </form>
-              </>
-            )}
-            {contextState === "sent" ? <small className="context-result is-sent">SENT</small> : null}
-            {contextState === "error" ? <small className="context-result is-error">{contextError}</small> : null}
-          </section>
-        ) : null}
         {reportOpen ? (
           <section className="report-popover" role="dialog" aria-modal="true" aria-labelledby="report-title">
             <div className="report-popover-heading">
@@ -3019,18 +1899,6 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
   const performanceGrade = labPerformanceGrade(latest?.performance ?? null, latest, humidityAdaptationActive, room.checks);
   const hepa = hepaAssessment(room.samples, officeSamples, latest, labSavingChecksClear(room, live));
   const normalCount = room.checks.filter((check) => check.level === "normal").length;
-  const cycle = latestCycle(room.samples, "LAB");
-  const beginWording = cycle?.begin
-    ? beganWording(cycle.begin, latest?.timestamp, currentParticleAvailable && labPmGrade(pmObservation?.value ?? null).label === "PRISTINE" ? "TODAY BEGAN" : "DAY BEGAN")
-    : "DAY BEGAN";
-  const markedClosed = routineClosedForRoom(latest, cycle, room.status);
-  const routineClosed = Boolean(cycle?.dayKey === (latest ? berlinCalendar(latest.timestamp).dayKey : null) &&
-    cycle.close !== null && latest && latest.timestamp >= cycle.close && room.status !== "action" && room.status !== "unknown");
-  const closedStateText = latest && ["Sat", "Sun"].includes(berlinWeekday(latest.timestamp))
-    ? cycle?.dayKey === berlinCalendar(latest.timestamp).dayKey && cycle.begin !== null
-      ? "Weekend monitoring · awaiting next validated BEGIN"
-      : "Weekend monitoring · awaiting validated BEGIN"
-    : "Routine monitoring after CLOSE";
   const condensationPotential = outdoorLatest?.humidity !== null && outdoorLatest?.humidity !== undefined && outdoorLatest.humidity > 90;
   const condensationPrimary = room.status === "normal" && condensationPotential;
   const condensationText = condensationPotential
@@ -3063,10 +1931,8 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
     .filter((check) => evidenceOrder.includes(check.label))
     .sort((left, right) => evidenceOrder.indexOf(left.label) - evidenceOrder.indexOf(right.label));
   const oxygenEmergency = room.checks.some((check) => check.label === "O₂ displacement" && check.level === "action");
-  const officialAlertAdvice = "This is a test system; follow official instructions from authorised managers and directors.";
-  const criticalDisplay = routineClosed
-    ? { label: "CLOSED", level: "normal", note: "Routine action prompts are paused after CLOSE; sensor trends remain visible for the next active period." }
-    : oxygenEmergency
+  const officialAlertAdvice = "This is a test system; follow official instructions from authorised managers and directors. Follow regulated safety systems alarms. This system is NOT a alarm.";
+  const criticalDisplay = oxygenEmergency
     ? { label: "ALERT", level: "critical", note: `Calculated early-warning ALERT. ${officialAlertAdvice}` }
     : room.status === "action"
       ? { label: "ALERT", level: "action", note: `Calculated early-warning ALERT. ${officialAlertAdvice}` }
@@ -3080,8 +1946,8 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
       <div className="room-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h1 id="lab-heading">BIOENGINEERING S1 LAB</h1></div>{refreshing ? <span className="refresh-label">UPDATING</span> : null}</div>
       <div className={`overall-state overall-${room.status}`}>
         <LevelMark status={room.status} />
-        <div><strong>{markedClosed ? "CLOSED" : room.statusLabel}</strong><span>{markedClosed ? closedStateText : `${normalCount}/${room.checks.length} monitored conditions currently clear`}</span></div>
-        <div className="state-detail"><strong>{latest ? `Updated ${berlinClock(latest.timestamp)} · ${berlinCompactDate(latest.timestamp)}` : "Update pending"}</strong><span>latest LAB sample · Europe/Berlin</span>{cycle?.begin ? <span className="cycle-begin-stamp">{beginWording} {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div>
+        <div><strong>{room.statusLabel}</strong><span>{normalCount}/{room.checks.length} monitored conditions currently clear</span></div>
+        <div className="state-detail"><strong>{latest ? `Updated ${berlinClock(latest.timestamp)} · ${berlinCompactDate(latest.timestamp)}` : "Update pending"}</strong><span>latest LAB sample · Europe/Berlin</span></div>
       </div>
       <div className={`critical-grid ${room.checks.length === 7 ? "critical-grid-seven" : room.checks.length === 9 ? "critical-grid-nine" : room.checks.length === 10 ? "critical-grid-ten" : ""}`}>
         {room.checks.map((check) => <article className={`critical-check check-${check.level}`} key={check.label}><span>{checkDisplayLabel(check)}</span><strong>{check.status}</strong></article>)}
@@ -3089,7 +1955,7 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
       <div className="metric-grid">
         <Metric label="Health" value={fmt(latest?.health)} scale="/100" source="airQ™" note="airQ™ secondary index; raw channels drive operational interpretation" grade={indexGrade(latest?.health ?? null)} />
         <Metric label="Performance" value={fmt(latest?.performance)} scale="/100" source="airQ™" note="airQ™ secondary index; raw channels drive operational interpretation" grade={performanceGrade} />
-        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
+        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note="CO₂ / ventilation trend" grade={co2Grade(latest?.co2 ?? null)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="gas-pattern context" grade={tvocGrade(latest?.tvoc ?? null)} />
         <Metric label="PM₁" value={`${fmt(latest?.pm1, 1)} µg/m³`} note="measured fine-particle channel" grade={labPmGrade(latest?.pm1 ?? null)} />
         <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} comparison={outdoorParticles?.pm25 !== null && outdoorParticles?.pm25 !== undefined ? `≈${fmt(outdoorParticles.pm25, 1)}` : undefined} note="measured fine-particle channel; outdoor comparison is CAMS model context via Open-Meteo rather than a local outdoor sensor" grade={labPmGrade(latest?.pm25 ?? null)} />
@@ -3119,8 +1985,8 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
             ? <TrendRow label="PM balance / sound max" primaryUnit="µg/m³" secondaryUnit="dB" samples={room.samples} primary={pmBalanceValue} secondary={(s) => s.soundMax} gradeFor={labPmGrade} sampleGrade={labPmSampleGrade} analysisMinutes={analysisMinutes} reading={`PM balance ${fmt(pmObservation.value, 1)} µg/m³`} secondaryGrade={currentSoundGrade} />
             : <TrendRow label="Sound max" primaryUnit="dB" samples={room.samples} primary={(s) => s.soundMax} gradeFor={soundMaxGrade} analysisMinutes={analysisMinutes} />}
         </section>
-        <aside className={`meaning-panel meaning-panel-${room.status} ${hepa ? "meaning-with-hepa" : ""} ${routineClosed ? "meaning-panel-closed" : ""}`} aria-labelledby="meaning-heading">
-          <h2 id="meaning-heading">{routineClosed ? "Closed-period monitoring" : "Meaningful action"}</h2>
+        <aside className={`meaning-panel meaning-panel-${room.status} ${hepa ? "meaning-with-hepa" : ""}`} aria-labelledby="meaning-heading">
+          <h2 id="meaning-heading">Meaningful action</h2>
           <div className="meaning-copy"><strong>RECENT PATTERN</strong><p>{room.summary}</p><span>COMPUTED · PAST HOUR</span></div>
           {hepa ? (
             <div className={`hepa-status hepa-${hepa.level}`}>
@@ -3165,17 +2031,15 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
               );
             })}
           </div>
-          {routineClosed
-            ? <div className="closed-period-copy"><strong>ROUTINE ACTIONS PAUSED</strong><p>No operational action step is displayed after CLOSE. The live channels and recent pattern remain visible for trend review.</p></div>
-            : <div className={`action-copy action-${labAction.level} ${condensationPrimary ? "action-condensation" : ""}`}>
-                <strong>{labAction.label}</strong><p>{labAction.text}</p>
-                {condensationPotential && !condensationPrimary ? (
-                  <div className="action-secondary-warning">
-                    <strong>CONDENSATION POTENTIAL HIGH</strong>
-                    <p>{condensationText}</p>
-                  </div>
-                ) : null}
-              </div>}
+          <div className={`action-copy action-${labAction.level} ${condensationPrimary ? "action-condensation" : ""}`}>
+            <strong>{labAction.label}</strong><p>{labAction.text}</p>
+            {condensationPotential && !condensationPrimary ? (
+              <div className="action-secondary-warning">
+                <strong>CONDENSATION POTENTIAL HIGH</strong>
+                <p>{condensationText}</p>
+              </div>
+            ) : null}
+          </div>
           <div className={`critical-message critical-message-${criticalDisplay.level}`} role="status" aria-live="polite">
             <strong>{criticalDisplay.label}</strong><span>{criticalDisplay.note}</span>
           </div>
@@ -3193,32 +2057,24 @@ function TrendRow({ label, primaryUnit, secondaryUnit, samples, primary, seconda
   const latestGradedSample = sampleGrade ? [...samples].reverse().find((sample) => primary(sample) !== null) : null;
   const grade = latestGradedSample && sampleGrade ? sampleGrade(latestGradedSample) : gradeFor(latestValue(samples, primary));
   const [primaryLabel, secondaryLabel] = label.split(" / ", 2);
-  return <div className={`trend-row trend-row-${grade.level}`}><strong className="trend-series-label"><span className="trend-series-key trend-label-primary"><span>{primaryLabel}</span><small>{primaryUnit}</small></span>{secondaryLabel ? <><span className="trend-label-separator" aria-hidden="true" /><span className="trend-series-key trend-label-secondary"><span>{secondaryLabel}</span><small>{secondaryUnit}</small></span></> : null}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} primaryUnit={primaryUnit} secondaryUnit={secondaryUnit} levelFor={gradeFor} sampleGrade={sampleGrade} climateReference={climateReference} label={climateReference ? `${label} across 24 hours; strong lines are indoor measurements and faint area fills rise from the x axis to the outdoor references` : `${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} room="LAB" /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}{secondaryGrade ? <b className={`grade-pill grade-${secondaryGrade.level} trend-secondary-grade`}><i />{secondaryGrade.label}</b> : null}{climateReference ? <small className="climate-fill-key">PALE FILL = OUTDOOR</small> : null}</span></div>;
+  return <div className={`trend-row trend-row-${grade.level}`}><strong className="trend-series-label"><span className="trend-series-key trend-label-primary"><span>{primaryLabel}</span><small>{primaryUnit}</small></span>{secondaryLabel ? <><span className="trend-label-separator" aria-hidden="true" /><span className="trend-series-key trend-label-secondary"><span>{secondaryLabel}</span><small>{secondaryUnit}</small></span></> : null}</strong><HistoryTrend samples={samples} primary={primary} secondary={secondary} primaryUnit={primaryUnit} secondaryUnit={secondaryUnit} levelFor={gradeFor} sampleGrade={sampleGrade} climateReference={climateReference} label={climateReference ? `${label} across 24 hours; strong lines are indoor measurements and faint area fills rise from the x axis to the outdoor references` : `${label} across 24 hours; background colour follows the primary reading`} analysisMinutes={analysisMinutes} /><span className="trend-reading"><b className={`grade-pill grade-${grade.level}`}><i />{grade.label}</b>{reading ? <small>{reading}</small> : null}{secondaryGrade ? <b className={`grade-pill grade-${secondaryGrade.level} trend-secondary-grade`}><i />{secondaryGrade.label}</b> : null}{climateReference ? <small className="climate-fill-key">PALE FILL = OUTDOOR</small> : null}</span></div>;
 }
 
 function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoor: OutdoorData | null; analysisMinutes: number }) {
   const latest = room.latest;
   const pmObservation = pmBalanceObservation(room.samples);
   const actionLabel = room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK";
-  const cycle = latestCycle(room.samples, "OFFICE");
-  const markedClosed = routineClosedForRoom(latest, cycle, room.status);
-  const closedStateText = latest && ["Sat", "Sun"].includes(berlinWeekday(latest.timestamp))
-    ? cycle?.dayKey === berlinCalendar(latest.timestamp).dayKey && cycle.begin !== null
-      ? "Weekend monitoring · awaiting next validated BEGIN"
-      : "Weekend monitoring · awaiting validated BEGIN"
-    : "Routine monitoring after CLOSE";
-  const beginWording = cycle?.begin ? beganWording(cycle.begin, latest?.timestamp, "DAY BEGAN") : "DAY BEGAN";
   const outdoorLatest = outdoor?.latest ?? null;
   const outdoorParticles = outdoor?.particleLatest ?? null;
   const visibleChecks = room.checks.filter((check) => ["CO release", "O₂ displacement", "Volatile-gas pattern", "Sound peak >90 dB"].includes(check.label));
   return (
     <aside className="office-rail" aria-labelledby="office-heading">
       <div className="office-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h2 id="office-heading">OFFICE</h2></div></div>
-      <div className={`office-state overall-${room.status}`}><LevelMark status={room.status} /><div><strong>{markedClosed ? "CLOSED" : room.statusLabel}</strong><span>{markedClosed ? closedStateText : `${room.checks.filter((check) => check.level === "normal").length}/${room.checks.length} checks clear`}</span>{cycle?.begin ? <span className="cycle-begin-stamp">{beginWording} {berlinShortTime(cycle.begin)} · COMPUTED</span> : null}</div></div>
+      <div className={`office-state overall-${room.status}`}><LevelMark status={room.status} /><div><strong>{room.statusLabel}</strong><span>{room.checks.filter((check) => check.level === "normal").length}/{room.checks.length} checks clear</span></div></div>
       <div className="office-metrics">
         <Metric label="Health" value={fmt(latest?.health)} scale="/100" source="airQ™" note="airQ™ secondary index; raw channels drive operational interpretation" grade={indexGrade(latest?.health ?? null)} />
         <Metric label="Performance" value={fmt(latest?.performance)} scale="/100" source="airQ™" note="airQ™ secondary index; raw channels drive operational interpretation" grade={indexGrade(latest?.performance ?? null)} />
-        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note={occupancyText(room)} grade={co2Grade(latest?.co2 ?? null)} />
+        <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note="CO₂ / ventilation trend" grade={co2Grade(latest?.co2 ?? null)} />
         <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="vapour pattern" grade={tvocGrade(latest?.tvoc ?? null)} />
         <Metric label="PM₁" value={`${fmt(latest?.pm1, 1)} µg/m³`} note="measured fine-particle channel" grade={officePmGrade(latest?.pm1 ?? null)} />
         <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} comparison={outdoorParticles?.pm25 !== null && outdoorParticles?.pm25 !== undefined ? `≈${fmt(outdoorParticles.pm25, 1)}` : undefined} note="measured fine-particle channel; outdoor comparison is CAMS model context via Open-Meteo rather than a local outdoor sensor" grade={officePmGrade(latest?.pm25 ?? null)} />
@@ -3278,7 +2134,6 @@ function OfficePairTrend({ label, primaryUnit, secondaryUnit, reading, samples, 
         climateReference={climateReference}
         label={climateReference ? `${label} across 24 hours; strong lines are indoor measurements and faint area fills rise from the x axis to the outdoor references` : `${label} across 24 hours; background colour follows the primary reading`}
         analysisMinutes={analysisMinutes}
-        room="OFFICE"
       />
     </div>
   );

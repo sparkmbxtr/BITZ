@@ -70,13 +70,6 @@ let outdoorCache: { expiresAt: number; data: OutdoorData } | null = null;
 let liveDashboardCache: { expiresAt: number; data: DashboardPayload } | null = null;
 let liveDashboardRequest: Promise<DashboardPayload> | null = null;
 
-const BERLIN_CLOCK = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "Europe/Berlin",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-
 const BERLIN_DATE_TIME = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Berlin",
   year: "numeric",
@@ -123,14 +116,6 @@ function completedBerlinCycle(now = Date.now()): TimeRange {
   const endDate = now >= todayAt1800 ? today : shiftLocalDate(today, -1);
   const startDate = shiftLocalDate(endDate, -1);
   return { from: berlinEpoch(startDate, 18), to: berlinEpoch(endDate, 18), exact: true };
-}
-
-function berlinMinuteOfDay(timestamp: number) {
-  const values: Record<string, number> = {};
-  for (const part of BERLIN_CLOCK.formatToParts(timestamp)) {
-    if (part.type === "hour" || part.type === "minute") values[part.type] = Number(part.value);
-  }
-  return (values.hour ?? 0) * 60 + (values.minute ?? 0);
 }
 
 function numericScalar(value: unknown): number | null {
@@ -337,31 +322,7 @@ function worst(levels: Level[]): Level {
   return levels.reduce((current, level) => order.indexOf(level) > order.indexOf(current) ? level : current, "normal");
 }
 
-function positiveNumber(value: unknown) {
-  if (typeof value !== "string" || !value.trim()) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function occupancyEstimate(samples: Sample[], volumeM3: number | null, airChangesPerHour: number | null) {
-  if (!volumeM3 || !airChangesPerHour || samples.length < 4) {
-    return { label: "CO₂ activity trend", confidence: "occupancy estimate not displayed" };
-  }
-  const first = samples[0];
-  const last = samples.at(-1)!;
-  if (first.co2 === null || last.co2 === null) return { label: "unavailable", confidence: "CO₂ missing" };
-  const hours = Math.max((last.timestamp - first.timestamp) / 3_600_000, 0.25);
-  const meanPpm = (first.co2 + last.co2) / 2;
-  const accumulation = ((last.co2 - first.co2) * 1e-6) / hours;
-  const ventilation = airChangesPerHour * Math.max(0, meanPpm - 430) * 1e-6;
-  const generationM3PerHour = Math.max(0, volumeM3 * (accumulation + ventilation));
-  const people = generationM3PerHour / 0.016;
-  const low = Math.max(0, Math.floor(people * 0.65));
-  const high = Math.max(low + 1, Math.ceil(people * 1.45));
-  return { label: `${low}–${high} likely`, confidence: high - low <= 3 ? "medium confidence" : "low confidence" };
-}
-
-function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number | null, ach: number | null) {
+function analyseRoom(name: "LAB" | "OFFICE", history: Sample[]) {
   const latest = history.at(-1) ?? null;
   const recentStart = (latest?.timestamp ?? Date.now()) - ANALYSIS_MINUTES * 60_000;
   const recent = history.filter((sample) => sample.timestamp >= recentStart);
@@ -387,15 +348,12 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const o2Delta = delta(recent, (sample) => sample.oxygen);
   const pmDelta = delta(recent, particleValue);
   const humidityDelta = delta(recent, (sample) => sample.humidityAbs);
-  const soundDelta = delta(recent, (sample) => sample.sound);
   const temperatureDelta = delta(recent, (sample) => sample.temperature);
   const recentO2Shift = recentMedianShift(recent, (sample) => sample.oxygen);
   const recentCo2Shift = recentMedianShift(recent, (sample) => sample.co2);
   const recentTvocShift = recentMedianShift(recent, (sample) => sample.tvoc);
   const recentHchoShift = recentMedianShift(recent, (sample) => sample.hcho);
   const recentCoShift = recentMedianShift(recent, (sample) => sample.co);
-  const recentTvocValues = values(recent, (sample) => sample.tvoc);
-  const tvocRise = recentTvocValues.length > 0 && tvocMax !== null ? tvocMax - recentTvocValues[0] : null;
   const finalTwenty = recent.filter((sample) => sample.timestamp >= (latest?.timestamp ?? 0) - 20 * 60_000);
   const tvocNow = latestValue(recent, (sample) => sample.tvoc);
   const coNow = latestValue(recent, (sample) => sample.co);
@@ -407,15 +365,6 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const particlePersistent = currentParticleAvailable &&
     (shareMatching(finalTwenty, particlePeakValue, (value) => value > 35) ?? 0) >= .5;
   const co2Persistent = (shareMatching(finalTwenty, (sample) => sample.co2, (value) => value > 1_400) ?? 0) >= .5;
-  const localMinute = latest ? berlinMinuteOfDay(latest.timestamp) : -1;
-  const officeClosePattern = name === "OFFICE" &&
-    localMinute >= 16 * 60 + 20 &&
-    localMinute <= 18 * 60 &&
-    (tvocRise ?? 0) >= 25 &&
-    (
-      (soundDelta ?? 0) <= -2 ||
-      ((co2Delta ?? Infinity) <= 15 && (humidityDelta ?? Infinity) <= .08)
-    );
 
   const freshness = dataAge <= 8 * 60_000
     ? check("Sensor/data integrity", "SYSTEM", "CURRENT", "normal")
@@ -488,8 +437,8 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   const rawStatus = worst(checks.map((item) => item.level));
   const status = rawStatus === "unknown" && freshness.level === "normal" ? "normal" : rawStatus;
   const gasDominant = currentParticleAvailable && pmDelta !== null && (tvocDelta ?? 0) > 150 && pmDelta < 5;
-  const occupancyPattern = (co2Delta ?? 0) > 80 && (humidityDelta ?? 0) > 0.15;
-  const metabolicPattern = occupancyPattern && (o2Delta ?? 0) < -0.025;
+  const co2HumidityPattern = (co2Delta ?? 0) > 80 && (humidityDelta ?? 0) > 0.15;
+  const co2HumidityOxygenPattern = co2HumidityPattern && (o2Delta ?? 0) < -0.025;
   const ventilationPattern = name === "OFFICE" && (co2Delta ?? 0) < -80 && ((pmDelta ?? 0) > 3 || (tvocDelta ?? 0) > 100);
   const directCritical = oxygen.level === "action" || carbonMonoxide.level === "action";
   const gasSignals = Number(vapour.level !== "normal" && vapour.level !== "unknown") +
@@ -531,7 +480,6 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   else if (propanePatternActive) summary = "Oxygen and CO₂ fell together while TVOC rose in the same recent window. This is a computed propane-associated early-warning pattern, not compound identification; the dedicated propane system remains decisive.";
   else if (nitrogenPatternActive) summary = "Oxygen and CO₂ fell together without a matching TVOC, formaldehyde or CO rise. This is a computed nitrogen/inert-gas displacement pattern; the dedicated oxygen and nitrogen systems remain decisive.";
   else if (oxygenProxyPattern) summary = `Oxygen moved into the watch range without a matching CO₂ rise. This is an oxygen-displacement proxy pattern, not confirmation of nitrogen or another gas; a dedicated oxygen measurement is the deciding check.`;
-  else if (officeClosePattern) summary = "A late-day TVOC rise with the occupancy transition matches the established OFFICE window-closing and synchronized departure signature.";
   else if (coOnly) summary = `The CO channel rose without matching TVOC, formaldehyde or particle movement. A combustion/exhaust input, electrochemical cross-response or local instrument effect remain distinct possibilities.`;
   else if (multiGasPattern) summary = `Two or more gas-related channels moved together within the recent window${tvocPersistent || hchoPersistent ? " and remained elevated through much of the latest 20 minutes" : ""}. This supports a real mixed vapour/process or airflow event, while the sensor set cannot identify a compound.`;
   else if (particleGasPattern) summary = name === "LAB"
@@ -545,15 +493,15 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
   else if (particleOnly) summary = name === "LAB"
     ? `Particles rose without a matching gas pattern. A local particle-generating process, door/pressure transition or delayed filtered-air response is more plausible than a vapour event.`
     : `Particles rose without a matching gas pattern. Open-window outdoor import, nearby road work and a local dust event remain competing explanations.`;
-  else if (co2Persistent) summary = `CO₂ remained elevated through most of the latest 20 minutes${co2Now === null ? "" : ` and is ${co2Now.toFixed(0)} ppm`}, supporting sustained occupancy or limited air exchange rather than a brief spike.`;
-  else if (metabolicPattern) summary = "CO₂ and absolute humidity rose together while oxygen eased slightly, a coordinated occupancy pattern rather than evidence for an inert-gas release.";
-  else if (occupancyPattern) summary = "CO₂ and absolute humidity rose together, supporting an occupancy-related change rather than a single chemical event.";
+  else if (co2Persistent) summary = `CO₂ remained elevated through most of the latest 20 minutes${co2Now === null ? "" : ` and is ${co2Now.toFixed(0)} ppm`}, supporting a sustained CO₂ source or limited air exchange rather than a brief spike.`;
+  else if (co2HumidityOxygenPattern) summary = "CO₂ and absolute humidity rose together while oxygen eased slightly; this coordinated change is not evidence for an inert-gas release.";
+  else if (co2HumidityPattern) summary = "CO₂ and absolute humidity rose together; the coordinated change is not specific to a chemical source.";
   else if (acousticOnly) summary = "A brief raw sound-max event occurred without a matching gas, oxygen, CO₂ or particle pattern. It is retained as an acoustic event, not interpreted as an air-quality event.";
   else if (recoveringGas) summary = "An earlier gas-channel excursion is declining toward the recent reference and has not gained CO, formaldehyde or particle support.";
   else if (thermalMoisturePattern) summary = "Temperature and absolute humidity moved together while gas, CO₂ and particle channels remained comparatively stable. This is a room-condition or airflow pattern, not a supported gas event.";
   else if ((co2Delta ?? 0) > 80) summary = currentParticleAvailable
-    ? "CO₂ rose gradually while the other available gas and particle channels stayed comparatively stable; routine occupancy is plausible."
-    : "CO₂ rose gradually while the other available gas channels stayed comparatively stable; routine occupancy is plausible.";
+    ? "CO₂ rose gradually while the other available gas and particle channels stayed comparatively stable; a non-chemical CO₂ source or air-exchange effect is plausible."
+    : "CO₂ rose gradually while the other available gas channels stayed comparatively stable; a non-chemical CO₂ source or air-exchange effect is plausible.";
 
   const flaggedLabels = checks
     .filter((item) => item.level === "watch" || item.level === "action")
@@ -569,8 +517,6 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
         ? "Check the dedicated oxygen/nitrogen alarm and LAB gas system now. Treat this dashboard result as an early-warning displacement correlation until the direct nitrogen sensor is installed in air-Q."
       : oxygenProxyPattern
         ? "Verify oxygen with a dedicated instrument and check nitrogen/process timing. Escalate only if the low reading persists or another independent channel changes."
-      : officeClosePattern
-        ? "Treat this as CLOSE while TVOC falls toward the OFFICE night reference; check ventilation or another source only if it persists or gains CO, formaldehyde, or PM support."
       : coOnly
         ? "Check combustion, vehicle/exhaust and instrument context; use a dedicated CO measurement if the rise persists or increases."
       : multiGasPattern
@@ -586,13 +532,13 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
           ? "Match the onset to local particle work, doors and pressure/airflow. Review HEPA performance only if the elevation persists or clearance is slower than the LAB's own history."
           : "Check window and road-work timing. Indoor action is useful only if particles stay elevated after the suspected outdoor or local dust event ends."
       : co2Persistent
-        ? `Review occupancy and air exchange. A ventilation adjustment becomes useful if CO₂ remains elevated for another 20–30 minutes or continues rising.`
+        ? `Review CO₂ sources and air exchange. A ventilation adjustment becomes useful if CO₂ remains elevated for another 20–30 minutes or continues rising.`
       : acousticOnly
         ? "Retain the event timestamp for equipment or activity review; no air-quality action follows from an isolated sound peak."
       : recoveringGas
         ? "No immediate change is suggested while the decline continues; review only if the trend reverses or gains an independent channel."
       : thermalMoisturePattern
-        ? "No gas action is indicated. Observe whether the room-condition change settles with the next ventilation or occupancy transition."
+        ? "No gas action is indicated. Observe whether the room-condition change settles with the next ventilation change."
       : status === "action"
         ? `Room procedure and dedicated verification are appropriate for ${flaggedText}.`
       : status === "watch"
@@ -606,7 +552,6 @@ function analyseRoom(name: "LAB" | "OFFICE", history: Sample[], volumeM3: number
     samples: history,
     latest,
     checks,
-    occupancy: occupancyEstimate(recent, volumeM3, ach),
     summary,
     action,
   };
@@ -821,10 +766,6 @@ async function buildDashboardPayload(
   range: TimeRange,
   includeAdditionalEnvironmental: boolean,
   requireOutdoor: boolean,
-  labVolumeM3: number | null,
-  labAch: number | null,
-  officeVolumeM3: number | null,
-  officeAch: number | null,
 ): Promise<DashboardPayload> {
   // Outdoor conditions add context, but a slow or unavailable weather service
   // must never delay the two indoor sensor feeds on the live wallboard.
@@ -865,8 +806,8 @@ async function buildDashboardPayload(
     analysisMinutes: ANALYSIS_MINUTES,
     outdoor,
     rooms: {
-      lab: analyseRoom("LAB", labHistory, labVolumeM3, labAch),
-      office: analyseRoom("OFFICE", officeHistory, officeVolumeM3, officeAch),
+      lab: analyseRoom("LAB", labHistory),
+      office: analyseRoom("OFFICE", officeHistory),
     },
   };
 }
@@ -912,10 +853,6 @@ export async function GET(request: Request) {
     range,
     exportRequested,
     exportRequested,
-    positiveNumber(runtimeEnv.LAB_VOLUME_M3),
-    positiveNumber(runtimeEnv.LAB_ACH),
-    positiveNumber(runtimeEnv.OFFICE_VOLUME_M3),
-    positiveNumber(runtimeEnv.OFFICE_ACH),
   );
 
   try {

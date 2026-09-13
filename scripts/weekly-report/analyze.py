@@ -5,11 +5,10 @@ import argparse
 import json
 import math
 import statistics
-from collections import OrderedDict, defaultdict
-from dataclasses import dataclass
+from collections import OrderedDict
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -77,14 +76,6 @@ FIELD_META: OrderedDict[str, tuple[str, str, int]] = OrderedDict([
     ("dhdt", ("Humidity rate", "%/h", 2)),
 ])
 
-ACTIVITY_SIGNALS = OrderedDict([
-    ("co2", {"floor": 20.0, "settle": 45.0}),
-    ("tvoc", {"floor": 25.0, "settle": 80.0}),
-    ("humidityAbs", {"floor": 0.12, "settle": 0.3}),
-    ("temperature", {"floor": 0.15, "settle": 0.4}),
-    ("sound", {"floor": 2.5, "settle": 4.0}),
-])
-
 SOURCE_URLS = OrderedDict([
     ("ASR A3.6 - Ventilation", "https://www.baua.de/DE/Angebote/Regelwerk/ASR/ASR-A3-6"),
     ("ASR A3.5 - Room temperature", "https://www.baua.de/DE/Angebote/Regelwerk/ASR/ASR-A3-5"),
@@ -139,7 +130,7 @@ def sample_date(sample: dict[str, Any]):
     return dt_local(int(sample["timestamp"])).date()
 
 
-def load_inputs() -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+def load_inputs() -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]], dict[str, Any]]:
     rooms: dict[str, list[dict[str, Any]]] = {"LAB": [], "OFFICE": []}
     outdoor: list[dict[str, Any]] = []
     sensor_files = sorted(SOURCE.glob("sensor-*.json"))
@@ -161,247 +152,9 @@ def load_inputs() -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]
         duplicate_counts[room] = before - len(rooms[room])
     outdoor_map = {int(r["timestamp"]): r for r in outdoor if finite(r.get("timestamp"))}
     outdoor = [outdoor_map[k] for k in sorted(outdoor_map)]
-    context_payload = json.loads((SOURCE / "context.json").read_text())
     manifest = json.loads((SOURCE / "manifest.json").read_text())
     manifest["duplicatesRemoved"] = duplicate_counts
-    return rooms, outdoor, context_payload.get("entries", []), manifest
-
-
-def values_between(samples: list[dict[str, Any]], key: str, start: int, end: int) -> list[float]:
-    return [float(s[key]) for s in samples if start <= int(s["timestamp"]) <= end and finite(s.get(key))]
-
-
-def signed_window_delta(samples: list[dict[str, Any]], key: str, timestamp: int) -> float | None:
-    before = med(values_between(samples, key, timestamp - 14 * 60_000, timestamp - 2 * 60_000))
-    after = med(values_between(samples, key, timestamp + 2 * 60_000, timestamp + 14 * 60_000))
-    return None if before is None or after is None else after - before
-
-
-def transition_score(samples: list[dict[str, Any]], timestamp: int, scales: dict[str, float]) -> dict[str, float]:
-    changed = 0
-    score = 0.0
-    for key, config in ACTIVITY_SIGNALS.items():
-        before = med(values_between(samples, key, timestamp - 14 * 60_000, timestamp - 2 * 60_000))
-        after = med(values_between(samples, key, timestamp + 2 * 60_000, timestamp + 14 * 60_000))
-        if before is None or after is None:
-            continue
-        ratio = abs(after - before) / scales.get(key, config["floor"])
-        if ratio >= 1:
-            changed += 1
-        score += min(ratio, 2.5)
-    return {"changed": changed, "score": score}
-
-
-def departure_score(samples: list[dict[str, Any]], timestamp: int, centres: dict[str, float], scales: dict[str, float]) -> dict[str, float]:
-    changed = 0
-    score = 0.0
-    for key, config in ACTIVITY_SIGNALS.items():
-        centre = centres.get(key)
-        after = med(values_between(samples, key, timestamp, timestamp + 15 * 60_000))
-        if centre is None or after is None:
-            continue
-        ratio = abs(after - centre) / scales.get(key, config["floor"])
-        if ratio >= 1:
-            changed += 1
-        score += min(ratio, 2.5)
-    return {"changed": changed, "score": score}
-
-
-def office_close_signature(samples: list[dict[str, Any]], timestamp: int, scales: dict[str, float]) -> dict[str, Any]:
-    minute = minute_of_day({"timestamp": timestamp})
-    if minute < 16 * 60 + 20 or minute > 18 * 60:
-        return {"matched": False, "score": 0.0}
-    tvoc_change = signed_window_delta(samples, "tvoc", timestamp)
-    sound_change = signed_window_delta(samples, "sound", timestamp)
-    co2_change = signed_window_delta(samples, "co2", timestamp)
-    humidity_change = signed_window_delta(samples, "humidityAbs", timestamp)
-    threshold = max(25.0, scales.get("tvoc", 25.0) * 0.75)
-    if tvoc_change is None or tvoc_change < threshold:
-        return {"matched": False, "score": 0.0}
-    sound_drop = sound_change is not None and sound_change <= -max(2.0, scales.get("sound", 2.5) * 0.5)
-    co2_not_accumulating = co2_change is not None and co2_change <= max(15.0, scales.get("co2", 20.0) * 0.5)
-    humidity_not_accumulating = humidity_change is not None and humidity_change <= max(0.08, scales.get("humidityAbs", 0.12) * 0.5)
-    departure = co2_not_accumulating and humidity_not_accumulating
-    support = int(sound_drop) + int(co2_not_accumulating) + int(humidity_not_accumulating)
-    return {
-        "matched": bool(sound_drop or departure),
-        "score": min(tvoc_change / threshold, 3.0) + support * 0.55,
-        "tvocChange": tvoc_change,
-        "soundDrop": sound_drop,
-        "co2NotAccumulating": co2_not_accumulating,
-        "humidityNotAccumulating": humidity_not_accumulating,
-    }
-
-
-def office_close_event_time(samples: list[dict[str, Any]], candidate: int, scales: dict[str, float]) -> tuple[int, str]:
-    tvoc_scale = max(25.0, scales.get("tvoc", 25.0))
-    sound_scale = max(2.5, scales.get("sound", 2.5))
-    candidates = [s for s in samples if abs(int(s["timestamp"]) - candidate) <= 24 * 60_000 and 16 * 60 + 20 <= minute_of_day(s) <= 18 * 60]
-    best_ts, best_score = candidate, -math.inf
-    for s in candidates:
-        ts = int(s["timestamp"])
-        before = med(values_between(samples, "tvoc", ts - 8 * 60_000, ts - 2 * 60_000))
-        after = med(values_between(samples, "tvoc", ts, ts + 6 * 60_000))
-        if before is None or after is None or after <= before:
-            continue
-        sb = med(values_between(samples, "sound", ts - 8 * 60_000, ts - 2 * 60_000))
-        sa = med(values_between(samples, "sound", ts, ts + 6 * 60_000))
-        sound_drop = 0.0 if sb is None or sa is None else max(0.0, sb - sa)
-        score = (after - before) / tvoc_scale + (sound_drop / sound_scale) * 0.7
-        if score > best_score:
-            best_ts, best_score = ts, score
-    anchor = best_ts
-    reference = med(values_between(samples, "tvoc", anchor - 22 * 60_000, anchor - 10 * 60_000))
-    if reference is None:
-        return anchor, "corroborated transition"
-    onset_delta = max(10.0, tvoc_scale * 0.25)
-    onset_level = reference + onset_delta
-    onset_candidates = sorted([s for s in candidates if anchor - 20 * 60_000 <= int(s["timestamp"]) <= anchor + 2 * 60_000], key=lambda s: s["timestamp"])
-    for s in onset_candidates:
-        ts = int(s["timestamp"])
-        current = s.get("tvoc")
-        if not finite(current) or float(current) < onset_level:
-            continue
-        previous = med(values_between(samples, "tvoc", ts - 6 * 60_000, ts - 2 * 60_000))
-        following = values_between(samples, "tvoc", ts, ts + 6 * 60_000)
-        sustained = [v for v in following if v >= onset_level]
-        if previous is not None and float(current) - previous >= onset_delta * 0.6 and len(sustained) >= 2:
-            return ts, "sustained TVOC-rise onset with departure support"
-    return anchor, "corroborated TVOC/departure transition"
-
-
-def approximate_people(samples: list[dict[str, Any]], begin: int, centres: dict[str, float]) -> str | None:
-    end = begin + 60 * 60_000
-    hour = [s for s in samples if begin <= int(s["timestamp"]) <= end]
-    if not hour or int(hour[-1]["timestamp"]) < begin + 50 * 60_000:
-        return None
-    co2_start = med(values_between(hour, "co2", begin, begin + 12 * 60_000))
-    co2_end = med(values_between(hour, "co2", end - 12 * 60_000, end))
-    if co2_start is None or co2_end is None:
-        return None
-    h_start = med(values_between(hour, "humidityAbs", begin, begin + 12 * 60_000))
-    h_end = med(values_between(hour, "humidityAbs", end - 12 * 60_000, end))
-    sound_hour = med(values_between(hour, "sound", begin, end))
-    co2_rise = max(0.0, co2_end - co2_start)
-    centre = max(0.0, (co2_rise - 10.0) / 45.0)
-    if h_start is not None and h_end is not None and h_end - h_start > 0.12:
-        centre += 0.55
-    if sound_hour is not None and centres.get("sound") is not None and sound_hour - centres["sound"] > 2.5:
-        centre += 0.75
-    if centre < 0.75:
-        # A published BEGIN already implies at least one person-equivalent
-        # transition; keep the deliberately broad lower-confidence range.
-        return "1-2"
-    low = max(1, min(12, math.floor(centre * 0.65)))
-    high = max(low + 1, min(12, math.ceil(centre * 1.55)))
-    return f"{low}-{high}"
-
-
-def detect_activity(samples: list[dict[str, Any]], room: str, day) -> dict[str, Any]:
-    rows = [s for s in samples if sample_date(s) == day]
-    baseline = [s for s in rows if minute_of_day(s) < 6 * 60]
-    base = {
-        "date": str(day), "room": room, "begin": None, "close": None, "dayEnd": None,
-        "peopleRange": None, "beginMethod": "not detected", "closeMethod": "not detected",
-        "controlDay": day == SATURDAY,
-    }
-    if len(baseline) < 10:
-        base["reason"] = "insufficient night-reference records"
-        return base
-
-    centres: dict[str, float] = {}
-    scales: dict[str, float] = {}
-    for key, config in ACTIVITY_SIGNALS.items():
-        vals = [s.get(key) for s in baseline if finite(s.get(key))]
-        centre = med(vals)
-        if centre is None:
-            continue
-        centres[key] = centre
-        scales[key] = max(config["floor"], mad(vals, centre) * 5)
-
-    transition_candidates = []
-    morning_candidates = []
-    for s in rows:
-        ts = int(s["timestamp"])
-        minute = minute_of_day(s)
-        transition_candidates.append({"timestamp": ts, "minute": minute, **transition_score(rows, ts, scales)})
-        morning_candidates.append({"timestamp": ts, "minute": minute, **departure_score(rows, ts, centres, scales)})
-
-    morning_window = [c for c in morning_candidates if 6 * 60 + 45 <= c["minute"] <= 10 * 60 + 30]
-    morning = [c for c in morning_window if (c["changed"] >= 3 and c["score"] >= 3.4) or (c["changed"] >= 2 and c["score"] >= 2.25)]
-    begin = None
-    if morning:
-        first_episode = [c for c in morning if c["timestamp"] <= morning[0]["timestamp"] + 20 * 60_000]
-        best = max(first_episode, key=lambda c: c["score"])
-        begin = best["timestamp"]
-        base["beginMethod"] = f"coordinated transition ({best['changed']} channels; score {best['score']:.2f})"
-
-    evening_window = [c for c in transition_candidates if 15 * 60 + 30 <= c["minute"] <= 19 * 60 + 30 and (not begin or c["timestamp"] >= begin + 4 * 60 * 60_000)]
-    close = None
-    if room == "OFFICE":
-        office_candidates = []
-        for candidate in evening_window:
-            sig = office_close_signature(rows, candidate["timestamp"], scales)
-            if sig["matched"]:
-                office_candidates.append({**candidate, "signature": sig})
-        if office_candidates:
-            def weight(c):
-                return c["score"] + c["signature"]["score"] - abs(c["minute"] - (16 * 60 + 50)) / 300
-            selected = max(office_candidates, key=weight)
-            close, method = office_close_event_time(rows, selected["timestamp"], scales)
-            base["closeMethod"] = method
-
-    if close is None:
-        strict = [c for c in evening_window if c["changed"] >= 3 and c["score"] >= 3.4]
-        evening = strict if strict else [c for c in evening_window if c["changed"] >= 2 and c["score"] >= 2.25]
-        if evening:
-            target = 16 * 60 + 50 if room == "OFFICE" else 17 * 60
-            close_c = max(evening, key=lambda c: c["score"] - abs(c["minute"] - target) / 360)
-            close = close_c["timestamp"]
-            base["closeMethod"] = f"coordinated late-day transition ({close_c['changed']} channels; score {close_c['score']:.2f})"
-
-    # Saturday was explicitly designated as the no-activity control day. Keep
-    # candidate times in the audit notes, but never publish a clock-derived
-    # BEGIN/CLOSE for the control day.
-    if day == SATURDAY:
-        base["candidateBegin"] = begin
-        base["candidateClose"] = close
-        base["beginMethod"] = "control day - no activity event assigned"
-        base["closeMethod"] = "control day - no activity event assigned"
-        base["reason"] = "Saturday no-activity control"
-        return base
-
-    def settled(start: int, end: int) -> bool:
-        checks = []
-        for key in ["co2", "humidityAbs", "temperature", "sound"]:
-            centre = centres.get(key)
-            current = med(values_between(rows, key, start, end))
-            if centre is None or current is None:
-                continue
-            config = ACTIVITY_SIGNALS[key]
-            checks.append((key, abs(current - centre) <= max(config["settle"], scales.get(key, config["floor"]) * 1.6)))
-        if len(checks) < 3:
-            return False
-        core = [v for k, v in checks if k in ("co2", "sound")]
-        return all(core) and sum(1 for _, v in checks if v) >= 3
-
-    day_end = None
-    if close:
-        for s in rows:
-            ts = int(s["timestamp"])
-            if ts < close + 20 * 60_000 or minute_of_day(s) > 23 * 60 + 30:
-                continue
-            if settled(ts, ts + 15 * 60_000) and settled(ts + 15 * 60_000, ts + 35 * 60_000):
-                day_end = ts
-                break
-
-    base.update({
-        "begin": begin,
-        "close": close,
-        "dayEnd": day_end,
-        "peopleRange": approximate_people(rows, begin, centres) if begin else None,
-    })
-    return base
+    return rooms, outdoor, manifest
 
 
 def baseline_quality(rows: list[dict[str, Any]], baseline_rows: list[dict[str, Any]]) -> tuple[str, list[str]]:
@@ -618,7 +371,7 @@ def index_assessment(samples: list[dict[str, Any]], room: str) -> dict[str, Any]
 
 
 def build_analysis():
-    rooms, outdoor, context, manifest = load_inputs()
+    rooms, outdoor, manifest = load_inputs()
     result: dict[str, Any] = {
         "generatedAt": datetime.now(BERLIN).isoformat(),
         "coverage": {
@@ -628,14 +381,12 @@ def build_analysis():
         },
         "dates": [str(d) for d in DATES], "saturday": str(SATURDAY),
         "fieldMeta": {k: {"label": v[0], "unit": v[1], "precision": v[2]} for k, v in FIELD_META.items()},
-        "sources": SOURCE_URLS, "manifest": manifest, "context": context, "outdoor": outdoor, "rooms": {},
+        "sources": SOURCE_URLS, "manifest": manifest, "outdoor": outdoor, "rooms": {},
     }
 
     for room, samples in rooms.items():
         daily = {}
         baselines = {}
-        activities = []
-        event_markers: dict[int, list[str]] = defaultdict(list)
         for day in DATES:
             rows = [s for s in samples if sample_date(s) == day]
             night = [s for s in rows if minute_of_day(s) < 6 * 60]
@@ -655,12 +406,6 @@ def build_analysis():
                 "dayMedian": {key: med(s.get(key) for s in active) for key in FIELD_META},
                 "eveningMedian": {key: med(s.get(key) for s in evening) for key in FIELD_META},
             }
-            activity = detect_activity(samples, room, day)
-            activities.append(activity)
-            if activity.get("begin"):
-                event_markers[int(activity["begin"])].append(f"BEGIN {hhmm(activity['begin'])}")
-            if activity.get("close"):
-                event_markers[int(activity["close"])].append(f"CLOSE {hhmm(activity['close'])}")
 
         acoustic = sound_episodes(samples, room)
         volatile = volatile_episodes(samples, room, baselines)
@@ -687,14 +432,10 @@ def build_analysis():
                 baseline_flags.append("WEEKLY ORIGINAL BASELINE - first returned record")
             if first_formal_ts and ts == first_formal_ts:
                 baseline_flags.append("FORMAL ORIGINAL BASELINE - first post-cutoff record")
-            nearest_events = []
-            for event_ts, labels in event_markers.items():
-                if abs(ts - event_ts) <= 75_000:
-                    nearest_events.extend(labels)
             raw_rows.append({
                 "timestamp": ts, "local": iso_local(ts), "utc": iso_utc(ts), "date": str(sample_date(s)),
                 "period": "NIGHT 00:00-06:00" if minute_of_day(s) < 360 else "DAY 06:00-18:00" if minute_of_day(s) < 1080 else "EVENING 18:00-24:00",
-                "baselineFlag": " | ".join(baseline_flags), "eventMarker": " | ".join(sorted(set(nearest_events))),
+                "baselineFlag": " | ".join(baseline_flags),
                 **{key: s.get(key) for key in FIELD_META},
                 "pmBalance": med([s.get("pm1"), s.get("pm25"), s.get("pm4"), s.get("pm10")]),
             })
@@ -713,7 +454,7 @@ def build_analysis():
 
         result["rooms"][room] = {
             "samples": samples, "rawRows": raw_rows, "daily": daily, "baselines": baselines,
-            "activities": activities, "acousticEvents": acoustic, "volatileEvents": volatile,
+            "acousticEvents": acoustic, "volatileEvents": volatile,
             "weeklyStats": weekly_stats, "weeklyBaseline": weekly_baseline,
             "indexAssessment": index_eval, "controlComparison": control,
             "quality": {
@@ -736,7 +477,6 @@ def build_analysis():
         "records": {r: result["rooms"][r]["quality"]["records"] for r in ["LAB", "OFFICE"]},
         "acoustic": {r: len(result["rooms"][r]["acousticEvents"]) for r in ["LAB", "OFFICE"]},
         "volatile": {r: len(result["rooms"][r]["volatileEvents"]) for r in ["LAB", "OFFICE"]},
-        "activities": {r: [{"date": a["date"], "begin": hhmm(a.get("begin")), "close": hhmm(a.get("close")), "people": a.get("peopleRange"), "control": a.get("controlDay")} for a in result["rooms"][r]["activities"]] for r in ["LAB", "OFFICE"]},
     }
     (OUT / "analysis-summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
 
@@ -744,4 +484,3 @@ def build_analysis():
 if __name__ == "__main__":
     configure()
     build_analysis()
-
