@@ -59,9 +59,9 @@ test("weekday equality is not a weekend trigger and night time cannot independen
   assert.equal(show(series("2026-09-14", 2 * 60)), "ESTIMATE 《0%》 POSSIBLE");
 });
 
-test("contaminant/noise rises and oxygen shifts still block the saving review", () => {
+test("operational channel rises and oxygen shifts still block the saving review", () => {
   const base = series("2026-09-12");
-  const shifts = { co2: 10, tvoc: 10, hcho: .5, co: .02, oxygen: -.02,
+  const shifts = { co2: 10, co: .02, oxygen: -.02,
     pm1: .2, pm25: .2, pm4: .2, pm10: .2, sound: 2, soundMax: 2 };
   for (const [key, delta] of Object.entries(shifts)) {
     const changed = base.map((point) => isDay(point, base) ? { ...point, [key]: point[key] + delta } : point);
@@ -104,8 +104,7 @@ test("climate adaptation stays inside the existing LAB bands", () => {
 test("renewed accumulation below a high night reference is still a veto", () => {
   const base = series("2026-09-12");
   for (const [key, nightValue, cleared, renewed] of [
-    ["co2", 900, 500, 550], ["tvoc", 200, 30, 65], ["hcho", 8, 2, 4],
-    ["co", .5, .1, .15], ["pm25", 2, .1, .8], ["soundMax", 78, 65, 71],
+    ["co2", 900, 500, 550], ["co", .5, .1, .15], ["pm25", 2, .1, .8], ["soundMax", 78, 65, 71],
   ]) {
     const samples = base.map((point, index) => ({ ...point,
       [key]: !isDay(point, base) ? nightValue : index >= 345 ? renewed : cleared,
@@ -117,21 +116,21 @@ test("renewed accumulation below a high night reference is still a veto", () => 
 
 test("a high night reference never overrides current absolute grades", () => {
   const base = series("2026-09-12");
-  for (const change of [{ co2: 1200 }, { tvoc: 600 }, { oxygen: 19.8 }, { pm25: 20 }]) {
+  for (const change of [{ co2: 1200 }, { oxygen: 19.8 }, { pm25: 20 }]) {
     assert.equal(hasMatch(base.map((point) => ({ ...point, ...change }))), false);
   }
 });
 
 test("invalid physical values cannot be interpreted as improved air", () => {
   const base = series("2026-09-12");
-  for (const change of [{ co2: 0 }, { tvoc: -10 }, { co: -1 }, { humidityAbs: -1 }]) {
+  for (const change of [{ co2: 0 }, { co: -1 }, { pm25: -1 }, { humidityAbs: -1 }]) {
     assert.equal(hasMatch(base.map((point) => isDay(point, base) ? { ...point, ...change } : point)), false);
   }
 });
 
 test("all existing LAB safety and integrity checks must be present and clear", () => {
   const labels = ["CO release", "O₂ displacement", "Propane-associated pattern", "Nitrogen (N₂) displacement pattern",
-    "Volatile-gas pattern", "Formaldehyde elevation", "Particle pattern", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
+    "Particle pattern", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
   const samples = series("2026-09-12");
   const room = { status: "normal", latest: samples.at(-1), checks: labels.map((label) => ({ label, level: "normal" })) };
   const now = room.latest.timestamp;
@@ -235,9 +234,12 @@ test("night coverage follows Berlin calendar boundaries across both DST changes"
   }
 });
 
-test("the negative planning range never replaces an existing excursion assessment", () => {
-  const samples = series("2026-09-12").map((point, index) => ({ ...point, tvoc: index >= 350 ? 400 : 30 }));
-  assert.match(show(samples), /^ESTIMATE 《\+/);
+test("TVOC and HCHO excursions remain display-only for the airflow planning figure", () => {
+  for (const change of [{ tvoc: 5_000 }, { hcho: 500 }, { tvoc: 5_000, hcho: 500 }]) {
+    const samples = series("2026-09-12").map((point, index) => index >= 350 ? { ...point, ...change } : point);
+    assert.equal(hasMatch(samples), true);
+    assert.equal(show(samples), "ESTIMATE 《−50–60%》 POSSIBLE");
+  }
 });
 
 test("compact and full-size labels both preserve estimated-range meaning", () => {

@@ -230,16 +230,14 @@ function demoRoom(name: "LAB" | "OFFICE"): RoomData {
     samples,
     latest: samples.at(-1) ?? null,
     summary: lab
-      ? "An earlier vapour response is returning toward the LAB reference without a particle rise."
+      ? "The recent pattern is stable across the operational channels."
       : "A gentle CO₂ rise with stable PM is visible; no unusual outdoor-air pattern is visible.",
     action: lab
-      ? "No immediate change is suggested; revisit the hood or process only if TVOC reverses or remains elevated for 30 minutes."
-      : "No immediate change is suggested; revisit if CO₂ and VOC rise together or PM enters with a ventilation change.",
+      ? "No immediate change is suggested; review again if an operational channel changes."
+      : "No immediate change is suggested; revisit if CO₂ or PM changes with ventilation.",
     checks: [
       { label: "CO release", method: "DIRECT", status: "NO ELEVATION", level: "normal" },
       { label: "O₂ displacement", method: "PROXY", status: "NOT INDICATED", level: "normal" },
-      { label: "Volatile-gas pattern", method: "PATTERN", status: "NORMAL", level: "normal" },
-      { label: "Formaldehyde elevation", method: "DIRECT", status: "NOT DETECTED", level: "normal" },
       { label: "Particle pattern", method: "RAW", status: "NO RISE", level: "normal" },
       { label: "CO₂ accumulation", method: "PATTERN", status: "STABLE", level: "normal" },
       { label: "Sound peak >90 dB", method: "RAW", status: "NONE", level: "normal" },
@@ -503,7 +501,7 @@ function labDaySupportsSavingReview(samples: Sample[], latest: Sample) {
   // Current conditions must also pass the existing LAB display bands. A high
   // operational night reference cannot redefine an elevated level as clear.
   const withinLabBands = (sample: Sample) => [
-    co2Grade(sample.co2), tvocGrade(sample.tvoc), oxygenGrade(sample.oxygen),
+    co2Grade(sample.co2), oxygenGrade(sample.oxygen),
     temperatureGrade(sample.temperature, "LAB"), humidityGrade(sample.humidity), labPmSampleGrade(sample),
   ].every((grade) => grade.level === "great" || grade.level === "good");
   if (!withinLabBands(latest) || !daytime.filter((point) => point.sample.timestamp >= recentStart)
@@ -514,8 +512,6 @@ function labDaySupportsSavingReview(samples: Sample[], latest: Sample) {
   // the existing LAB bands; oxygen retains a bounded two-sided stability check.
   const channels: Array<{ key: keyof Sample; resolution: number; maxDrift: number; mode: "upper" | "stable" | "climate" }> = [
     { key: "co2", resolution: 1, maxDrift: 20, mode: "upper" },
-    { key: "tvoc", resolution: 1, maxDrift: 25, mode: "upper" },
-    { key: "hcho", resolution: .1, maxDrift: 1, mode: "upper" },
     { key: "co", resolution: .01, maxDrift: .03, mode: "upper" },
     { key: "oxygen", resolution: .01, maxDrift: .03, mode: "stable" },
     { key: "pm1", resolution: .1, maxDrift: .3, mode: "upper" },
@@ -586,7 +582,7 @@ function labSavingChecksClear(room: Pick<RoomData, "status" | "checks" | "latest
   if (!live || !room.latest || !Number.isFinite(now) || !Number.isFinite(room.latest.timestamp) ||
     room.latest.timestamp > now || now - room.latest.timestamp > 8 * 60_000) return false;
   const required = ["CO release", "O₂ displacement", "Propane-associated pattern", "Nitrogen (N₂) displacement pattern",
-    "Volatile-gas pattern", "Formaldehyde elevation", "Particle pattern", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
+    "Particle pattern", "CO₂ accumulation", "Sound peak >90 dB", "Sensor/data integrity"];
   return room.status === "normal" && room.checks.every((check) => check.level === "normal") &&
     required.every((label) => room.checks.some((check) => check.label === label && check.level === "normal"));
 }
@@ -602,8 +598,6 @@ function airflowAdjustmentEstimate(samples: Sample[], officeSamples: Sample[], l
   const step = (rise: number, thresholds: [number, number, number, number]) =>
     rise >= thresholds[3] ? 20 : rise >= thresholds[2] ? 15 : rise >= thresholds[1] ? 10 : rise >= thresholds[0] ? 5 : 0;
 
-  const tvoc = channelMedian(recent, (sample) => sample.tvoc);
-  const tvocNight = channelMedian(night, (sample) => sample.tvoc);
   const co2 = channelMedian(recent, (sample) => sample.co2);
   const pm25 = channelMedian(recent, (sample) => sample.pm25);
   const pm25Night = channelMedian(night, (sample) => sample.pm25);
@@ -611,7 +605,6 @@ function airflowAdjustmentEstimate(samples: Sample[], officeSamples: Sample[], l
   const pm10Night = channelMedian(night, (sample) => sample.pm10);
 
   const candidates = [
-    { adjustment: tvoc !== null && tvocNight !== null ? step(tvoc - tvocNight, [30, 75, 150, 300]) : 0, select: (sample: Sample) => sample.tvoc, floor: 30 },
     { adjustment: co2 === null ? 0 : step(co2 - 800, [50, 200, 600, 1200]), select: (sample: Sample) => sample.co2, floor: 50 },
     { adjustment: pm25 !== null && pm25Night !== null ? step(pm25 - pm25Night, [3, 7, 15, 25]) : 0, select: (sample: Sample) => sample.pm25, floor: 3 },
     { adjustment: pm10 !== null && pm10Night !== null ? step(pm10 - pm10Night, [5, 12, 25, 40]) : 0, select: (sample: Sample) => sample.pm10, floor: 5 },
@@ -745,6 +738,12 @@ function tvocGrade(value: number | null): Grade {
   return { label: "SOURCE", level: "action" };
 }
 
+function displayOnlyGasGrade(value: number | null): Grade {
+  return value === null
+    ? { label: "NO DATA", level: "unknown" }
+    : { label: "MEASURED", level: "great" };
+}
+
 function oxygenGrade(value: number | null): Grade {
   if (value === null) return { label: "NO DATA", level: "unknown" };
   if (value >= 20.3) return { label: "GREAT", level: "great" };
@@ -814,7 +813,6 @@ function labPerformanceGrade(
   const independentGrades = [
     indexGrade(sample.health),
     co2Grade(sample.co2),
-    tvocGrade(sample.tvoc),
     oxygenGrade(sample.oxygen),
     temperatureGrade(sample.temperature, "LAB"),
     labPmGrade(sample.pm1),
@@ -1118,9 +1116,7 @@ function checkDisplayLabel(check: Check) {
 function meaningEvidenceStatus(check: Check) {
   if (["Propane-associated pattern", "Nitrogen (N₂) displacement pattern"].includes(check.label) && check.status === "NOT INDICATED") return "NOT INFERRED";
   if (check.label === "CO release" && check.status === "NO ELEVATION") return "SAFE";
-  if (check.label === "Volatile-gas pattern" && check.status === "VERIFY SOURCE") return "VERIFY\nSOURCE";
   if (check.label === "O₂ displacement" && check.status === "NOT INDICATED") return "NORMAL";
-  if (check.label === "Formaldehyde elevation" && check.status === "NOT DETECTED") return "NORMAL";
   return check.status;
 }
 
@@ -1918,14 +1914,12 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
         level: room.status,
         text: room.action,
       };
-  const evidenceOrder = ["Propane-associated pattern", "Nitrogen (N₂) displacement pattern", "CO release", "Volatile-gas pattern", "O₂ displacement", "Formaldehyde elevation"];
+  const evidenceOrder = ["Propane-associated pattern", "Nitrogen (N₂) displacement pattern", "CO release", "O₂ displacement"];
   const evidenceLabels: Record<string, string> = {
     "Propane-associated pattern": "PROPANE WARNING",
     "Nitrogen (N₂) displacement pattern": "NITROGEN WARNING",
     "CO release": "CO WARNING",
-    "Volatile-gas pattern": "GAS / VAPOUR",
     "O₂ displacement": "OXYGEN",
-    "Formaldehyde elevation": "FORMALDEHYDE",
     "CO₂ accumulation": "CO₂ / VENTILATION",
     "Sound peak >90 dB": "ACOUSTIC PEAK",
     "Sensor/data integrity": "LIVE SENSOR FEED",
@@ -1959,7 +1953,7 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
         <Metric label="Health" value={fmt(latest?.health)} scale="/100" source="airQ™" note="airQ™ secondary index; raw channels drive operational interpretation" grade={indexGrade(latest?.health ?? null)} />
         <Metric label="Performance" value={fmt(latest?.performance)} scale="/100" source="airQ™" note="airQ™ secondary index; raw channels drive operational interpretation" grade={performanceGrade} />
         <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note="CO₂ / ventilation trend" grade={co2Grade(latest?.co2 ?? null)} />
-        <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="gas-pattern context" grade={tvocGrade(latest?.tvoc ?? null)} />
+        <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="display-only measurement; graph retains reference markings" grade={displayOnlyGasGrade(latest?.tvoc ?? null)} />
         <Metric label="PM₁" value={`${fmt(latest?.pm1, 1)} µg/m³`} note="measured fine-particle channel" grade={labPmGrade(latest?.pm1 ?? null)} />
         <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} comparison={outdoorParticles?.pm25 !== null && outdoorParticles?.pm25 !== undefined ? `≈${fmt(outdoorParticles.pm25, 1)}` : undefined} note="measured fine-particle channel; outdoor comparison is CAMS model context via Open-Meteo rather than a local outdoor sensor" grade={labPmGrade(latest?.pm25 ?? null)} />
         <Metric label="Oxygen" value={`${fmt(latest?.oxygen, 2)}%`} note="displacement proxy" grade={oxygenGrade(latest?.oxygen ?? null)} />
@@ -2014,13 +2008,7 @@ function LabPanel({ room, officeSamples, outdoor, refreshing, analysisMinutes, l
               return (
                 <div className={`meaning-signal meaning-signal-${check.level}`} key={check.label}>
                   <span className="meaning-signal-label">
-                    {check.label === "Formaldehyde elevation" ? (
-                      <>
-                        <span className="formaldehyde-label formaldehyde-label-full">FORMALDEHYDE</span>
-                        <span className="formaldehyde-label formaldehyde-label-short">FORMALD.</span>
-                        <span className="formaldehyde-label formaldehyde-label-tiny">HCHO</span>
-                      </>
-                    ) : evidenceLabels[check.label] ?? check.label}
+                    {evidenceLabels[check.label] ?? check.label}
                   </span>
                   <b className="meaning-status" data-status={status} aria-label={check.status} title={check.status}>
                     {status === "NOT INFERRED" ? (
@@ -2069,7 +2057,7 @@ function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoo
   const actionLabel = room.status === "normal" ? "NEXT REVIEW" : room.status === "watch" ? "SUGGESTED CHECK" : room.status === "action" ? "PRIORITY CHECK" : "DATA CHECK";
   const outdoorLatest = outdoor?.latest ?? null;
   const outdoorParticles = outdoor?.particleLatest ?? null;
-  const visibleChecks = room.checks.filter((check) => ["CO release", "O₂ displacement", "Volatile-gas pattern", "Sound peak >90 dB"].includes(check.label));
+  const visibleChecks = room.checks.filter((check) => ["CO release", "O₂ displacement", "Sound peak >90 dB"].includes(check.label));
   return (
     <aside className="office-rail" aria-labelledby="office-heading">
       <div className="office-heading"><div className="room-titleline"><TrafficLight status={room.status} /><h2 id="office-heading">OFFICE</h2></div></div>
@@ -2078,7 +2066,7 @@ function OfficeRail({ room, outdoor, analysisMinutes }: { room: RoomData; outdoo
         <Metric label="Health" value={fmt(latest?.health)} scale="/100" source="airQ™" note="airQ™ secondary index; raw channels drive operational interpretation" grade={indexGrade(latest?.health ?? null)} />
         <Metric label="Performance" value={fmt(latest?.performance)} scale="/100" source="airQ™" note="airQ™ secondary index; raw channels drive operational interpretation" grade={indexGrade(latest?.performance ?? null)} />
         <Metric label="CO₂" value={`${fmt(latest?.co2)} ppm`} note="CO₂ / ventilation trend" grade={co2Grade(latest?.co2 ?? null)} />
-        <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="vapour pattern" grade={tvocGrade(latest?.tvoc ?? null)} />
+        <Metric label="TVOC" value={`${fmt(latest?.tvoc)} ppb`} note="display-only measurement; graph retains reference markings" grade={displayOnlyGasGrade(latest?.tvoc ?? null)} />
         <Metric label="PM₁" value={`${fmt(latest?.pm1, 1)} µg/m³`} note="measured fine-particle channel" grade={officePmGrade(latest?.pm1 ?? null)} />
         <Metric label="PM₂.₅" value={`${fmt(latest?.pm25, 1)} µg/m³`} comparison={outdoorParticles?.pm25 !== null && outdoorParticles?.pm25 !== undefined ? `≈${fmt(outdoorParticles.pm25, 1)}` : undefined} note="measured fine-particle channel; outdoor comparison is CAMS model context via Open-Meteo rather than a local outdoor sensor" grade={officePmGrade(latest?.pm25 ?? null)} />
         <Metric label="Oxygen" value={`${fmt(latest?.oxygen, 2)}%`} note="displacement proxy" grade={oxygenGrade(latest?.oxygen ?? null)} />
