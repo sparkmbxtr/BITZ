@@ -313,7 +313,9 @@ const worker = {
     // private service binding, so no sensor or access secret is duplicated.
     const isNeutralDisplay = url.hostname === "bitz.bioengineering.workers.dev";
     if (isNeutralDisplay && url.pathname.startsWith("/api/") && url.pathname !== "/api/display-version") {
-      return env.AIRQ_BACKEND.fetch(request);
+      const backendUrl = new URL(request.url);
+      backendUrl.hostname = "spark.bioengineering.workers.dev";
+      return env.AIRQ_BACKEND.fetch(new Request(backendUrl, request));
     }
 
     if (url.pathname === "/_vinext/image") {
