@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "LAB and OFFICE Environmental Monitor",
-  description: "Near-real-time LAB-priority environmental status display.",
+  title: "BITZ Air Monitoring",
+  description: "Room-specific environmental sensor history.",
 };
 
 export const viewport: Viewport = {
@@ -15,5 +15,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body>{children}</body></html>;
+  return <html lang="en"><head><meta name="codex-preview" content="development" /></head><body>{children}</body></html>;
 }

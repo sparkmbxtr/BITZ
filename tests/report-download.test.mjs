@@ -7,21 +7,10 @@ const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8")
 const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
 const route = await readFile(new URL("../app/api/report/route.ts", import.meta.url), "utf8");
 
-test("weekly report control is hidden behind a reversible flag", () => {
-  assert.match(page, /const SHOW_WEEKLY_REPORT_DOWNLOAD = false;/);
-  assert.match(page, /SHOW_WEEKLY_REPORT_DOWNLOAD \? <button className="report-trigger"/);
-  assert.match(page, /SHOW_WEEKLY_REPORT_DOWNLOAD && reportOpen/);
-});
-
-test("retained weekly report code uses one OK/Cancel confirmation", () => {
-  assert.match(page, />REPORT<\/button>/);
-  assert.match(page, /dashboardFetch\(\`\/api\/report\?availability=/);
-  assert.match(page, /Recent week’s report has not been generated yet/i);
-  assert.match(page, /Download the weekly report/);
-  assert.match(page, /type="button" onClick={closeReportInput} disabled={reportState === "sending"}>CANCEL/);
-  assert.match(page, /type="submit" disabled={reportState === "sending"}>\{reportState === "sending" \? "DOWNLOADING…" : "OK"\}/);
-  assert.match(page, /reportDownloading\.current \|\|/);
-  assert.match(page, /dashboardFetch\("\/api\/report", \{\s*method: "POST"/);
+test("weekly report interface is absent while the protected backend is retained", () => {
+  assert.doesNotMatch(page, /REPORT|report-trigger|SHOW_WEEKLY_REPORT_DOWNLOAD|\/api\/report/);
+  assert.match(route, /export async function GET/);
+  assert.match(route, /export async function POST/);
 });
 
 test("only the exact latest Monday-Saturday report can be served", () => {
@@ -142,14 +131,13 @@ test("all chart paths are generated from ascending unique timestamps", () => {
   assert.match(page, /unique\.set\(sample\.timestamp, sample\)/);
   assert.match(page, /sort\(\(left, right\) => left\.timestamp - right\.timestamp\)/);
   assert.match(page, /setData\(normalizeDashboardData\(payload\)\)/);
-  assert.match(page, /const orderedSamples = useMemo/);
-  assert.match(page, /const proportionalX = .* \* 100/);
-  assert.match(page, /Math\.max\(index === 0 \? 0 : previousX, proportionalX\)/);
+  assert.match(page, /const ordered = chronologicalByTimestamp\(samples\)/);
+  assert.match(page, /sample\.timestamp - start/);
+  assert.match(page, /Math\.max\(end - start, 1\)/);
 });
 
-test("current display copy remains aligned", () => {
-  assert.match(page, /CO WARNING/);
-  assert.doesNotMatch(page, /LATEST COMPLETED WEEK/);
-  assert.match(page, /LAB 2 BUILDING CONSTRUCTION · X'27/);
-  assert.match(page, /status === "action" \? "!" : ""/);
+test("current display copy is graph-only and neutral", () => {
+  assert.match(page, /BITZ AIR MONITORING/);
+  assert.doesNotMatch(page, /WARNING|ALERT|EVACUATE|MEANINGFUL ACTION|HEPA STATUS|AIRFLOW CHANGE|CLOSED|BEGIN|STATE1|STATE2/);
+  assert.doesNotMatch(page, /SPARK|RICHARD|sparkmbxtr/i);
 });

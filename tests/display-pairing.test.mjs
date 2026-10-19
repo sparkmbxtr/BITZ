@@ -55,59 +55,14 @@ test("lock removes both cookie and kiosk session", () => {
   assert.match(page, /clearDisplaySession\(\);\s*setAuthorized\(false\)/);
 });
 
-test("landscape laptops retain the two-room wallboard", () => {
-  assert.match(page, /pointer: fine/);
-  assert.match(page, /hover: hover/);
-  assert.match(page, /!signage && !desktopInput/);
-  assert.match(page, /touchFirstViewport && \(availableWidth <= 900 \|\| availableHeight > availableWidth\)/);
-  assert.match(css, /@media \(pointer: coarse\) and \(max-width: 900px\)/);
-  assert.doesNotMatch(css, /@media \(max-width: 900px\), \(orientation: portrait\)/);
-  assert.doesNotMatch(css, /@media \(max-width: 1699px\), \(orientation: portrait\)/);
-});
-
-test("short landscape laptops fit the complete wallboard into the viewport", () => {
-  assert.match(page, /availableWidth < 1920 \|\| availableHeight < 960/);
-  assert.match(page, /setFitViewport\(fitted\)/);
-  assert.match(page, /presentationMode \|\| fitViewport/);
-  assert.match(page, /presentationMode \? 1080 : 960/);
-  assert.match(page, /wallboard-auto-fit/);
-});
-
-test("PAIR remains available only when the screen is portrait", () => {
-  assert.match(page, /className="footer-pair-cluster"/);
-  assert.match(page, /className="pair-trigger" href="\/pair"/);
-  assert.match(css, /\.pair-trigger \{ display: none;/);
-  assert.match(css, /@media \(orientation: portrait\) \{\s*\.pair-trigger \{ display: inline-flex; \}/);
+test("the access surface and board do not expose removed data-entry controls", () => {
   assert.doesNotMatch(page, /context-trigger|context-popover|>CODES<|\/api\/context/);
   assert.doesNotMatch(css, /context-trigger|context-popover|context-input-row|context-password-row/);
+  assert.doesNotMatch(page, /report-trigger|SHOW_WEEKLY_REPORT_DOWNLOAD|\/api\/report/);
 });
 
-test("fitted landscape decision cards do not clip their two text rows", () => {
-  assert.match(css, /\.meaning-evidence > \.meaning-signal \{\s*grid-template-rows: minmax\(0, 1fr\) auto;/);
-  assert.match(css, /\.meaning-evidence b\.meaning-status \{\s*height: auto;\s*min-height: 0;/);
-});
-
-test("dashboard contains no calculated room-transition or personnel layer", () => {
-  assert.doesNotMatch(page, /STATE1|STATE2|activityCycles|ActivityCycle|peopleRange|approximatePeopleAfterBegin|occupancyText/);
-  assert.doesNotMatch(css, /activity-event-label|activity-time-grid|cycle-begin-stamp|day-end-stamps|closed-period-copy/);
-});
-
-test("LAB HEPA card includes a provisional airflow-rate assessment", () => {
-  assert.match(page, /<span>HEPA STATUS<\/span>/);
-  assert.match(page, /<span>AIRFLOW CHANGE<br \/>TO SAVE POWER<\/span>/);
-  assert.match(page, /className="hepa-status-half airflow-rate-half"/);
-  assert.match(css, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
-  assert.match(css, /\.hepa-status-half \{[^}]*grid-template-rows: auto auto 1fr/);
-  assert.match(page, /LAB_VOLUME_ESTIMATE_M3 = 50/);
-  assert.match(page, /LAB_FLOOR_AREA_ESTIMATE_M2 = 18/);
-  assert.match(page, /savingChecksClear && \(weekday === "Sat" \|\| weekday === "Sun"\) && labDaySupportsSavingReview/);
-  assert.match(page, /return "ESTIMATE 《−50–60%》 POSSIBLE"/);
-  assert.match(page, /function empiricalDecayRate/);
-  assert.match(page, /empiricalDecayRate\(officeSamples[\s\S]*"NIGHT"/);
-  assert.match(page, /empiricalDecayRate\(officeSamples[\s\S]*"DAY"/);
-  assert.match(page, /`ESTIMATE 《\+\$\{strongest\.adjustment\}–\$\{maximum\}%》 REQUIRED`/);
-  assert.match(page, /replace\("》 REQUIRED", " REQ\."\)/);
-  assert.match(page, /compactAirflowStatus/);
-  assert.match(css, /\.airflow-status-short \{ display: none;/);
-  assert.match(page, /status: "GOOD",\s*airflow,/);
+test("the graph board has responsive full-height rows without legacy card rules", () => {
+  assert.match(css, /\.graphs-shell \{[\s\S]*grid-template-rows: repeat\(5, minmax\(142px, 1fr\)\)/);
+  assert.match(css, /@media \(orientation: portrait\), \(max-width: 720px\)/);
+  assert.doesNotMatch(css, /meaning-evidence|hepa-status|airflow-status|activity-event-label|closed-period-copy/);
 });

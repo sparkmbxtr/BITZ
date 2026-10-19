@@ -7,7 +7,6 @@ export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 type RawRecord = Record<string, unknown>;
-type Level = "normal" | "watch" | "action" | "unknown";
 
 type Sample = {
   timestamp: number;
@@ -229,67 +228,6 @@ function normalize(record: RawRecord, includeAdditionalEnvironmental = false): S
   return sample;
 }
 
-function values(samples: Sample[], selector: (sample: Sample) => number | null) {
-  return samples.map(selector).filter((value): value is number => value !== null && Number.isFinite(value));
-}
-
-function maxValue(samples: Sample[], selector: (sample: Sample) => number | null) {
-  const list = values(samples, selector);
-  return list.length ? Math.max(...list) : null;
-}
-
-function minValue(samples: Sample[], selector: (sample: Sample) => number | null) {
-  const list = values(samples, selector);
-  return list.length ? Math.min(...list) : null;
-}
-
-function delta(samples: Sample[], selector: (sample: Sample) => number | null) {
-  const list = values(samples, selector);
-  return list.length > 1 ? list.at(-1)! - list[0] : null;
-}
-
-function latestValue(samples: Sample[], selector: (sample: Sample) => number | null) {
-  const list = values(samples, selector);
-  return list.length ? list.at(-1)! : null;
-}
-
-function median(list: number[]) {
-  if (!list.length) return null;
-  const ordered = [...list].sort((left, right) => left - right);
-  const middle = Math.floor(ordered.length / 2);
-  return ordered.length % 2 ? ordered[middle] : (ordered[middle - 1] + ordered[middle]) / 2;
-}
-
-function recentMedianShift(samples: Sample[], selector: (sample: Sample) => number | null) {
-  if (samples.length < 6) return null;
-  const current = median(values(samples.slice(-3), selector));
-  const reference = median(values(samples.slice(-15, -3), selector));
-  return current === null || reference === null ? null : current - reference;
-}
-
-function shareMatching(
-  samples: Sample[],
-  selector: (sample: Sample) => number | null,
-  predicate: (value: number) => boolean,
-) {
-  const list = values(samples, selector);
-  if (!list.length) return null;
-  return list.filter(predicate).length / list.length;
-}
-
-function particleValue(sample: Sample) {
-  const channels = [sample.pm1, sample.pm25, sample.pm4, sample.pm10]
-    .filter((value): value is number => value !== null && Number.isFinite(value));
-  if (!channels.length) return null;
-  return channels.reduce((sum, value) => sum + value, 0) / channels.length;
-}
-
-function particlePeakValue(sample: Sample) {
-  const channels = [sample.pm1, sample.pm25, sample.pm4, sample.pm10]
-    .filter((value): value is number => value !== null && Number.isFinite(value));
-  return channels.length ? Math.max(...channels) : null;
-}
-
 function mergeSupplementalSample(history: Sample[], supplemental: Sample | null) {
   if (!supplemental) return history;
   const existingIndex = history.findIndex((sample) => sample.timestamp === supplemental.timestamp);
@@ -308,186 +246,8 @@ function mergeSupplementalSample(history: Sample[], supplemental: Sample | null)
   return history.sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function check(
-  label: string,
-  method: "DIRECT" | "PROXY" | "PATTERN" | "RAW" | "SYSTEM" | "COMPUTED UNTIL PROPANE SENSOR IS INSTALLED" | "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED",
-  status: string,
-  level: Level,
-) {
-  return { label, method, status, level };
-}
-
-function worst(levels: Level[]): Level {
-  const order: Level[] = ["normal", "unknown", "watch", "action"];
-  return levels.reduce((current, level) => order.indexOf(level) > order.indexOf(current) ? level : current, "normal");
-}
-
-function analyseRoom(name: "LAB" | "OFFICE", history: Sample[]) {
-  const latest = history.at(-1) ?? null;
-  const recentStart = (latest?.timestamp ?? Date.now()) - ANALYSIS_MINUTES * 60_000;
-  const recent = history.filter((sample) => sample.timestamp >= recentStart);
-  const dataAge = latest ? Date.now() - latest.timestamp : Infinity;
-  const o2Min = minValue(recent, (sample) => sample.oxygen);
-  const coMax = maxValue(recent, (sample) => sample.co);
-  const particleMax = maxValue(recent, particlePeakValue);
-  const particleLatest = [...recent].reverse().find((sample) => particleValue(sample) !== null) ?? null;
-  const currentParticleAvailable = Boolean(latest && particleLatest && latest.timestamp - particleLatest.timestamp <= 10 * 60_000);
-  // Acoustic checks are a rolling wall-clock event window. Basing this on the
-  // latest returned sample would let an old peak remain active indefinitely if
-  // the feed paused, even though sensor/data freshness is reported separately.
-  const acousticRecent = history.filter((sample) => sample.timestamp > Date.now() - ANALYSIS_MINUTES * 60_000);
-  const soundMax = maxValue(acousticRecent, (sample) => sample.soundMax);
-  const hasHistoricalSound = latestValue(history, (sample) => sample.soundMax) !== null;
-  const co2Max = maxValue(recent, (sample) => sample.co2);
-  const coDelta = delta(recent, (sample) => sample.co);
-  const co2Delta = delta(recent, (sample) => sample.co2);
-  const o2Delta = delta(recent, (sample) => sample.oxygen);
-  const pmDelta = delta(recent, particleValue);
-  const humidityDelta = delta(recent, (sample) => sample.humidityAbs);
-  const temperatureDelta = delta(recent, (sample) => sample.temperature);
-  const recentO2Shift = recentMedianShift(recent, (sample) => sample.oxygen);
-  const recentCo2Shift = recentMedianShift(recent, (sample) => sample.co2);
-  const recentCoShift = recentMedianShift(recent, (sample) => sample.co);
-  const finalTwenty = recent.filter((sample) => sample.timestamp >= (latest?.timestamp ?? 0) - 20 * 60_000);
-  const coNow = latestValue(recent, (sample) => sample.co);
-  const co2Now = latestValue(recent, (sample) => sample.co2);
-  const o2Now = latestValue(recent, (sample) => sample.oxygen);
-  const pmNow = latestValue(recent, particleValue);
-  const particlePersistent = currentParticleAvailable &&
-    (shareMatching(finalTwenty, particlePeakValue, (value) => value > 35) ?? 0) >= .5;
-  const co2Persistent = (shareMatching(finalTwenty, (sample) => sample.co2, (value) => value > 1_400) ?? 0) >= .5;
-
-  const freshness = dataAge <= 8 * 60_000
-    ? check("Sensor/data integrity", "SYSTEM", "CURRENT", "normal")
-    : check("Sensor/data integrity", "SYSTEM", "DATA STALE", "unknown");
-  const oxygen = o2Min === null
-    ? check("O₂ displacement", "PROXY", "UNAVAILABLE", "unknown")
-    : o2Min < 19.5
-      ? check("O₂ displacement", "PROXY", "CHECK NOW", "action")
-      : o2Min < 20.0
-        ? check("O₂ displacement", "PROXY", "WATCH", "watch")
-        : check("O₂ displacement", "PROXY", "NOT INDICATED", "normal");
-  const carbonMonoxide = coMax === null
-    ? check("CO release", "DIRECT", "UNAVAILABLE", "unknown")
-    : coMax >= 23
-      ? check("CO release", "DIRECT", "CHECK NOW", "action")
-      : coMax >= 5
-        ? check("CO release", "DIRECT", "ELEVATED", "watch")
-        : check("CO release", "DIRECT", "NO ELEVATION", "normal");
-  const particles = currentParticleAvailable && particleMax !== null
-    ? particleMax > 35 || (pmDelta ?? 0) > 15
-      ? check("Particle pattern", "RAW", "RISE — CHECK", "watch")
-      : check("Particle pattern", "RAW", "NO RISE", "normal")
-    : null;
-  const carbonDioxide = co2Max === null
-    ? check("CO₂ accumulation", "PATTERN", "UNAVAILABLE", "unknown")
-    : co2Max > 1_400 || (co2Delta ?? 0) > 450
-      ? check("CO₂ accumulation", "PATTERN", "VENTILATE/CHECK", "watch")
-      : check("CO₂ accumulation", "PATTERN", "STABLE", "normal");
-  const acoustics = soundMax === null
-    ? hasHistoricalSound
-      ? check("Sound peak >90 dB", "RAW", "NONE", "normal")
-      : check("Sound peak >90 dB", "RAW", "UNAVAILABLE", "unknown")
-    : soundMax > 90
-      ? check("Sound peak >90 dB", "RAW", `${soundMax.toFixed(0)} dB EVENT`, "watch")
-      : check("Sound peak >90 dB", "RAW", "NONE", "normal");
-
-  const displacementComputable = recentO2Shift !== null && recentCo2Shift !== null;
-  const coordinatedDisplacement = displacementComputable && recentO2Shift <= -0.08 && recentCo2Shift <= -75;
-  const inertPatternComputable = recentCoShift !== null;
-  const noCombustionRise = inertPatternComputable && recentCoShift < 0.08;
-  const propanePattern = name === "LAB"
-    ? check("Propane-associated pattern", "COMPUTED UNTIL PROPANE SENSOR IS INSTALLED", "NOT INFERRED", "normal")
-    : null;
-  const nitrogenPattern = name === "LAB"
-    ? !displacementComputable || !inertPatternComputable
-      ? check("Nitrogen (N₂) displacement pattern", "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED", "TREND FORMING", "unknown")
-      : coordinatedDisplacement && noCombustionRise
-        ? check("Nitrogen (N₂) displacement pattern", "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED", "POSSIBLE N₂ / INERT-GAS PATTERN", "watch")
-        : check("Nitrogen (N₂) displacement pattern", "COMPUTED UNTIL NITROGEN SENSOR IS INSTALLED", "NOT INDICATED", "normal")
-    : null;
-
-  const checks = [carbonMonoxide, oxygen, carbonDioxide, acoustics, freshness];
-  if (particles) checks.splice(2, 0, particles);
-  if (name === "LAB" && propanePattern && nitrogenPattern) checks.splice(2, 0, propanePattern, nitrogenPattern);
-  const rawStatus = worst(checks.map((item) => item.level));
-  const status = rawStatus === "unknown" && freshness.level === "normal" ? "normal" : rawStatus;
-  const co2HumidityPattern = (co2Delta ?? 0) > 80 && (humidityDelta ?? 0) > 0.15;
-  const co2HumidityOxygenPattern = co2HumidityPattern && (o2Delta ?? 0) < -0.025;
-  const directCritical = oxygen.level === "action" || carbonMonoxide.level === "action";
-  const particleOnly = currentParticleAvailable && (pmDelta ?? 0) > 3 && (coDelta ?? 0) < .08;
-  const coOnly = carbonMonoxide.level === "watch" && (!particles || particles.level === "normal");
-  const oxygenProxyPattern = oxygen.level === "watch" && (co2Delta ?? 0) < 50;
-  const acousticOnly = acoustics.level === "watch" &&
-    [oxygen, carbonMonoxide, carbonDioxide, ...(particles ? [particles] : [])]
-      .every((item) => item.level === "normal" || item.level === "unknown");
-  const thermalMoisturePattern = Math.abs(temperatureDelta ?? 0) >= 1 && Math.abs(humidityDelta ?? 0) >= .35 &&
-    Math.abs(co2Delta ?? 0) < 80 && (coDelta ?? 0) < .08 && (pmDelta ?? 0) < 3;
-  const nitrogenPatternActive = nitrogenPattern?.level === "watch";
-
-  let summary = "The recent pattern is stable across the available channels.";
-  if (freshness.level !== "normal") {
-    const ageMinutes = Number.isFinite(dataAge) ? Math.max(1, Math.round(dataAge / 60_000)) : null;
-    summary = ageMinutes === null
-      ? "Current interpretation is paused because a recent validated sample is unavailable; displayed values are last known."
-      : `The newest validated sample is ${ageMinutes} minutes old; displayed values are last known, not current.`;
-  }
-  else if (directCritical) summary = `A direct safety channel requires dedicated verification: ${oxygen.level === "action" ? `oxygen reached ${o2Now?.toFixed(2) ?? "a low value"}%` : `carbon monoxide reached ${coNow?.toFixed(2) ?? "an elevated value"} mg/m³`}. Other channels may provide context but do not cancel the direct reading.`;
-  else if (nitrogenPatternActive) summary = "Oxygen and CO₂ fell together without a matching CO rise. This is a computed nitrogen/inert-gas displacement pattern; the dedicated oxygen and nitrogen systems remain decisive.";
-  else if (oxygenProxyPattern) summary = `Oxygen moved into the watch range without a matching CO₂ rise. This is an oxygen-displacement proxy pattern, not confirmation of nitrogen or another gas; a dedicated oxygen measurement is the deciding check.`;
-  else if (coOnly) summary = `The CO channel rose without matching particle movement. A combustion/exhaust input, electrochemical cross-response or local instrument effect remain distinct possibilities.`;
-  else if (particleOnly) summary = name === "LAB"
-    ? `Particles${pmNow === null ? "" : ` (latest ${pmNow.toFixed(1)} µg/m³)`} rose${particlePersistent ? " and the rise persisted" : ""}. A local particle-generating process, door/pressure transition or delayed filtered-air response remain possible.`
-    : `Particles${pmNow === null ? "" : ` (latest ${pmNow.toFixed(1)} µg/m³)`} rose${particlePersistent ? " and the rise persisted" : ""}. Open-window outdoor import, nearby road work and a local dust event remain competing explanations.`;
-  else if (co2Persistent) summary = `CO₂ remained elevated through most of the latest 20 minutes${co2Now === null ? "" : ` and is ${co2Now.toFixed(0)} ppm`}, supporting a sustained CO₂ source or limited air exchange rather than a brief spike.`;
-  else if (co2HumidityOxygenPattern) summary = "CO₂ and absolute humidity rose together while oxygen eased slightly; this coordinated change is not evidence for an inert-gas release.";
-  else if (co2HumidityPattern) summary = "CO₂ and absolute humidity rose together; the coordinated change is not specific to a chemical source.";
-  else if (acousticOnly) summary = "A brief raw sound-max event occurred without a matching oxygen, CO₂, CO or particle pattern. It is retained as an acoustic event, not interpreted as an air-quality event.";
-  else if (thermalMoisturePattern) summary = "Temperature and absolute humidity moved together while CO₂, CO and particle channels remained comparatively stable. This is a room-condition or airflow pattern.";
-  else if ((co2Delta ?? 0) > 80) summary = currentParticleAvailable
-    ? "CO₂ rose gradually while CO, oxygen and particle channels stayed comparatively stable; a CO₂ source or air-exchange effect is plausible."
-    : "CO₂ rose gradually while CO and oxygen stayed comparatively stable; a CO₂ source or air-exchange effect is plausible.";
-
-  const flaggedLabels = checks
-    .filter((item) => item.level === "watch" || item.level === "action")
-    .map((item) => item.label.toLowerCase());
-  const flaggedText = flaggedLabels.length ? flaggedLabels.join(" and ") : "the highlighted condition";
-  const action = freshness.level !== "normal"
-    ? "Latest readings are last known; connection status merits review."
-    : directCritical
-      ? `Use the room procedure and a dedicated instrument to verify ${oxygen.level === "action" ? "oxygen" : "carbon monoxide"} now; do not rely on the dashboard alone.`
-      : nitrogenPatternActive
-        ? "Check the dedicated oxygen/nitrogen alarm and LAB gas system now. Treat this dashboard result as an early-warning displacement correlation until the direct nitrogen sensor is installed in air-Q."
-      : oxygenProxyPattern
-        ? "Verify oxygen with a dedicated instrument and check nitrogen/process timing. Escalate only if the low reading persists or another independent channel changes."
-      : coOnly
-        ? "Check combustion, vehicle/exhaust and instrument context; use a dedicated CO measurement if the rise persists or increases."
-      : particleOnly
-        ? name === "LAB"
-          ? "Match the onset to local particle work, doors and pressure/airflow. Review HEPA performance only if the elevation persists or clearance is slower than the LAB's own history."
-          : "Check window and road-work timing. Indoor action is useful only if particles stay elevated after the suspected outdoor or local dust event ends."
-      : co2Persistent
-        ? `Review CO₂ sources and air exchange. A ventilation adjustment becomes useful if CO₂ remains elevated for another 20–30 minutes or continues rising.`
-      : acousticOnly
-        ? "Retain the event timestamp for equipment or activity review; no air-quality action follows from an isolated sound peak."
-      : thermalMoisturePattern
-        ? "Observe whether the room-condition change settles with the next ventilation change."
-      : status === "action"
-        ? `Room procedure and dedicated verification are appropriate for ${flaggedText}.`
-      : status === "watch"
-        ? `A source check becomes useful if ${flaggedText} persists for 10–30 minutes or gains a second signal.`
-        : "No immediate change is suggested; review again if the pattern persists or gains a second signal.";
-
-  return {
-    name,
-    status,
-    statusLabel: status === "normal" ? "AVAILABLE CHANNELS NORMAL" : status === "watch" ? "NOTABLE PATTERN — CHECK" : status === "action" ? "ACTIONABLE CONDITION" : "DATA DELAY — CHECK CONNECTION",
-    samples: history,
-    latest,
-    checks,
-    summary,
-    action,
-  };
+function roomSnapshot(name: "LAB" | "OFFICE", history: Sample[]) {
+  return { name, samples: history, latest: history.at(-1) ?? null };
 }
 
 type TimeRange = { from: number; to: number; exact: boolean };
@@ -499,8 +259,8 @@ type DashboardPayload = {
   analysisMinutes: number;
   outdoor: OutdoorData | null;
   rooms: {
-    lab: ReturnType<typeof analyseRoom>;
-    office: ReturnType<typeof analyseRoom>;
+    lab: ReturnType<typeof roomSnapshot>;
+    office: ReturnType<typeof roomSnapshot>;
   };
 };
 
@@ -716,11 +476,21 @@ async function buildDashboardPayload(
     },
   );
 
-  const [labHistory, officeHistory] = await Promise.all([
+  const [labResult, officeResult] = await Promise.allSettled([
     fetchRoom(labId, apiKey, range, includeAdditionalEnvironmental),
     fetchRoom(officeId, apiKey, range, includeAdditionalEnvironmental),
   ]);
-  if (!labHistory.length || !officeHistory.length) throw new Error("No recent records returned");
+  const labHistory = labResult.status === "fulfilled" ? labResult.value : [];
+  const officeHistory = officeResult.status === "fulfilled" ? officeResult.value : [];
+
+  // Exact exports remain all-or-nothing. The interactive wallboard is room
+  // independent so one disconnected sensor cannot hide the other live room.
+  if (range.exact && (!labHistory.length || !officeHistory.length)) {
+    throw new Error("Exact export requires both room histories");
+  }
+  if (!range.exact && !labHistory.length && !officeHistory.length) {
+    throw new Error("No recent records returned");
+  }
 
   if (requireOutdoor) {
     const requiredOutdoor = await outdoorRequest;
@@ -739,8 +509,8 @@ async function buildDashboardPayload(
     analysisMinutes: ANALYSIS_MINUTES,
     outdoor,
     rooms: {
-      lab: analyseRoom("LAB", labHistory),
-      office: analyseRoom("OFFICE", officeHistory),
+      lab: roomSnapshot("LAB", labHistory),
+      office: roomSnapshot("OFFICE", officeHistory),
     },
   };
 }
