@@ -11,8 +11,10 @@ test("the neutral bitz display uses a private backend service binding", () => {
   assert.match(wrangler, /"binding": "AIRQ_BACKEND"/);
   assert.match(wrangler, /"service": "spark"/);
   assert.doesNotMatch(wrangler, /"durable_objects"|"migrations"/);
-  assert.match(worker, /url\.pathname\.startsWith\("\/api\/"\) && url\.pathname !== "\/api\/display-version"/);
-  assert.match(worker, /return env\.AIRQ_BACKEND\.fetch\(request\)/);
+  assert.match(worker, /url\.hostname === "bitz\.bioengineering\.workers\.dev"/);
+  assert.match(worker, /isNeutralDisplay && url\.pathname\.startsWith\("\/api\/"\) && url\.pathname !== "\/api\/display-version"/);
+  assert.match(worker, /backendUrl\.hostname = "spark\.bioengineering\.workers\.dev"/);
+  assert.match(worker, /return env\.AIRQ_BACKEND\.fetch\(new Request\(backendUrl, request\)\)/);
 });
 
 test("deployment documentation names only the neutral public display address", () => {
