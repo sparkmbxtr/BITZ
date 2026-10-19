@@ -1,8 +1,14 @@
 # Cloudflare Workers deployment
 
-This repository is ready to run as the `spark` Cloudflare Worker. With the
-Workers account subdomain set to `bioengineering`, its public address is
-`spark.bioengineering.workers.dev`.
+This repository deploys the neutral `bitz` display Worker. With the Workers
+account subdomain set to `bioengineering`, its public address is
+`bitz.bioengineering.workers.dev`.
+
+The display Worker serves the interface and its own build fingerprint. All
+protected API routes are forwarded through a private Cloudflare service binding
+to the existing credential-bearing backend Worker. Sensor IDs, secrets, pairing
+state, and report storage therefore remain in one backend and are not copied to
+the public display Worker.
 
 ## Cloudflare Builds
 
@@ -29,8 +35,8 @@ build are limited to prevent reload loops. Browser-native fullscreen remains
 subject to the device browser's navigation policy; the dashboard's fitted
 presentation layout is restored automatically.
 
-Configure these production secrets in Cloudflare before the first public
-deployment. Never commit their values to Git:
+These production secrets stay on the backend Worker. Never copy them to the
+`bitz` display Worker and never commit their values to Git:
 
 - `AIRQ_API_KEY`
 - `AIRQ_LAB_DEVICE_ID`

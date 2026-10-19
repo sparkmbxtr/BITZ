@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "spark",
+  "name": "bitz",
   "compatibility_date": "2026-09-03",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./worker/index.ts",
@@ -12,18 +12,10 @@
   "images": {
     "binding": "IMAGES"
   },
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "CONTEXT_LOG",
-        "class_name": "ContextLog"
-      }
-    ]
-  },
-  "migrations": [
+  "services": [
     {
-      "tag": "context-log-v1",
-      "new_sqlite_classes": ["ContextLog"]
+      "binding": "AIRQ_BACKEND",
+      "service": "spark"
     }
   ],
   "observability": {

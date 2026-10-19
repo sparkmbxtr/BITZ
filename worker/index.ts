@@ -5,8 +5,9 @@ import handler from "vinext/server/app-router-entry";
 
 interface Env {
   ASSETS: Fetcher;
-  CONTEXT_LOG: DurableObjectNamespace;
-  DB: D1Database;
+  AIRQ_BACKEND: Fetcher;
+  CONTEXT_LOG?: DurableObjectNamespace;
+  DB?: D1Database;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -306,6 +307,13 @@ export class ContextLog extends DurableObject<Env> {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // The neutral display Worker owns the page and its build fingerprint. All
+    // protected API work stays in the existing credential-bearing Worker via a
+    // private service binding, so no sensor or access secret is duplicated.
+    if (url.pathname.startsWith("/api/") && url.pathname !== "/api/display-version") {
+      return env.AIRQ_BACKEND.fetch(request);
+    }
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
