@@ -311,7 +311,8 @@ const worker = {
     // The neutral display Worker owns the page and its build fingerprint. All
     // protected API work stays in the existing credential-bearing Worker via a
     // private service binding, so no sensor or access secret is duplicated.
-    if (url.pathname.startsWith("/api/") && url.pathname !== "/api/display-version") {
+    const isNeutralDisplay = url.hostname === "bitz.bioengineering.workers.dev";
+    if (isNeutralDisplay && url.pathname.startsWith("/api/") && url.pathname !== "/api/display-version") {
       return env.AIRQ_BACKEND.fetch(request);
     }
 
