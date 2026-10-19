@@ -17,6 +17,8 @@ the public display Worker.
 - Deploy command: `npm run deploy`
 - Root directory: `/`
 
+The deploy setting must use the npm script exactly as written above; `npx run deploy` is not a valid equivalent.
+
 ## Automatic display updates
 
 After a display loads the updater-enabled page, it checks `/api/display-version`
