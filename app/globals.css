@@ -220,6 +220,8 @@ button, input { font: inherit; }
 .graph-values b { margin-right: 4px; font-size: .8em; letter-spacing: .05em; }
 .graph-primary-value { color: var(--cyan); }
 .graph-secondary-value { color: var(--amber); }
+.reading-age { margin-left: 4px; color: rgba(206, 226, 228, .68); font-size: .72em; }
+.reading-age.is-stale { color: var(--amber); }
 .sensor-chart {
   min-width: 0;
   min-height: 0;
@@ -241,20 +243,18 @@ button, input { font: inherit; }
 .band-upper { fill: rgba(143, 65, 37, .52); }
 .band-unknown { fill: rgba(86, 105, 110, .32); }
 .recent-period { fill: rgba(103, 220, 216, .045); stroke: rgba(103, 220, 216, .24); stroke-width: .35; vector-effect: non-scaling-stroke; }
-.outdoor-fill { opacity: .13; }
-.outdoor-fill-primary { fill: var(--cyan); }
-.outdoor-fill-secondary { fill: var(--amber); }
+.outdoor-reference { fill: none; stroke-width: .8px; opacity: .5; vector-effect: non-scaling-stroke; }
+.outdoor-reference-primary { stroke: var(--cyan); }
+.outdoor-reference-secondary { stroke: var(--amber); }
+.sensor-point-primary, .outdoor-point-primary { fill: var(--cyan); }
+.sensor-point-secondary, .outdoor-point-secondary { fill: var(--amber); }
+.outdoor-point { opacity: .5; }
 .raw-marker { fill: var(--red); stroke: rgba(255, 235, 232, .82); stroke-width: 1.2px; }
 .sensor-current {
-  position: absolute;
-  z-index: 3;
-  width: 9px;
-  height: 9px;
-  border: 2px solid #eaffff;
-  border-radius: 50%;
-  background: var(--cyan);
-  box-shadow: 0 0 9px rgba(112, 216, 237, .75);
-  transform: translate(-50%, -50%);
+  fill: var(--cyan);
+  stroke: #eaffff;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 .sensor-axis { position: relative; min-width: 0; color: rgba(206, 226, 228, .68); font-size: clamp(.56rem, .58vw, .72rem); font-variant-numeric: tabular-nums; }

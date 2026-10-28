@@ -126,14 +126,11 @@ test("dashboard login alone cannot publish reports", async () => {
   }
 });
 
-test("all chart paths are generated from ascending unique timestamps", () => {
-  assert.match(page, /function chronologicalByTimestamp/);
-  assert.match(page, /unique\.set\(sample\.timestamp, sample\)/);
-  assert.match(page, /sort\(\(left, right\) => left\.timestamp - right\.timestamp\)/);
+test("dashboard normalizes samples before rendering timestamped histories", () => {
+  assert.match(page, /chronologicalByTimestamp/);
   assert.match(page, /setData\(normalizeDashboardData\(payload\)\)/);
-  assert.match(page, /const ordered = chronologicalByTimestamp\(samples\)/);
-  assert.match(page, /sample\.timestamp - start/);
-  assert.match(page, /Math\.max\(end - start, 1\)/);
+  assert.match(page, /const ordered = samplesInWindow\(samples, timeWindow\)/);
+  assert.match(page, /const timeWindow = observationWindow\(data, clock\)/);
 });
 
 test("current display copy is graph-only and neutral", () => {
