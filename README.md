@@ -22,6 +22,33 @@ their own instance must provide their own authorised data sources and credential
 Institutional names used to describe the original deployment do not imply
 endorsement of modified or third-party deployments.
 
+## Graph time and missing measurements
+
+All five graphs and both rooms use the same requested 24-hour `coverage.from`
+and `coverage.to` bounds returned by `/api/airq`, with Europe/Berlin clock labels.
+Responses without coverage use the response's `fetchedAt` as the window end.
+Sparse data never expands to fill the plot. Out-of-window readings are excluded
+from paths and scales, while an older last measured value keeps its real timestamp
+and age in the heading.
+
+Each channel breaks its line at null or nonfinite values and at indoor intervals
+over five minutes, matching the report analysis's gap convention. Isolated
+measurements appear as dots. Threshold bands cover connected measured segments
+only; neutral space and line breaks indicate missing data. The thin outdoor
+references use their own observation timestamps and break at missing values or
+intervals over 90 minutes to accommodate hourly weather observations.
+
+Readings older than five minutes are labelled `STALE`; the current-point marker
+also disappears when its channel is missing from the newest row. Ages continue
+updating every 15 seconds and the data refresh remains every two minutes. During
+a failed refresh the last successful observation window is retained, with ages
+still advancing. Hovering a reading's age shows its measurement time in Berlin;
+the chart's accessible label includes the full observation-window dates.
+
+`npm run test:dashboard` includes rendered-chart regressions using synthetic LAB
+and OFFICE histories with irregular sampling, missing values, outages, stale
+channels and a daylight-saving transition. These checks also run during builds.
+
 ## Starter documentation
 
 A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.

@@ -3,6 +3,20 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { DASHBOARD_BUILD_VERSION } from "@/lib/dashboard-version";
 import {
+  chronologicalByTimestamp,
+  historySeries,
+  isFreshReading,
+  latestReading,
+  observationWindow,
+  OUTDOOR_GAP_MS,
+  referenceZones,
+  samplesInWindow,
+  scaleFor,
+  timePosition,
+  type ObservationWindow,
+  type Reading,
+} from "@/lib/history-graph";
+import {
   createDisplayUpdateMonitor,
   DISPLAY_UPDATE_ATTEMPT_KEY,
   DISPLAY_UPDATE_VIEW_KEY,
@@ -54,6 +68,7 @@ type RoomData = {
 type DashboardData = {
   live: boolean;
   fetchedAt: number;
+  coverage?: ObservationWindow;
   historyHours: number;
   analysisMinutes: number;
   outdoor?: OutdoorData | null;
@@ -157,14 +172,6 @@ function dashboardFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   return fetch(input, { ...init, headers, credentials: "same-origin" });
 }
 
-function chronologicalByTimestamp<T extends { timestamp: number }>(samples: T[]) {
-  const unique = new Map<number, T>();
-  for (const sample of samples) {
-    if (Number.isFinite(sample.timestamp)) unique.set(sample.timestamp, sample);
-  }
-  return [...unique.values()].sort((left, right) => left.timestamp - right.timestamp);
-}
-
 function normalizeRoom(room: RoomData | undefined, name: RoomName): RoomData {
   const samples = chronologicalByTimestamp(Array.isArray(room?.samples) ? room.samples : []);
   return { name, samples, latest: samples.at(-1) ?? room?.latest ?? null };
@@ -225,18 +232,6 @@ function timeTicks(start: number, end: number) {
     });
   }
   return ticks;
-}
-
-function values(samples: Sample[], selector: Selector) {
-  return samples.map(selector).filter((value): value is number => value !== null && Number.isFinite(value));
-}
-
-function latestValue(samples: Sample[], selector: Selector) {
-  for (let index = samples.length - 1; index >= 0; index -= 1) {
-    const value = selector(samples[index]);
-    if (value !== null && Number.isFinite(value)) return value;
-  }
-  return null;
 }
 
 function pmBalance(sample: Sample) {
@@ -341,127 +336,66 @@ function graphDefinitions(room: RoomName, outdoor: OutdoorData | null): GraphDef
   ];
 }
 
-function pointPath(samples: Sample[], selector: Selector, start: number, end: number, min: number, max: number) {
-  const range = max - min || 1;
-  return samples.flatMap((sample) => {
-    const value = selector(sample);
-    if (value === null || !Number.isFinite(value)) return [];
-    return [{
-      x: ((sample.timestamp - start) / Math.max(end - start, 1)) * 100,
-      y: 28 - ((value - min) / range) * 23,
-    }];
-  });
-}
-
-function outdoorValueAt(samples: OutdoorSample[], selector: (sample: OutdoorSample) => number | null, timestamp: number) {
-  let nearest: { distance: number; value: number } | null = null;
-  for (const sample of samples) {
-    const value = selector(sample);
-    if (value === null || !Number.isFinite(value)) continue;
-    const distance = Math.abs(sample.timestamp - timestamp);
-    if (!nearest || distance < nearest.distance) nearest = { distance, value };
-  }
-  return nearest && nearest.distance <= 90 * 60_000 ? nearest.value : null;
-}
-
-function HistoryGraph({ samples, definition, outdoor, analysisMinutes }: {
+function HistoryGraph({ samples, definition, outdoor, analysisMinutes, timeWindow, now }: {
   samples: Sample[];
   definition: GraphDefinition;
   outdoor: OutdoorData | null;
   analysisMinutes: number;
+  timeWindow: ObservationWindow;
+  now: number;
 }) {
   const geometry = useMemo(() => {
-    const ordered = chronologicalByTimestamp(samples);
-    const start = ordered[0]?.timestamp ?? 0;
-    const end = ordered.at(-1)?.timestamp ?? start + 1;
-    const primaryValues = values(ordered, definition.primary);
-    const secondaryValues = definition.secondary ? values(ordered, definition.secondary) : [];
-    const primaryScale = primaryValues.length ? { min: Math.min(...primaryValues), max: Math.max(...primaryValues) } : null;
-    const secondaryScale = secondaryValues.length ? { min: Math.min(...secondaryValues), max: Math.max(...secondaryValues) } : null;
-    const primaryPoints = primaryScale ? pointPath(ordered, definition.primary, start, end, primaryScale.min, primaryScale.max) : [];
-    const secondaryPoints = definition.secondary && secondaryScale
-      ? pointPath(ordered, definition.secondary, start, end, secondaryScale.min, secondaryScale.max)
-      : [];
-    const primaryPath = primaryPoints.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
-    const secondaryPath = secondaryPoints.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
-    const zones = ordered.map((sample, index) => {
-      const x = ((sample.timestamp - start) / Math.max(end - start, 1)) * 100;
-      const previous = index ? ((ordered[index - 1].timestamp - start) / Math.max(end - start, 1)) * 100 : 0;
-      const next = index < ordered.length - 1 ? ((ordered[index + 1].timestamp - start) / Math.max(end - start, 1)) * 100 : 100;
-      return { from: index ? (previous + x) / 2 : 0, to: index < ordered.length - 1 ? (x + next) / 2 : 100, band: definition.band(definition.primary(sample)) };
-    }).reduce<Array<{ from: number; to: number; band: ReferenceBand }>>((result, zone) => {
-      const prior = result.at(-1);
-      if (prior?.band === zone.band) prior.to = zone.to;
-      else result.push({ ...zone });
-      return result;
-    }, []);
-    const markers = definition.markSecondary && definition.secondary && secondaryScale
-      ? ordered.flatMap((sample) => {
-          const value = definition.secondary!(sample);
-          if (value === null || !definition.markSecondary!(value)) return [];
-          return [{
-            x: ((sample.timestamp - start) / Math.max(end - start, 1)) * 100,
-            y: 28 - ((value - secondaryScale.min) / (secondaryScale.max - secondaryScale.min || 1)) * 23,
-          }];
-        })
-      : [];
-    let primaryOutdoor = "";
-    let secondaryOutdoor = "";
-    if (outdoor && definition.outdoor && primaryScale && ordered.length > 1) {
-      const points = ordered.flatMap((sample) => {
-        const value = outdoorValueAt(outdoor.samples, definition.outdoor!.primary, sample.timestamp);
-        if (value === null) return [];
-        return [{
-          x: ((sample.timestamp - start) / Math.max(end - start, 1)) * 100,
-          y: 28 - ((value - primaryScale.min) / (primaryScale.max - primaryScale.min || 1)) * 23,
-        }];
-      });
-      if (points.length > 1) primaryOutdoor = `M${points[0].x.toFixed(2)},28 L${points.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" L")} L${points.at(-1)!.x.toFixed(2)},28 Z`;
-      if (definition.outdoor.secondary && secondaryScale) {
-        const secondary = ordered.flatMap((sample) => {
-          const value = outdoorValueAt(outdoor.samples, definition.outdoor!.secondary!, sample.timestamp);
-          if (value === null) return [];
-          return [{
-            x: ((sample.timestamp - start) / Math.max(end - start, 1)) * 100,
-            y: 28 - ((value - secondaryScale.min) / (secondaryScale.max - secondaryScale.min || 1)) * 23,
-          }];
-        });
-        if (secondary.length > 1) secondaryOutdoor = `M${secondary[0].x.toFixed(2)},28 L${secondary.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" L")} L${secondary.at(-1)!.x.toFixed(2)},28 Z`;
-      }
-    }
+    const ordered = samplesInWindow(samples, timeWindow);
+    const weather = samplesInWindow(outdoor?.samples ?? [], timeWindow);
+    const outdoorPrimary = definition.outdoor ? weather.map(definition.outdoor.primary) : [];
+    const outdoorSecondary = definition.outdoor?.secondary ? weather.map(definition.outdoor.secondary) : [];
+    const primaryScale = scaleFor([...ordered.map(definition.primary), ...outdoorPrimary]);
+    const secondaryScale = definition.secondary ? scaleFor([...ordered.map(definition.secondary), ...outdoorSecondary]) : null;
+    const primary = historySeries(ordered, definition.primary, timeWindow, primaryScale);
+    const secondary = historySeries(ordered, definition.secondary ?? (() => null), timeWindow, secondaryScale);
+    const primaryPoints = primary.segments.flat();
+    const secondaryPoints = secondary.segments.flat();
+    const lastPrimary = primaryPoints.at(-1) ?? null;
+    // A missing last channel value must not leave an older point looking current.
+    const primaryCurrent = lastPrimary?.timestamp === ordered.at(-1)?.timestamp && isFreshReading(lastPrimary, now) ? lastPrimary : null;
     return {
       primaryScale,
       secondaryScale,
-      primaryPath,
-      secondaryPath,
-      primaryCurrent: primaryPoints.at(-1) ?? null,
-      zones,
-      markers,
-      ticks: timeTicks(start, end),
-      recentBoundary: ordered.length ? Math.max(0, ((end - analysisMinutes * 60_000 - start) / Math.max(end - start, 1)) * 100) : 100,
-      primaryOutdoor,
-      secondaryOutdoor,
-      empty: ordered.length === 0,
+      primary,
+      secondary,
+      primaryCurrent,
+      zones: referenceZones(primary.segments, definition.band),
+      markers: definition.markSecondary ? secondaryPoints.filter((point) => definition.markSecondary!(point.value)) : [],
+      ticks: timeTicks(timeWindow.from, timeWindow.to),
+      recentBoundary: Math.min(100, Math.max(0, timePosition(timeWindow.to - analysisMinutes * 60_000, timeWindow))),
+      primaryOutdoor: definition.outdoor ? historySeries(weather, definition.outdoor.primary, timeWindow, primaryScale, OUTDOOR_GAP_MS) : null,
+      secondaryOutdoor: definition.outdoor?.secondary ? historySeries(weather, definition.outdoor.secondary, timeWindow, secondaryScale, OUTDOOR_GAP_MS) : null,
+      empty: primaryPoints.length === 0 && secondaryPoints.length === 0,
     };
-  }, [samples, definition, outdoor, analysisMinutes]);
+  }, [samples, definition, outdoor, analysisMinutes, timeWindow, now]);
 
   return (
-    <div className="sensor-chart" role="img" aria-label={`${definition.title}, 24-hour history in Europe/Berlin local time`}>
+    <div className="sensor-chart" role="img" aria-label={`${definition.title}, 24-hour history in Europe/Berlin local time, ${berlinDateTime(timeWindow.from)} to ${berlinDateTime(timeWindow.to)}. Gaps indicate missing measurements; dots indicate isolated measurements.`}>
       <Scale scale={geometry.primaryScale} unit={definition.primaryUnit} />
       <div className="sensor-plot">
-        {geometry.empty ? <div className="sensor-empty">NO CURRENT DATA</div> : null}
+        {geometry.empty ? <div className="sensor-empty">NO DATA IN WINDOW</div> : null}
         <svg viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true">
-          {geometry.zones.map((zone, index) => <rect key={`${zone.from}-${index}`} x={zone.from} y="3" width={Math.max(.12, zone.to - zone.from)} height="25" className={`reference-band band-${zone.band}`} />)}
-          {geometry.primaryOutdoor ? <path d={geometry.primaryOutdoor} className="outdoor-fill outdoor-fill-primary" /> : null}
-          {geometry.secondaryOutdoor ? <path d={geometry.secondaryOutdoor} className="outdoor-fill outdoor-fill-secondary" /> : null}
+          <rect x="0" y="3" width="100" height="25" className="reference-band band-unknown" />
+          {geometry.zones.map((zone, index) => <rect key={`${zone.from}-${index}`} x={zone.from} y="3" width={zone.to - zone.from} height="25" className={`reference-band band-${zone.band}`} />)}
+          {geometry.primaryOutdoor?.path ? <path d={geometry.primaryOutdoor.path} className="outdoor-reference outdoor-reference-primary" /> : null}
+          {geometry.secondaryOutdoor?.path ? <path d={geometry.secondaryOutdoor.path} className="outdoor-reference outdoor-reference-secondary" /> : null}
+          {geometry.primaryOutdoor?.isolated.map((point) => <circle key={point.timestamp} cx={point.x} cy={point.y} r=".3" className="outdoor-point outdoor-point-primary" />)}
+          {geometry.secondaryOutdoor?.isolated.map((point) => <circle key={point.timestamp} cx={point.x} cy={point.y} r=".3" className="outdoor-point outdoor-point-secondary" />)}
           {[5, 16.5, 28].map((y) => <line key={y} x1="0" y1={y} x2="100" y2={y} className="sensor-grid" />)}
           {geometry.ticks.map((tick, index) => <line key={index} x1={tick.x} y1="3" x2={tick.x} y2="28" className="sensor-time-grid" />)}
           <rect x={geometry.recentBoundary} y="3" width={100 - geometry.recentBoundary} height="25" className="recent-period" />
-          {geometry.secondaryPath ? <path d={geometry.secondaryPath} className="sensor-line sensor-line-secondary" /> : null}
-          {geometry.primaryPath ? <path d={geometry.primaryPath} className="sensor-line sensor-line-primary" /> : null}
-          {geometry.markers.map((marker, index) => <circle key={index} cx={marker.x} cy={marker.y} r=".7" className="raw-marker" vectorEffect="non-scaling-stroke" />)}
+          {geometry.secondary.path ? <path d={geometry.secondary.path} className="sensor-line sensor-line-secondary" /> : null}
+          {geometry.primary.path ? <path d={geometry.primary.path} className="sensor-line sensor-line-primary" /> : null}
+          {geometry.secondary.isolated.map((point) => <circle key={point.timestamp} cx={point.x} cy={point.y} r=".4" className="sensor-point sensor-point-secondary" />)}
+          {geometry.primary.isolated.map((point) => <circle key={point.timestamp} cx={point.x} cy={point.y} r=".4" className="sensor-point sensor-point-primary" />)}
+          {geometry.markers.map((marker) => <circle key={marker.timestamp} cx={marker.x} cy={marker.y} r=".7" className="raw-marker" vectorEffect="non-scaling-stroke" />)}
+          {geometry.primaryCurrent ? <circle cx={geometry.primaryCurrent.x} cy={geometry.primaryCurrent.y} r=".6" className="sensor-current" /> : null}
         </svg>
-        {geometry.primaryCurrent ? <span className="sensor-current" style={{ left: `${geometry.primaryCurrent.x}%`, top: `${(geometry.primaryCurrent.y / 32) * 100}%` }} /> : null}
         <div className="sensor-time-axis">{geometry.ticks.map((tick, index) => <span key={index} style={{ left: `${Math.min(96, Math.max(4, tick.x))}%` }}>{tick.label}</span>)}</div>
       </div>
       <Scale scale={geometry.secondaryScale} unit={definition.secondaryUnit ?? ""} secondary />
@@ -482,14 +416,24 @@ function Scale({ scale, unit, secondary = false }: { scale: { min: number; max: 
   return <div className={`sensor-axis ${secondary ? "axis-secondary" : "axis-primary"}`}>{marks.map((mark, index) => <span key={index} style={{ top: `${mark.top}%` }}>{formatValue(mark.value, digits)}</span>)}</div>;
 }
 
-function GraphPanel({ room, definition, outdoor, analysisMinutes }: {
+function ReadingTime({ reading, now }: { reading: Reading | null; now: number }) {
+  if (!reading) return null;
+  const ageMinutes = Math.max(0, Math.floor((now - reading.timestamp) / 60_000));
+  const stale = !isFreshReading(reading, now);
+  const measuredAt = `Last measured ${berlinDateTime(reading.timestamp)} Europe/Berlin, ${ageMinutes} ${ageMinutes === 1 ? "minute" : "minutes"} ago`;
+  return <time className={`reading-age${stale ? " is-stale" : ""}`} dateTime={new Date(reading.timestamp).toISOString()} title={measuredAt} aria-label={`${measuredAt}${stale ? ", stale" : ""}`}>{stale ? "STALE · " : ""}{ageMinutes} MIN</time>;
+}
+
+function GraphPanel({ room, definition, outdoor, analysisMinutes, timeWindow, now }: {
   room: RoomData;
   definition: GraphDefinition;
   outdoor: OutdoorData | null;
   analysisMinutes: number;
+  timeWindow: ObservationWindow;
+  now: number;
 }) {
-  const primaryValue = latestValue(room.samples, definition.primary);
-  const secondaryValue = definition.secondary ? latestValue(room.samples, definition.secondary) : null;
+  const primaryReading = latestReading(room.samples, definition.primary, timeWindow.to);
+  const secondaryReading = definition.secondary ? latestReading(room.samples, definition.secondary, timeWindow.to) : null;
   const primaryDigits = definition.primaryUnit === "%" ? 2 : ["°C", "µg/m³", "g/m³", "mg/m³"].includes(definition.primaryUnit) ? 1 : 0;
   const secondaryDigits = definition.secondaryUnit === "mg/m³" ? 2 : ["µg/m³", "g/m³"].includes(definition.secondaryUnit ?? "") ? 1 : 0;
   return (
@@ -497,18 +441,18 @@ function GraphPanel({ room, definition, outdoor, analysisMinutes }: {
       <header className="graph-heading">
         <strong>{definition.title}</strong>
         <div className="graph-values">
-          <span className="graph-primary-value"><b>{definition.primaryLabel}</b> {formatValue(primaryValue, primaryDigits)} {definition.primaryUnit}</span>
-          {definition.secondary ? <span className="graph-secondary-value"><b>{definition.secondaryLabel}</b> {formatValue(secondaryValue, secondaryDigits)} {definition.secondaryUnit}</span> : null}
+          <span className="graph-primary-value"><b>{definition.primaryLabel}</b> {formatValue(primaryReading?.value, primaryDigits)} {definition.primaryUnit} <ReadingTime reading={primaryReading} now={now} /></span>
+          {definition.secondary ? <span className="graph-secondary-value"><b>{definition.secondaryLabel}</b> {formatValue(secondaryReading?.value, secondaryDigits)} {definition.secondaryUnit} <ReadingTime reading={secondaryReading} now={now} /></span> : null}
         </div>
       </header>
-      <HistoryGraph samples={room.samples} definition={definition} outdoor={outdoor} analysisMinutes={analysisMinutes} />
+      <HistoryGraph samples={room.samples} definition={definition} outdoor={outdoor} analysisMinutes={analysisMinutes} timeWindow={timeWindow} now={now} />
     </section>
   );
 }
 
-function RoomGraphs({ room, outdoor, analysisMinutes }: { room: RoomData; outdoor: OutdoorData | null; analysisMinutes: number }) {
+function RoomGraphs({ room, outdoor, analysisMinutes, timeWindow, now }: { room: RoomData; outdoor: OutdoorData | null; analysisMinutes: number; timeWindow: ObservationWindow; now: number }) {
   const definitions = useMemo(() => graphDefinitions(room.name, outdoor), [room.name, outdoor]);
-  return <div className="graphs-shell">{definitions.map((definition) => <GraphPanel key={definition.title} room={room} definition={definition} outdoor={outdoor} analysisMinutes={analysisMinutes} />)}</div>;
+  return <div className="graphs-shell">{definitions.map((definition) => <GraphPanel key={definition.title} room={room} definition={definition} outdoor={outdoor} analysisMinutes={analysisMinutes} timeWindow={timeWindow} now={now} />)}</div>;
 }
 
 export default function Home() {
@@ -601,6 +545,7 @@ export default function Home() {
       const payload = (await response.json()) as DashboardData;
       if (payload.rooms) {
         setData(normalizeDashboardData(payload));
+        setClock(Date.now());
         setApiConnected(true);
       }
     } catch {
@@ -705,6 +650,8 @@ export default function Home() {
 
   const room = selectedRoom === "OFFICE" ? data.rooms.office : data.rooms.lab;
   const ageMinutes = room.latest ? Math.max(0, Math.floor((clock - room.latest.timestamp) / 60_000)) : null;
+  const fresh = isFreshReading(room.latest, clock);
+  const timeWindow = observationWindow(data, clock);
 
   return (
     <main className={`sensor-board ${presentationMode ? "is-fullscreen" : ""}`}>
@@ -716,14 +663,14 @@ export default function Home() {
         </nav>
         <strong className="sensor-title">BITZ AIR MONITORING</strong>
         <div className="sensor-controls">
-          <span className={`feed-dot ${room.latest ? "has-data" : ""}`} aria-hidden="true" />
-          <span className="feed-time">{room.latest ? `${berlinDateTime(room.latest.timestamp)} · ${ageMinutes} MIN` : `${selectedRoom} · NO CURRENT DATA`}</span>
+          <span className={`feed-dot ${fresh ? "has-data" : ""}`} aria-hidden="true" />
+          <span className="feed-time">{room.latest ? `${berlinDateTime(room.latest.timestamp)} · ${ageMinutes} MIN${fresh ? "" : " · STALE"}` : `${selectedRoom} · NO CURRENT DATA`}</span>
           {refreshing ? <span className="refreshing">UPDATING</span> : null}
           <button type="button" onClick={lockBoard}>LOCK</button>
           <button type="button" onClick={toggleFullscreen}>{presentationMode ? "EXIT" : "FULL SCREEN"}</button>
         </div>
       </header>
-      <RoomGraphs room={room} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes || 60} />
+      <RoomGraphs room={room} outdoor={data.outdoor ?? null} analysisMinutes={data.analysisMinutes || 60} timeWindow={timeWindow} now={clock} />
     </main>
   );
 }
