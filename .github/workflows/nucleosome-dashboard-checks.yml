@@ -5,6 +5,7 @@ on:
     paths:
       - worker/nucleosome-*.mjs
       - tests/nucleosome-*.test.mjs
+      - scripts/deploy-existing-spark.mjs
       - .github/workflows/nucleosome-dashboard-checks.yml
   pull_request:
     paths:

@@ -26,6 +26,12 @@ Durable Object class. Updates preserve completed/guard-stopped runs and reject
 step regressions. The writer checks the persisted response and public readback.
 Existing backend secrets, Durable Object identity and migrations are retained.
 
+The existing Cloudflare Builds integration for BITZ runs the normal neutral
+display deployment, then `scripts/deploy-existing-spark.mjs` deploys the same
+compiled Worker to the existing spark target. The script reads spark settings
+with the current build credential, verifies the original Durable Object class,
+preserves existing bindings and variables, and verifies the live progress page.
+
 Stage completions and watchdog arming are maintained in the private
 `sync/tools/progress_dashboard/dashboard-context.json` after verified evidence.
 Baseline completion is calculated from terminal run outcomes. The data path
