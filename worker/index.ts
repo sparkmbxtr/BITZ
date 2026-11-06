@@ -1,4 +1,5 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
+import { routeNucleosomeProgress } from "./nucleosome-progress.mjs";
 import { DurableObject } from "cloudflare:workers";
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
@@ -108,6 +109,33 @@ export class ContextLog extends DurableObject<Env> {
       CREATE INDEX IF NOT EXISTS idx_display_pairings_expires_at
       ON display_pairings(expires_at)
     `);
+    this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS nucleosome_progress (state_key TEXT PRIMARY KEY CHECK (state_key = 'current'), payload TEXT NOT NULL, observed_at INTEGER NOT NULL)`);
+
+  }
+
+  async writeNucleosomeProgress(payload: string, observedAt: number): Promise<void> {
+    const prior = this.ctx.storage.sql.exec<{ payload: string }>(
+      "SELECT payload FROM nucleosome_progress WHERE state_key = 'current' LIMIT 1",
+    ).toArray()[0]?.payload;
+    if (prior) {
+      const previous = JSON.parse(prior);
+      const incoming = JSON.parse(payload);
+      if (previous.jobs.some((old: { id: string; step: number; status: string }) => {
+        const next = incoming.jobs.find((job: { id: string }) => job.id === old.id);
+        return !next || next.step < old.step
+          || (["completed", "guard_stop"].includes(old.status) && next.status !== old.status);
+      })) return;
+    }
+    this.ctx.storage.sql.exec(
+      "INSERT INTO nucleosome_progress (state_key, payload, observed_at) VALUES ('current', ?, ?) ON CONFLICT(state_key) DO UPDATE SET payload = excluded.payload, observed_at = excluded.observed_at WHERE excluded.observed_at >= nucleosome_progress.observed_at",
+      payload, observedAt,
+    );
+  }
+
+  async readNucleosomeProgress(): Promise<string | null> {
+    return this.ctx.storage.sql.exec<{ payload: string }>(
+      "SELECT payload FROM nucleosome_progress WHERE state_key = 'current' LIMIT 1",
+    ).toArray()[0]?.payload ?? null;
   }
 
   async stageWeeklyReport(report: StoredWeeklyReport): Promise<StoredWeeklyReportRow> {
@@ -318,6 +346,9 @@ const worker = {
       return env.AIRQ_BACKEND.fetch(new Request(backendUrl, request));
     }
 
+    const progressResponse = await routeNucleosomeProgress(request, env);
+    if (progressResponse) return progressResponse;
+
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
       return handleImageOptimization(request, {
@@ -344,3 +375,4 @@ const worker = {
 };
 
 export default worker;
+

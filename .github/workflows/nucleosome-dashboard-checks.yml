@@ -1,0 +1,26 @@
+name: Nucleosome dashboard checks
+
+on:
+  push:
+    paths:
+      - worker/nucleosome-*.mjs
+      - tests/nucleosome-*.test.mjs
+      - .github/workflows/nucleosome-dashboard-checks.yml
+  pull_request:
+    paths:
+      - worker/nucleosome-*.mjs
+      - tests/nucleosome-*.test.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tests/nucleosome-*.test.mjs
