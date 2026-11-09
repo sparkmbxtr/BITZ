@@ -10,6 +10,8 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
     "prebuild": "node scripts/capture-spark-deployment.mjs",
     "build": "npm run test:dashboard && vinext build",
+    "build:spark": "BITZ_WORKER_TARGET=spark npm run build",
+    "build:bitz": "BITZ_WORKER_TARGET=bitz npm run build",
     "deploy": "npm run deploy:bitz",
     "deploy:bitz": "vinext deploy --skip-build",
     "deploy:spark": "node scripts/deploy-existing-spark.mjs",

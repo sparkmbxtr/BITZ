@@ -21,6 +21,6 @@ export function dashboardBuildVersion(root) {
       hash.update("\0");
     }
   }
-  for (const path of ["app", "lib", "public", "worker", "build", "vite.config.ts", "next.config.ts", "next.config.js", "wrangler.jsonc", "package.json", "package-lock.json"]) add(path);
+  for (const path of ["app", "lib", "public", "worker", "build", "vite.config.ts", "next.config.ts", "next.config.js", "wrangler.jsonc", "wrangler.bitz.jsonc", "package.json", "package-lock.json"]) add(path);
   return hash.digest("hex").slice(0, 24);
 }

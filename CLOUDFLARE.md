@@ -19,6 +19,10 @@ the public display Worker.
 
 The deploy setting must use the npm script exactly as written above; `npx run deploy` is not a valid equivalent.
 
+The neutral display's source configuration is `wrangler.bitz.jsonc`. Vite
+selects it automatically in the existing `bitz` linked build. For a local build
+targeting this display explicitly, use `npm run build:bitz` before deployment.
+
 ## Automatic display updates
 
 After a display loads the updater-enabled page, it checks `/api/display-version`

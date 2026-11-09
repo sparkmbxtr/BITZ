@@ -1,3 +1,5 @@
+import { workspaceNavigation } from "./dashboard-tabs.mjs";
+
 export const DASHBOARD_HTML = String.raw`<!doctype html>
 <html lang="en">
 <head>
@@ -5,7 +7,7 @@ export const DASHBOARD_HTML = String.raw`<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex,nofollow">
-<title>SPARK BMC-LMU · Nucleosome progress</title>
+<title>SPARK BMC-LMU · Nucleosome-C</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%230f1115'/%3E%3Cpath d='M7 24V8h5l8 12V8h5v16h-5L12 12v12z' fill='%2378bf8a'/%3E%3C/svg%3E">
 <style>
 :root{color-scheme:dark;--bg:#0f1115;--panel:#15181e;--border:#2b3039;--text:#d9dce3;--muted:#9098a6;--green:#86c99a;--amber:#e5bd78;--cyan:#86bbcf;--purple:#b3a4df;--red:#e68c8c;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:14px;font-synthesis:none}
@@ -37,11 +39,25 @@ main{width:100%;max-width:2000px;min-height:0;padding:clamp(10px,1.8vh,30px) cla
 @media(max-width:700px){h1{white-space:nowrap;font-size:14px}.stage-note{line-height:1.2}.detail:nth-child(3),.detail:nth-child(4){display:none}.active-body{justify-content:center;gap:6px}.detail{margin:3px 0}}
 @media(max-height:600px) and (max-width:700px){#content{grid-template-rows:84px 24px minmax(116px,1fr) 118px auto 22px}.metric,.metric:first-child{padding:5px 7px}.value,.metric:first-child .value{font-size:24px}.eyebrow{white-space:nowrap}.stage-note{font-size:7.5px}.stage{padding:5px 7px}.stage-line{margin-top:4px}.stage-name{font-size:9px}.stage-state{font-size:8px}.detail{margin:3px 0}.bottom-left{gap:5px}.bottom-left span:nth-child(2){font-size:7px}}
 @media(max-height:600px) and (max-width:700px){.eyebrow{line-height:1.2}.value,.metric:first-child .value{margin:2px 0}.total-bar{height:4px;margin-top:4px}.run{padding:0;line-height:1.1}.active-body{justify-content:flex-start;gap:4px;padding:5px 6px}.active-top{margin:0}.detail{margin:1px 0}.stage{padding:4px 6px;line-height:1.15}.stage-state{margin-top:2px}.stage-line{margin-top:3px}.stage-note{margin-top:3px}}
+/* The workspace shell stays dark; the selected study has its own wine/plum theme. */
+body[data-workspace="nucleosome-c"]{--bg:#160c18;--panel:#211226;--border:#4a2a44;--text:#f1e3ec;--muted:#b19aaa;--green:#9dceae;--amber:#e3b989;--cyan:#d0a4d9;--purple:#c89ccf;--red:#e2a1b3}
+header{background:#100b13}.workspace-tabs{max-width:2000px;margin:auto;display:flex;gap:6px;padding:0 clamp(14px,2.8vw,56px);min-width:0}
+.workspace-tab{display:inline-flex;align-items:center;min-height:34px;padding:5px 17px;border:1px solid transparent;border-bottom:0;border-radius:9px 9px 0 0;color:var(--muted);text-decoration:none;font-size:12px;letter-spacing:.025em;white-space:nowrap}
+.workspace-tab[aria-current="page"]{color:#efd9e9;background:#432039;border-color:#6a3855;box-shadow:inset 0 2px #ad668e}
+.workspace-tab:hover{color:var(--text);background:#2c182c}.workspace-tab:focus-visible{outline:2px solid var(--cyan);outline-offset:-3px}
+.run-track,.total-segment,.stage-line{background:#3a263d}.run+.run{border-top-color:#3a263d}.stage[data-state="in_progress"]{background:linear-gradient(130deg,#3a203d,#211226)}
+.attention{background:#202122;border-color:#41423f}.overview,.panel,.stages{box-shadow:0 4px 20px #08040a18}
+@media(max-width:700px){.workspace-tabs{padding:0 12px}.workspace-tab{min-height:29px;font-size:10px;padding:4px 12px}.header-inner{padding-top:7px;padding-bottom:7px}}
+@media(max-height:600px) and (max-width:700px){.header-inner{padding-top:5px;padding-bottom:5px}.workspace-tab{min-height:26px;font-size:9px;padding:3px 10px}main{gap:4px}.stage-note{line-height:1.1}}
+@media(max-height:450px){.workspace-tab{min-height:25px;font-size:10px;padding:3px 12px}.header-inner{padding-top:4px;padding-bottom:4px}main{padding-top:4px;padding-bottom:4px}}
+@media(max-height:850px) and (min-width:701px){.stage-number{display:none}.stage{padding-top:7px;padding-bottom:7px}.stage-note{margin-top:4px;line-height:1.2}.metric{padding-top:9px;padding-bottom:9px}.metric .value{line-height:1.1}.metric .total-bar{margin-top:6px}}
+@media(max-height:600px) and (max-width:700px){.title-row{display:none}main{grid-template-rows:minmax(0,1fr)}}
+@media(max-height:450px){.metric,.metric:first-child{padding:4px 6px}.metric .value,.metric:first-child .value{font-size:20px;line-height:1;margin:1px 0}.metric .eyebrow,.metric-note{font-size:7.5px;line-height:1.1}.metric .total-bar{margin-top:3px;height:3px}}
 </style>
 </head>
-<body>
-<header><div class="header-inner"><div class="brand">SPARK BMC-LMU</div><time id="updated" class="header-time" aria-label="Information update time in Berlin">------------</time></div></header>
-<main>
+<body data-workspace="nucleosome-c">
+<header><div class="header-inner"><div class="brand">SPARK BMC-LMU</div><time id="updated" class="header-time" aria-label="Information update time in Berlin">------------</time></div>${workspaceNavigation("nucleosome-c")}</header>
+<main id="nucleosome-c" aria-labelledby="tab-nucleosome-c">
 <div class="title-row"><h1>Nucleosome <span>/ experiment</span></h1><div class="feed"><i class="dot" id="feed-dot" aria-hidden="true"></i><span id="feed-state" role="status">Connecting</span></div></div>
 <div id="loading" class="loading" role="status">Loading progress…</div>
 <div id="content" hidden>

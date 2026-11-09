@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
-const wrangler = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+const wrangler = await readFile(new URL("../wrangler.bitz.jsonc", import.meta.url), "utf8");
 const cloudflare = await readFile(new URL("../CLOUDFLARE.md", import.meta.url), "utf8");
 
 test("the neutral bitz display uses a private backend service binding", () => {

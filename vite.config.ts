@@ -2,6 +2,7 @@ import vinext from "vinext";
 import { defineConfig } from "vite";
 import { sites } from "./build/sites-vite-plugin";
 import { dashboardBuildVersion } from "./build/dashboard-version.mjs";
+import { workerConfigPath } from "./build/worker-config.mjs";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 
@@ -36,6 +37,7 @@ export default defineConfig(async () => {
       vinext(),
       sites(),
       cloudflare({
+        configPath: workerConfigPath(),
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
       }),

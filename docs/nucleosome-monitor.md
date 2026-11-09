@@ -51,6 +51,11 @@ runtime properties. Baseline completion is saved steps out of its original
 600000-step cap. Completed study stages are a separate count, not an invented
 whole-program percentage.
 
+The overview lives in the `Nucleosome-C` workspace tab, with a dark Bordeaux
+and plum theme. `worker/dashboard-tabs.mjs` holds the section registry so later
+sections can have their own route and theme. The existing `/nucleosome` route
+opens this selected tab under the same protected seven-day device session.
+
 The reviewed program has six bound replicas, nine standalone controls and six
 initial force scouts. Up to twelve refinement runs and up to thirty-six held-out
 runs are conditional: the 69-row ceiling is capacity, not a released force sweep.
@@ -77,6 +82,14 @@ connect its Builds configuration to this repository if it is not yet connected.
 Set build command `npm run build` and deploy command `npm run deploy:spark`.
 Do not create a replacement Worker. The linked-Worker safety check remains
 enabled; a `bitz` build cannot perform the `spark` deployment.
+
+The root `wrangler.jsonc` names `spark`, matching its linked Git settings.
+The unchanged neutral display configuration is in `wrangler.bitz.jsonc`.
+Vite selects the corresponding source file from Cloudflare's existing linked
+Worker name without overriding the provider name or tag. For local production
+builds use `npm run build:spark` or `npm run build:bitz`; the ordinary local build
+retains the neutral display default. Both Cloudflare build commands remain
+`npm run build` with no dashboard-setting changes required.
 
 The Spark helper preserves the existing bindings and storage. It resolves the existing namespace through the
 provider inventory, retaining an existing external `bitz` owner when present. It
