@@ -80,7 +80,11 @@ that existing binding is absent and records the reason in its job summary.
 Credentials are not copied from another machine. The workflow deploys only the
 existing `spark` Worker through the same binding-preserving helper.
 
-Run `node --test tests/nucleosome-*.test.mjs` for session expiry, tampering,
+Run `node --experimental-strip-types --test tests/nucleosome-*.test.mjs` for session expiry, tampering,
 reader/writer separation, OIDC signature and claim checks, payload validation,
 freshness and deployment binding preservation. Responsive browser checks should
 include small portrait and landscape phones, tablet, laptop and large monitor.
+
+The explicit type-stripping flag keeps direct TypeScript auth-module tests
+compatible with the existing Node22.13 minimum; it does not depend on the later
+Node22 release that enables stripping by default.

@@ -26,4 +26,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test tests/nucleosome-*.test.mjs
+      - run: node --experimental-strip-types --test tests/nucleosome-*.test.mjs
