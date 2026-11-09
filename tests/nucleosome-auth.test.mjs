@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { sessionGrant } from "../lib/dashboard-auth.ts";
-import { monitorSession } from "../worker/nucleosome-auth.mjs";
+import { monitorPasswordCasePolicy, monitorSession } from "../worker/nucleosome-auth.mjs";
 import { routeNucleosomeProgress } from "../worker/nucleosome-progress.mjs";
 
 const origin = "https://spark.bioengineering.workers.dev";
@@ -62,7 +62,33 @@ test("native forms redirect once, same-origin checks protect changes, missing se
   assert.match(locked.headers.get("set-cookie"), /Max-Age=0/);
   assert.equal((await routeNucleosomeProgress(post("EXAMPLE-TEST-PASSWORD"), {})).status, 503);
   const access = await (await routeNucleosomeProgress(request("/api/nucleosome-auth"), env)).json();
-  assert.deepEqual(access, { configured: true, authorized: false, session_days: 7, password_verifier_ready: true, session_signing_ready: true });
+  assert.deepEqual(access, { configured: true, authorized: false, session_days: 7, password_verifier_ready: true, session_signing_ready: true,
+    password_case_policy: monitorPasswordCasePolicy });
+});
+
+test("both keyboard cases log in with either a lowercase or uppercase saved verifier", async () => {
+  const upper = "AUDIT-ACCESS-EXAMPLE";
+  const lower = upper.toLowerCase();
+  for (const saved of [lower, upper]) {
+    const configured = { ...env, DASHBOARD_PASSWORD_HASH: createHash("sha256").update(saved).digest("hex") };
+    for (const supplied of [lower, upper]) {
+      const login = await routeNucleosomeProgress(post(supplied), configured);
+      assert.equal(login.status, 200);
+      const cookie = login.headers.get("set-cookie");
+      assert.match(cookie, /Max-Age=604800/);
+      const reader = request("/api/nucleosome-progress", { headers: { Cookie: cookie.split(";", 1)[0] } });
+      assert.equal((await routeNucleosomeProgress(reader, configured)).status, 200);
+      const form = await routeNucleosomeProgress(request("/api/nucleosome-auth", { method: "POST",
+        headers: { Origin: origin, "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ password: supplied }).toString() }), configured);
+      assert.equal(form.status, 303);
+      assert.equal(form.headers.get("location"), "/");
+      assert.match(form.headers.get("set-cookie"), /HttpOnly/);
+    }
+    for (const rejected of ["wrong-password", "", null, 123, "x".repeat(257)]) {
+      assert.equal((await routeNucleosomeProgress(post(rejected), configured)).status, 401);
+    }
+  }
 });
 
 test("the weekly monitor reuses an existing signing key without imposing a new length policy", async () => {

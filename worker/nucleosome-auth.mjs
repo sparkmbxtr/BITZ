@@ -2,6 +2,19 @@ import { passwordVerifierReady, scopedDashboardSession, verifyPassword } from ".
 
 export const monitorSession = scopedDashboardSession("__Host-spark_nucleosome_week", "spark-nucleosome-week-v1", 7);
 const headers = { "Cache-Control": "no-store, max-age=0", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
+export const monitorPasswordCasePolicy = "saved-lowercase-or-uppercase-v1";
+
+export async function verifyMonitorPassword(supplied, hash) {
+  if (typeof supplied !== "string") return false;
+  const password = supplied.normalize("NFKC").replace(/[\p{Cf}\p{Z}\s]/gu, "");
+  if (!password || password.length > 256) return false;
+  // The existing verifier may have been saved from either keyboard case.
+  // Keep the verifier private and check each spelling instead of forcing an
+  // uppercase input against a possibly lowercase saved verifier.
+  const variants = [...new Set([password, password.toUpperCase(), password.toLowerCase()])];
+  const matches = await Promise.all(variants.map(value => verifyPassword(value, hash)));
+  return matches.some(Boolean);
+}
 
 function configuration(env) {
   const hash = env.NUCLEOSOME_PASSWORD_HASH || env.DASHBOARD_PASSWORD_HASH || "";
@@ -31,7 +44,8 @@ export async function routeMonitorAuth(request, env) {
   const config = configuration(env);
   const reply = (body, status = 200, extra = {}) => Response.json(body, { status, headers: { ...headers, ...extra } });
   if (request.method === "GET") return reply({ configured: config.configured, authorized: await monitorAuthorized(request, env), session_days: 7,
-    password_verifier_ready: config.verifierReady, session_signing_ready: config.signingReady });
+    password_verifier_ready: config.verifierReady, session_signing_ready: config.signingReady,
+    password_case_policy: monitorPasswordCasePolicy });
   if (!["POST", "DELETE"].includes(request.method)) return reply({ error: "Method not allowed" }, 405, { Allow: "GET, POST, DELETE" });
   // Native form submissions and fetches must originate on this Worker.
   if (request.headers.get("origin") !== new URL(request.url).origin) return reply({ error: "Origin rejected" }, 403);
@@ -59,8 +73,7 @@ export async function routeMonitorAuth(request, env) {
     const raw = new TextDecoder().decode(bytes);
     password = type === "application/json" ? JSON.parse(raw).password : new URLSearchParams(raw).get("password");
   } catch { return reply({ error: "Invalid request" }, 400); }
-  if (typeof password === "string") password = password.normalize("NFKC").replace(/[\p{Cf}\p{Z}\s]/gu, "").toUpperCase();
-  if (typeof password !== "string" || !password || password.length > 256 || !await verifyPassword(password, config.hash)) {
+  if (!await verifyMonitorPassword(password, config.hash)) {
     return type === "application/json" ? reply({ error: "Password not accepted" }, 401)
       : new Response(null, { status: 303, headers: { ...headers, Location: "/?login=incorrect" } });
   }
