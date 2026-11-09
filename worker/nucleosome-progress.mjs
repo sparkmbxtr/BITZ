@@ -1,6 +1,7 @@
 import { DASHBOARD_HTML } from "./nucleosome-page.mjs";
 import { INITIAL_SNAPSHOT } from "./nucleosome-snapshot.mjs";
 import { progressWriterAuthorized } from "./nucleosome-oidc.mjs";
+import { loginPage, monitorAuthorized, routeMonitorAuth } from "./nucleosome-auth.mjs";
 
 const IDS = ["601-A", "control-A", "601-B", "control-B", "601-C", "control-C"];
 const STATES = ["pending", "in_progress", "complete", "guard_stop"];
@@ -49,8 +50,32 @@ export function validateSnapshot(input) {
   }
   const total = jobs.reduce((sum, job) => sum + job.step, 0);
   if (history.length && history.at(-1).step !== total) throw new Error("History total differs");
+  let observation;
+  if (input.runtime_observation != null) {
+    const row = input.runtime_observation;
+    const job = jobs.find(job => job.id === row.job);
+    if (!job || !instant(row.at) || Date.parse(row.at) > Date.parse(input.information_updated_at)
+      || !Number.isInteger(row.observed_step) || row.observed_step < job.step || row.observed_step > job.cap
+      || ["identity_verified", "advancing", "guards_pass"].some(key => typeof row[key] !== "boolean")) throw new Error("Runtime observation rejected");
+    observation = { at: row.at, job: row.job, observed_step: row.observed_step,
+      identity_verified: row.identity_verified, advancing: row.advancing, guards_pass: row.guards_pass };
+  }
+  let rate;
+  if (input.compute_rate != null) {
+    const r = input.compute_rate;
+    const elapsed = (Date.parse(r.to) - Date.parse(r.from)) / 1000;
+    if (!instant(r.from) || !instant(r.to) || elapsed < 60 || Date.parse(r.to) > Date.parse(input.information_updated_at)
+      || !Number.isInteger(r.steps) || r.steps <= 0 || !Number.isFinite(r.steps_per_second)
+      || Math.abs(r.steps_per_second - r.steps / elapsed) > 0.000001
+      || typeof r.cpu_model !== "string" || r.cpu_model.length > 120 || r.threads !== 4
+      || !Number.isInteger(r.logical_cpus) || r.logical_cpus < 4 || r.cpu_quota !== 4 || r.memory_gib !== 16) throw new Error("Compute rate evidence rejected");
+    rate = { from: r.from, to: r.to, steps: r.steps, steps_per_second: r.steps_per_second,
+      cpu_model: r.cpu_model, threads: 4, logical_cpus: r.logical_cpus, cpu_quota: 4, memory_gib: 16, provider_vm_type: "unavailable" };
+  }
   return { version: 1, information_updated_at: input.information_updated_at, source_revision: input.source_revision,
     jobs, stages, watchdog_armed: input.watchdog_armed,
+    ...(observation ? { runtime_observation: observation } : {}),
+    ...(rate ? { compute_rate: rate } : {}),
     history: history.map(point => ({ at: point.at, step: point.step })) };
 }
 
@@ -64,7 +89,8 @@ export function publicSnapshot(snapshot, mode, now = Date.now()) {
     completed_runs: completed, terminal_runs: terminal,
     current_job: current?.id ?? null,
     checkpoint_stale: Boolean(current?.checkpoint_at && now - Date.parse(current.checkpoint_at) > 25 * 60_000),
-    runtime_confirmed: false,
+    runtime_confirmed: Boolean(snapshot.runtime_observation?.identity_verified && snapshot.runtime_observation?.advancing
+      && snapshot.runtime_observation?.job === current?.id && now - Date.parse(snapshot.runtime_observation.at) <= 6 * 60_000),
     feed_stale: now - Date.parse(snapshot.information_updated_at) > 15 * 60_000 };
 }
 
@@ -75,17 +101,20 @@ function json(value, status = 200) {
 export async function routeNucleosomeProgress(request, env, authorize = progressWriterAuthorized) {
   const url = new URL(request.url);
   if (url.hostname !== "spark.bioengineering.workers.dev") return null;
+  if (url.pathname === "/api/nucleosome-auth") return routeMonitorAuth(request, env);
   const api = url.pathname === "/api/nucleosome-progress";
   if (!api && url.pathname !== "/" && url.pathname !== "/nucleosome") return null;
   if (!api) {
     if (!["GET", "HEAD"].includes(request.method)) return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
-    return new Response(request.method === "HEAD" ? null : DASHBOARD_HTML, { headers: {
+    const authorized = await monitorAuthorized(request, env);
+    return new Response(request.method === "HEAD" ? null : authorized ? DASHBOARD_HTML : loginPage(request), { headers: {
       "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, max-age=0",
-      "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
       "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow" } });
   }
   const stub = env.CONTEXT_LOG?.getByName("nucleosome-progress");
   if (request.method === "GET") {
+    if (!await monitorAuthorized(request, env) && !await authorize(request)) return json({ error: "Monitor login required" }, 401);
     let stored;
     try { stored = stub ? await stub.readNucleosomeProgress() : null; } catch { stored = null; }
     let data;

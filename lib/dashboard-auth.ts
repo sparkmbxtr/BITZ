@@ -19,7 +19,7 @@ async function sha256(value: string) {
   return hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
 }
 
-async function signature(secret: string, expires: string) {
+async function signature(secret: string, expires: string, scope = "airq-wallboard") {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -27,7 +27,7 @@ async function signature(secret: string, expires: string) {
     false,
     ["sign"],
   );
-  return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`airq-wallboard:${expires}`)));
+  return hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${scope}:${expires}`)));
 }
 
 function cookieValue(request: Request, cookieName = COOKIE_NAME) {
@@ -71,12 +71,31 @@ export async function verifyPassword(password: string, expectedHash: string) {
   return verifier !== null && safeEqual(await sha256(password), verifier);
 }
 
-async function validSessionValue(value: string | null, sessionSecret: string) {
+async function validSessionValue(value: string | null, sessionSecret: string, scope = "airq-wallboard", maxAgeMs = Infinity) {
   if (!value) return false;
   const [expires, suppliedSignature, extra] = value.split(".");
   if (!expires || !suppliedSignature || extra || !/^\d+$/.test(expires)) return false;
-  if (Number(expires) <= Date.now()) return false;
-  return safeEqual(suppliedSignature, await signature(sessionSecret, expires));
+  if (Number(expires) <= Date.now() || Number(expires) > Date.now() + maxAgeMs) return false;
+  return safeEqual(suppliedSignature, await signature(sessionSecret, expires, scope));
+}
+
+// Separate cookie and HMAC scope prevent a longer-lived wallboard session from
+// extending access to the weekly nucleosome monitor. Reads never renew expiry.
+export function scopedDashboardSession(cookieName: string, scope: string, days: number) {
+  const maxAge = days * 24 * 60 * 60;
+  return {
+    authorized(request: Request, secret: string) {
+      return Boolean(secret) && validSessionValue(cookieValue(request, cookieName), secret, scope, maxAge * 1000);
+    },
+    async grant(secret: string) {
+      const expires = String(Date.now() + maxAge * 1000);
+      const value = `${expires}.${await signature(secret, expires, scope)}`;
+      return `${cookieName}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+    },
+    expiredCookie() {
+      return `${cookieName}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+    },
+  };
 }
 
 export async function isAuthorized(request: Request, sessionSecret: string) {

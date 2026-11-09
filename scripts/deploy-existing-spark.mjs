@@ -85,11 +85,14 @@ async function deploySpark() {
   console.log("Verified the existing spark storage and bindings; deploying the progress interface.");
   await command(process.execPath, [resolve("node_modules/wrangler/bin/wrangler.js"), "deploy", "--config", deploymentPath, "--keep-vars"]);
   const page = await fetch("https://spark.bioengineering.workers.dev/", { signal: AbortSignal.timeout(20_000) });
-  if (!page.ok || !(await page.text()).includes("SPARK BMC-LMU")) throw new Error("Live spark page verification failed");
+  const html = await page.text();
+  if (!page.ok || !html.includes("SPARK BMC-LMU") || !html.includes('action="/api/nucleosome-auth"') || html.includes('id="history"')) throw new Error("Live spark login verification failed");
   const status = await fetch("https://spark.bioengineering.workers.dev/api/nucleosome-progress", { signal: AbortSignal.timeout(20_000) });
-  const snapshot = status.ok ? await status.json() : null;
-  if (!snapshot || snapshot.jobs?.length !== 6) throw new Error("Live spark progress verification failed");
-  console.log(JSON.stringify({ spark_page_verified: true, saved_steps: snapshot.total_steps, url: "https://spark.bioengineering.workers.dev" }));
+  if (status.status !== 401) throw new Error("Live spark progress must require authentication");
+  const auth = await fetch("https://spark.bioengineering.workers.dev/api/nucleosome-auth", { signal: AbortSignal.timeout(20_000) });
+  const access = auth.ok ? await auth.json() : null;
+  if (!access?.configured || access.authorized || access.session_days !== 7) throw new Error("Live spark weekly access configuration verification failed");
+  console.log(JSON.stringify({ spark_login_verified: true, anonymous_progress_denied: true, session_days: 7, url: "https://spark.bioengineering.workers.dev" }));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

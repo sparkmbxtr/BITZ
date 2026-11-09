@@ -31,6 +31,23 @@ test("stale checkpoint evidence stays visible independently of a fresh feed upda
   assert.equal(snapshot.feed_stale, false);
 });
 
+test("runtime confirmation and time estimates require measured progression and expire independently of Git publication", () => {
+  const value = clone(INITIAL_SNAPSHOT);
+  const now = Date.now();
+  value.information_updated_at = new Date(now).toISOString();
+  value.runtime_observation = { at: value.information_updated_at, job: "601-C", observed_step: 35020, identity_verified: true, advancing: true, guards_pass: true };
+  value.compute_rate = { from: new Date(now - 100000).toISOString(), to: value.information_updated_at, steps: 50,
+    steps_per_second: 0.5, cpu_model: "TEST CPU", threads: 4, logical_cpus: 5, cpu_quota: 4, memory_gib: 16 };
+  let snapshot = validateSnapshot(value);
+  assert.equal(publicSnapshot(snapshot, "automatic", now).runtime_confirmed, true);
+  assert.equal(publicSnapshot(snapshot, "automatic", now + 360001).runtime_confirmed, false);
+  value.compute_rate.steps_per_second = 2;
+  assert.throws(() => validateSnapshot(value), /rate evidence/);
+  value.compute_rate.steps_per_second = 0.5;
+  value.runtime_observation.observed_step = 34999;
+  assert.throws(() => validateSnapshot(value), /Runtime observation/);
+});
+
 test("invalid caps, duplicates, failed guards and conflicting history are rejected", () => {
   const mutations = [
     value => { value.jobs[4].step = 100001; },
@@ -67,7 +84,9 @@ test("the root page, snapshot fallback and HEAD work without storage", async () 
   assert.match(page.headers.get("Cache-Control"), /no-store/);
   const head = await routeNucleosomeProgress(new Request(origin, { method: "HEAD" }), {});
   assert.equal(await head.text(), "");
-  const result = await (await routeNucleosomeProgress(new Request(origin + "/api/nucleosome-progress"), {})).json();
+  assert.match(await (await routeNucleosomeProgress(new Request(origin), {})).text(), /type="password"/);
+  assert.equal((await routeNucleosomeProgress(new Request(origin + "/api/nucleosome-progress"), {})).status, 401);
+  const result = await (await routeNucleosomeProgress(new Request(origin + "/api/nucleosome-progress"), {}, async () => true)).json();
   assert.equal(result.feed_mode, "initial_snapshot");
   assert.equal(result.total_steps, 435000);
 });
@@ -85,7 +104,7 @@ test("only an authenticated writer can persist a validated snapshot", async () =
   const response = await routeNucleosomeProgress(makeRequest(), env, async () => true);
   assert.equal(response.status, 200);
   assert.equal((await response.json()).published, true);
-  const readback = await (await routeNucleosomeProgress(new Request(origin + "/api/nucleosome-progress"), env)).json();
+  const readback = await (await routeNucleosomeProgress(new Request(origin + "/api/nucleosome-progress"), env, async () => true)).json();
   assert.equal(readback.feed_mode, "automatic");
   assert.equal(readback.information_updated_at, INITIAL_SNAPSHOT.information_updated_at);
   assert.equal(readback.total_steps, 435000);
@@ -93,7 +112,7 @@ test("only an authenticated writer can persist a validated snapshot", async () =
 
 test("storage errors retain the seed; out-of-order publications fail readback", async () => {
   const badEnv = { CONTEXT_LOG: { getByName() { return { async readNucleosomeProgress() { throw new Error("unavailable"); } }; } } };
-  const fallback = await (await routeNucleosomeProgress(new Request(origin + "/api/nucleosome-progress"), badEnv)).json();
+  const fallback = await (await routeNucleosomeProgress(new Request(origin + "/api/nucleosome-progress"), badEnv, async () => true)).json();
   assert.equal(fallback.feed_mode, "initial_snapshot");
   const env = { CONTEXT_LOG: { getByName() { return { async writeNucleosomeProgress() {}, async readNucleosomeProgress() { return "newer"; } }; } } };
   const response = await routeNucleosomeProgress(new Request(origin + "/api/nucleosome-progress", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(INITIAL_SNAPSHOT) }), env, async () => true);

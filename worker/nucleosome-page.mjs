@@ -14,30 +14,53 @@ export const DASHBOARD_HTML = String.raw`<!doctype html>
 @media(max-width:860px){main{padding:24px 20px}.header-inner{padding:17px 20px}.overview{grid-template-columns:1.4fr 1fr 1fr}.metric{padding:18px 17px}.value{font-size:33px}.grid{grid-template-columns:1fr}.side{display:grid;grid-template-columns:1fr 1fr}.stages{grid-template-columns:repeat(3,1fr)}.stage:nth-child(4){border-left:0}.stage:nth-child(n+4){border-top:1px solid var(--border)}.attention{align-items:flex-start}.run{grid-template-columns:95px minmax(60px,1fr) 55px 95px;padding:15px 0}.title-row{align-items:flex-start}}
 @media(max-width:540px){:root{font-size:13px}.header-inner{padding:15px 16px}.brand,.header-time{font-size:12px}main{padding:21px 16px}.title-row{display:block;margin-bottom:18px}h1{font-size:17px}.feed{margin-top:8px;font-size:10px}.overview{grid-template-columns:1fr 1fr}.metric:first-child{grid-column:1/-1;border-bottom:1px solid var(--border);padding:19px}.metric:nth-child(2){border-left:0}.metric{padding:17px 19px}.value{font-size:32px}.metric:first-child .value{font-size:48px}.metric-note{font-size:10px}.attention{display:block;padding:12px 14px}.attention-meta{margin:5px 0 0 17px;text-align:left;font-size:10px}.side{display:flex;gap:20px}.run{grid-template-columns:76px minmax(35px,1fr) 43px 72px;gap:9px}.run-state{font-size:10px}.runs{padding-left:14px;padding-right:14px}.run-label{font-size:11px}.stage{padding:13px 10px}.stage-name{font-size:10px}.stage-state{font-size:9px}.next{gap:12px;padding:12px 14px;font-size:11px}.bottom{align-items:flex-start}.bottom-left{display:block}.bottom-left span{display:block;margin-bottom:5px}}
 @media(prefers-reduced-motion:no-preference){.run-fill,.total-segment i{transition:width .45s ease}}
+/* One viewport overview. Extra evidence appears as screen area increases. */
+html,body{height:100%;overflow:hidden}body{height:100dvh;display:grid;grid-template-rows:auto minmax(0,1fr)}
+.header-inner{max-width:2000px;padding:clamp(9px,1.5vh,24px) clamp(14px,2.8vw,56px)}
+main{width:100%;max-width:2000px;min-height:0;padding:clamp(10px,1.8vh,30px) clamp(14px,2.8vw,56px);display:grid;grid-template-rows:auto minmax(0,1fr);gap:clamp(8px,1.3vh,20px)}
+.title-row{margin:0;display:flex;align-items:center}h1{font-size:clamp(16px,1.6vw,26px)}.feed{margin:0}
+#content{min-height:0;display:grid;grid-template-rows:minmax(90px,1fr) auto minmax(140px,2fr) minmax(90px,.95fr) auto auto;gap:clamp(8px,1.4vh,20px)}
+.overview{margin:0;grid-template-columns:1.45fr 1fr 1fr;border-radius:10px;overflow:hidden}.metric{padding:clamp(10px,1.8vh,28px) clamp(12px,1.8vw,32px);display:flex;flex-direction:column;justify-content:center}.value,.metric:first-child .value{font-size:clamp(25px,4.5vh,64px);margin:3px 0}.total-bar{margin-top:clamp(6px,1vh,16px);height:7px}.eyebrow{font-size:clamp(9px,.85vw,12px)}.metric-note{font-size:clamp(9px,.8vw,12px)}
+.attention{margin:0;padding:8px 14px;border-radius:6px;background:#182822;border-color:#355044;color:var(--green)}.attention-meta{color:var(--muted)}
+.grid{min-height:0;grid-template-columns:1.4fr 1fr;gap:clamp(8px,1.4vw,20px)}.panel{border-radius:9px;overflow:hidden;display:flex;flex-direction:column;min-height:0}.panel-head{padding:clamp(8px,1.1vh,16px) clamp(10px,1.4vw,22px)}.panel-title{font-size:clamp(10px,.9vw,14px)}.panel-hint{font-size:clamp(9px,.7vw,11px)}
+.runs{flex:1;min-height:0;display:grid;grid-template-rows:repeat(6,1fr);padding:0 16px}.run{min-height:0;padding:4px 0;grid-template-columns:80px minmax(28px,1fr) 42px 64px;gap:10px}.run-label,.run-percent{font-size:clamp(10px,.9vw,14px)}.run-state{font-size:clamp(9px,.8vw,12px)}.run-track{border-radius:4px;height:6px}.side{min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:12px}.active-body{flex:1;padding:10px 14px;display:flex;flex-direction:column;justify-content:space-evenly}.active-top{margin-bottom:6px}.active-name,.active-percent{font-size:clamp(16px,1.7vw,27px)}.detail{font-size:clamp(9px,.75vw,12px);margin:7px 0}.chart-body{min-height:0;flex:1;display:flex;flex-direction:column;justify-content:center;padding:12px}.history{min-height:30px;max-height:150px;flex:1}.chart-labels{font-size:9px}
+.stages{margin:0;border-radius:9px;overflow:hidden;grid-template-columns:repeat(6,1fr);min-height:0}.stage{padding:clamp(9px,1.3vh,20px) clamp(8px,1.1vw,20px);display:flex;flex-direction:column;justify-content:center}.stage:nth-child(n){border-top:0}.stage+.stage{border-left:1px solid var(--border)}.stage-number{margin-bottom:3px}.stage-name{font-size:clamp(10px,1vw,15px)}.stage-state{font-size:clamp(9px,.8vw,12px);margin-top:3px}.stage-line{margin-top:8px;height:4px;border-radius:3px}.stage-note{color:var(--muted);font-size:clamp(9px,.7vw,11px);margin-top:7px;line-height:1.4}.stage[data-state="in_progress"]{background:linear-gradient(130deg,#182a33,#15181e)}.stage[data-state="complete"] .stage-number{color:var(--green)}
+.next{margin:0;padding:7px 12px;font-size:clamp(10px,.9vw,13px);border-radius:6px}.next-text{line-height:1.4}.bottom{margin:0;align-items:center;font-size:clamp(9px,.75vw,12px)}.bottom-left{display:flex;gap:14px}.bottom-left span{margin:0}.refresh{border-radius:5px;font-size:10px}.capacity{color:var(--muted);font-size:10px;margin-left:auto}
+@media(max-width:1200px){.side{grid-template-columns:1fr}.side .panel:last-child{display:none}.stage-note{font-size:9px}.capacity{display:none}}
+@media(max-width:700px){:root{font-size:12px}.header-inner{padding:9px 14px}.brand,.header-time{font-size:11px}main{padding:10px 12px;gap:8px}.feed{font-size:9px}h1{font-size:15px}#content{gap:8px;grid-template-rows:minmax(83px,.9fr) auto minmax(150px,1.8fr) minmax(125px,1.35fr) auto auto}.overview{grid-template-columns:1.2fr 1fr 1fr}.metric:first-child{grid-column:auto;border-bottom:0;padding:10px}.metric:nth-child(2){border-left:1px solid var(--border)}.metric{padding:10px}.eyebrow{font-size:8px;letter-spacing:.02em}.value,.metric:first-child .value{font-size:clamp(24px,6vw,36px)}.metric-note{font-size:8px;line-height:1.4}.grid{grid-template-columns:1.2fr 1fr;gap:8px}.panel-head{padding:8px 10px;gap:4px}.panel-title{font-size:9px}.panel-hint{font-size:8px}.runs{padding:0 9px}.run{grid-template-columns:53px minmax(15px,1fr) 30px;gap:5px}.run-label{font-size:9px}.run-percent{font-size:9px}.run-state{display:none}.side{display:grid;gap:0}.active-body{padding:8px 10px}.active-name,.active-percent{font-size:14px}.active-top{gap:5px}.detail{font-size:8px;gap:4px;margin:8px 0}.detail dt{white-space:nowrap}.attention{display:flex;padding:7px 9px;font-size:9px;gap:8px}.attention-main{gap:6px}.attention-meta{font-size:8px;margin:0}.stages{grid-template-columns:repeat(3,1fr)}.stage{padding:8px 10px}.stage:nth-child(n+4){border-top:1px solid var(--border)}.stage:nth-child(4){border-left:0}.stage-number{display:none}.stage-name{font-size:10px}.stage-state{font-size:9px}.stage-note{font-size:8px;margin-top:4px}.stage-line{margin-top:5px;height:3px}.next{padding:6px 9px;font-size:9px;gap:9px}.next-label{font-size:9px}.bottom{font-size:8px;gap:5px}.bottom-left{gap:7px}.bottom-left span:last-child{display:none}.refresh{font-size:9px;padding:5px 7px}}
+@media(max-height:650px) and (min-width:701px){.header-inner{padding-top:7px;padding-bottom:7px}main{padding-top:8px;padding-bottom:8px;gap:7px}#content{gap:7px;grid-template-rows:70px auto minmax(105px,1fr) 75px auto auto}.metric{padding:8px 16px}.value,.metric:first-child .value{font-size:26px}.total-bar{margin-top:5px;height:5px}.panel-head{padding:6px 10px}.run{padding:2px}.stage{padding:8px}.stage-note{font-size:8px;margin-top:3px}.detail{margin:4px 0}.next{padding:5px 10px}.attention{padding:5px 10px}.active-top{margin:0}.active-body{padding:5px 10px}}
+@media(max-height:600px) and (max-width:700px){main{padding:7px 10px;gap:6px}#content{gap:6px;grid-template-rows:72px 27px minmax(128px,1fr) 112px auto 24px}.metric{padding:7px}.metric:first-child{padding:7px}.attention-meta{display:none}.detail{margin:5px 0}.stage{padding:6px 8px}.next{padding:5px 8px}.stage-note{font-size:8px}.panel-head{padding:6px 8px}.active-body{padding:5px 8px}}
+@media(max-height:450px){.header-inner{padding-top:5px;padding-bottom:5px}main{padding:6px 12px;gap:5px}#content{grid-template-columns:1.2fr 1fr;grid-template-rows:67px minmax(95px,1fr) 26px 23px;gap:6px}.overview{grid-column:1}.attention{grid-column:1;grid-row:3}.grid{grid-column:1;grid-row:2;grid-template-columns:1fr 1fr}.stages{grid-column:2;grid-row:1/3;grid-template-columns:repeat(3,1fr)}.stage:nth-child(n+4){border-top:1px solid var(--border)}.stage:nth-child(4){border-left:0}.stage-number{display:none}.next{grid-column:2;grid-row:3;font-size:8px;overflow:hidden}.bottom{grid-column:1/-1;grid-row:4}.metric{padding:6px}.value,.metric:first-child .value{font-size:22px}.metric-note,.eyebrow{font-size:8px}.total-bar{height:4px;margin-top:4px}.panel-head{padding:4px 6px}.panel-title{font-size:8px}.panel-hint{display:none}.run{grid-template-columns:50px minmax(10px,1fr) 28px;gap:4px}.run-state{display:none}.runs{padding:0 6px}.run-label,.run-percent,.detail{font-size:8px}.active-top{margin:0}.active-name,.active-percent{font-size:12px}.active-body{padding:4px 6px}.detail{margin:3px 0}.stage{padding:6px}.stage-name{font-size:10px}.stage-state{font-size:8px}.stage-note{font-size:8px}.attention{padding:4px 6px;font-size:8px}.attention-meta{display:none}.side .panel:last-child{display:none}.bottom-left{font-size:8px}}
+.next{display:block}.next-line{display:flex;gap:12px;align-items:baseline}.timing{display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:clamp(9px,.8vw,12px);color:var(--muted)}.timing strong{color:var(--cyan);font-weight:500}.rate-basis{font-size:clamp(8px,.7vw,11px);color:var(--muted);margin-top:4px;line-height:1.4}.hardware{color:var(--muted)}
+@media(max-width:700px){.timing{gap:3px 10px;margin-top:4px;padding-top:4px;font-size:8px}.rate-basis{font-size:8px;margin-top:3px}.next-line{gap:8px}.hardware{display:none}}
+@media(max-height:450px){.next{grid-row:3;max-height:26px;padding:4px 6px}.next-line{display:none}.timing{margin:0;padding:0;border:0;font-size:8px;gap:4px}.rate-basis{display:none}.hardware{display:none}}
+@media(max-width:700px){h1{white-space:nowrap;font-size:14px}.stage-note{line-height:1.2}.detail:nth-child(3),.detail:nth-child(4){display:none}.active-body{justify-content:center;gap:6px}.detail{margin:3px 0}}
+@media(max-height:600px) and (max-width:700px){#content{grid-template-rows:84px 24px minmax(116px,1fr) 118px auto 22px}.metric,.metric:first-child{padding:5px 7px}.value,.metric:first-child .value{font-size:24px}.eyebrow{white-space:nowrap}.stage-note{font-size:7.5px}.stage{padding:5px 7px}.stage-line{margin-top:4px}.stage-name{font-size:9px}.stage-state{font-size:8px}.detail{margin:3px 0}.bottom-left{gap:5px}.bottom-left span:nth-child(2){font-size:7px}}
+@media(max-height:600px) and (max-width:700px){.eyebrow{line-height:1.2}.value,.metric:first-child .value{margin:2px 0}.total-bar{height:4px;margin-top:4px}.run{padding:0;line-height:1.1}.active-body{justify-content:flex-start;gap:4px;padding:5px 6px}.active-top{margin:0}.detail{margin:1px 0}.stage{padding:4px 6px;line-height:1.15}.stage-state{margin-top:2px}.stage-line{margin-top:3px}.stage-note{margin-top:3px}}
 </style>
 </head>
 <body>
 <header><div class="header-inner"><div class="brand">SPARK BMC-LMU</div><time id="updated" class="header-time" aria-label="Information update time in Berlin">------------</time></div></header>
 <main>
-<div class="title-row"><h1>Nucleosome <span>/ progress</span></h1><div class="feed"><i class="dot" id="feed-dot" aria-hidden="true"></i><span id="feed-state" role="status">Connecting</span></div></div>
+<div class="title-row"><h1>Nucleosome <span>/ experiment</span></h1><div class="feed"><i class="dot" id="feed-dot" aria-hidden="true"></i><span id="feed-state" role="status">Connecting</span></div></div>
 <div id="loading" class="loading" role="status">Loading progress…</div>
 <div id="content" hidden>
 <section class="overview" aria-label="Baseline overview">
-<div class="metric"><div class="eyebrow">Baseline simulations</div><div class="value green" id="overall">—</div><div class="metric-note" id="saved-total">—</div><div class="total-bar" id="total-bar" role="progressbar" aria-label="Overall saved simulation steps" aria-valuemin="0" aria-valuemax="100"></div></div>
+<div class="metric"><div class="eyebrow">Baseline saved</div><div class="value green" id="overall">—</div><div class="metric-note" id="saved-total">—</div><div class="total-bar" id="total-bar" role="progressbar" aria-label="Overall saved simulation steps" aria-valuemin="0" aria-valuemax="100"></div></div>
 <div class="metric"><div class="eyebrow">Runs complete</div><div class="value" id="finished">—</div><div class="metric-note" id="finished-note">—</div></div>
-<div class="metric"><div class="eyebrow">Steps remaining</div><div class="value" id="remaining">—</div><div class="metric-note" id="remaining-note">—</div></div>
+<div class="metric"><div class="eyebrow">Study stages</div><div class="value" id="remaining">—</div><div class="metric-note" id="remaining-note">—</div></div>
 </section>
 <div class="attention" id="attention" role="status"><div class="attention-main"><i class="dot amber" aria-hidden="true"></i><span id="attention-title">—</span></div><div class="attention-meta" id="attention-meta">—</div></div>
 <div class="grid">
-<section class="panel" aria-labelledby="runs-heading"><div class="panel-head"><h2 class="panel-title" id="runs-heading">All runs</h2><span class="panel-hint">100,000 steps each</span></div><div class="runs" id="runs"></div></section>
+<section class="panel" aria-labelledby="runs-heading"><div class="panel-head"><h2 class="panel-title" id="runs-heading">Baseline · six replicas</h2><span class="panel-hint">100 ps each</span></div><div class="runs" id="runs"></div></section>
 <div class="side">
 <section class="panel" aria-labelledby="active-heading"><div class="panel-head"><h2 class="panel-title" id="active-heading">Current checkpoint</h2><span class="panel-hint" id="active-status">—</span></div><div class="active-body"><div class="active-top"><span class="active-name" id="active-name">—</span><span class="active-percent" id="active-percent">—</span></div><dl><div class="detail"><dt>Saved steps</dt><dd id="active-steps">—</dd></div><div class="detail"><dt>Guards</dt><dd id="active-guards">—</dd></div><div class="detail"><dt>Checkpoint</dt><dd id="active-at">—</dd></div><div class="detail"><dt>Runtime</dt><dd class="amber" id="runtime">Unconfirmed</dd></div></dl></div></section>
 <section class="panel" aria-labelledby="history-heading"><div class="panel-head"><h2 class="panel-title" id="history-heading">Saved progress</h2><span class="panel-hint" id="history-total">—</span></div><div class="chart-body"><svg id="history" class="history" viewBox="0 0 360 122" role="img" aria-label="Cumulative saved simulation progress"></svg><div class="chart-labels"><span id="history-start">—</span><span id="history-end">—</span></div></div></section>
 </div>
 </div>
 <section class="stages" id="stages" aria-label="Study stages"></section>
-<div class="next"><span class="next-label">NEXT</span><div class="next-text" id="next">—</div></div>
-<footer class="bottom"><div class="bottom-left"><span id="watchdog">Watchdog: —</span><span id="checked">—</span><span>Refresh: 30s</span></div><button class="refresh" id="refresh" type="button">Refresh ↻</button></footer>
+<div class="next"><div class="next-line"><span class="next-label">NEXT</span><div class="next-text" id="next">—</div></div><div class="timing"><span>Baseline <strong id="eta-baseline">measuring…</strong></span><span>Defined program <strong id="eta-program">measuring…</strong></span><span>Conditional ceiling <strong id="eta-ceiling">measuring…</strong></span></div><div class="rate-basis" id="rate-basis">Time estimates await measured cloud progression.</div><div class="rate-basis hardware" id="hardware">CPU / VM properties awaiting verification</div></div>
+<footer class="bottom"><div class="bottom-left"><span id="watchdog">Watchdog: —</span><span id="checked">—</span><span>Refresh: 30s</span></div><span class="capacity">21 defined runs · up to 48 conditional · 69 maximum</span><button class="refresh" id="refresh" type="button">Refresh ↻</button></footer>
 </div>
 <noscript><p>JavaScript is required to display progress.</p></noscript>
 </main>
@@ -48,12 +71,14 @@ export const DASHBOARD_HTML = String.raw`<!doctype html>
   var $=function(id){return document.getElementById(id)};
   var nf=new Intl.NumberFormat('en-US');
   var labels={'601-A':'601 A','control-A':'Control A','601-B':'601 B','control-B':'Control B','601-C':'601 C','control-C':'Control C'};
-  var stageLabels={audit:'Audit & setup',baseline:'Baseline',components:'Components',pulling:'Pulling',heldout:'Validation',conclusions:'Results'};
+  var stageLabels={audit:'Setup',baseline:'Baseline',components:'Controls',pulling:'Force tests',heldout:'Confirmation',conclusions:'Results'};
+  var stageNotes={audit:'Inputs · guards',baseline:'6 bound replicas',components:'3 systems · 9 runs',pulling:'Qualify · 6 scouts · ≤12 extra',heldout:'≤36 independent runs',conclusions:'Model comparison'};
   function parts(value){return new Intl.DateTimeFormat('en-US',{timeZone:'Europe/Berlin',month:'2-digit',day:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(value)).reduce(function(a,p){a[p.type]=p.value;return a},{})}
   function stamp(value){var p=parts(value);return p.month+p.day+p.year+p.hour+p.minute}
   function time(value){return new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',timeZoneName:'short',hourCycle:'h23'}).format(new Date(value))}
   function day(value){return new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',day:'numeric',month:'short'}).format(new Date(value))}
   function age(value){var m=Math.max(0,Math.floor((Date.now()-Date.parse(value))/60000));return m<1?'just now':m<60?m+'m ago':m<1440?Math.floor(m/60)+'h '+m%60+'m ago':Math.floor(m/1440)+'d '+Math.floor(m%1440/60)+'h ago'}
+  function duration(seconds){var hours=Math.ceil(seconds/3600);return hours<48?'~'+hours+'h':'~'+Math.round(hours/24*10)/10+'d'}
   function node(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
   function svgNode(tag,attributes){var n=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.keys(attributes).forEach(function(k){n.setAttribute(k,attributes[k])});return n}
   function render(){
@@ -70,8 +95,8 @@ export const DASHBOARD_HTML = String.raw`<!doctype html>
     $('saved-total').textContent=nf.format(total)+' / 600,000 steps saved';
     $('finished').textContent=done+' / 6';
     $('finished-note').textContent=stops?stops+' guard stop'+(stops===1?'':'s'):done===6?'Baseline complete':(6-done)+' runs remaining';
-    $('remaining').textContent=nf.format(jobs.filter(function(j){return j.status!=='guard_stop'}).reduce(function(s,j){return s+j.cap-j.step},0));
-    $('remaining-note').textContent=(total/1000).toFixed(0)+' / 600 ps saved';
+    $('remaining').textContent=data.stages.filter(function(s){return s.state==='complete'}).length+' / '+data.stages.length;
+    $('remaining-note').textContent='Later stages gated';
     var totalBar=$('total-bar');totalBar.replaceChildren();totalBar.setAttribute('aria-valuenow',pct.toFixed(1));
     jobs.forEach(function(job){var segment=node('div','total-segment'+(job.status==='checkpoint'?' current':''));var fill=node('i');fill.style.width=(job.step/1000)+'%';segment.append(fill);segment.title=labels[job.id]+': '+(job.step/1000)+'%';totalBar.append(segment)});
     var runRows=$('runs');runRows.replaceChildren();
@@ -93,11 +118,13 @@ export const DASHBOARD_HTML = String.raw`<!doctype html>
       $('active-status').textContent=current.checkpoint_at?age(current.checkpoint_at):'Queued';
     }
     var stale=current&&current.checkpoint_at&&Date.now()-Date.parse(current.checkpoint_at)>1500000;
-    $('runtime').textContent=done+stops===6?'Tranche finished':'Unconfirmed';
-    $('runtime').className=done+stops===6?'green':'amber';
+    var runtime=data.runtime_observation,confirmed=data.runtime_confirmed&&runtime&&Date.now()-Date.parse(runtime.at)<=360000;
+    $('runtime').textContent=done+stops===6?'Tranche finished':confirmed?'Advancing · '+age(runtime.at):'Unconfirmed';
+    $('runtime').className=done+stops===6||confirmed?'green':'amber';
+    if(confirmed&&current&&runtime.job===current.id){$('active-status').textContent=nf.format(runtime.observed_step)+' observed';$('active-guards').textContent=runtime.guards_pass?'6 / 6 pass':'Guard stop';$('active-guards').className=runtime.guards_pass?'green':'red'}
     $('attention').hidden=done+stops===6&&!stops;
-    $('attention-title').textContent=stops?'Guard stop recorded':stale?'Runtime access needed':'Awaiting current runtime update';
-    $('attention-meta').textContent=current&&current.checkpoint_at?'Last checkpoint '+age(current.checkpoint_at):'Next run queued';
+    $('attention-title').textContent=stops?'Guard stop recorded':confirmed?'Simulation advancing':stale?'Runtime observation overdue':'Awaiting current runtime update';
+    $('attention-meta').textContent=confirmed?(runtime.observed_step/1000).toFixed(2)+' ps observed':current&&current.checkpoint_at?'Last checkpoint '+age(current.checkpoint_at):'Next run queued';
     var chart=$('history');chart.replaceChildren();
     var history=data.history||[],width=360,height=112;
     [0,0.5,1].forEach(function(f){chart.append(svgNode('line',{x1:0,y1:height-f*height,x2:width,y2:height-f*height,stroke:'#2b3039','stroke-width':1,'stroke-dasharray':'3 5'}))});
@@ -113,15 +140,26 @@ export const DASHBOARD_HTML = String.raw`<!doctype html>
     $('history-total').textContent=(total/1000)+' / 600 ps';
     chart.setAttribute('aria-label','Saved progress: '+(total/1000)+' of 600 picoseconds');
     var stages=$('stages');stages.replaceChildren();
-    data.stages.forEach(function(stage,index){var card=node('div','stage');card.append(node('div','stage-number','0'+(index+1)));card.append(node('div','stage-name',stageLabels[stage.id]));var state=stage.id==='baseline'&&stage.state==='in_progress'?pct.toFixed(1)+'%':stage.state==='complete'?'✓ complete':stage.state==='in_progress'?'in progress':stage.state==='guard_stop'?'guard stop':'pending';card.append(node('div','stage-state '+stage.state,state));var line=node('div','stage-line'+(stage.state==='in_progress'?' current':'')),fill=node('i');fill.style.width=stage.state==='complete'?'100%':stage.id==='baseline'?pct+'%':'0%';line.append(fill);card.append(line);stages.append(card)});
+    data.stages.forEach(function(stage,index){var card=node('div','stage');card.setAttribute('data-state',stage.state);card.append(node('div','stage-number','0'+(index+1)));card.append(node('div','stage-name',stageLabels[stage.id]));var state=stage.id==='baseline'&&stage.state==='in_progress'?pct.toFixed(1)+'% saved':stage.state==='complete'?'✓ complete':stage.state==='in_progress'?'in progress':stage.state==='guard_stop'?'guard stop':'pending';card.append(node('div','stage-state '+stage.state,state));var line=node('div','stage-line'+(stage.state==='in_progress'?' current':'')),fill=node('i');fill.style.width=stage.state==='complete'?'100%':stage.id==='baseline'?pct+'%':'0%';line.append(fill);card.append(line);card.append(node('div','stage-note',stageNotes[stage.id]));stages.append(card)});
     var todo=[];
     if(stops)todo.push('Review guard stop');
-    if(done+stops<6)todo.push('Confirm runtime');
+    if(done+stops<6&&!confirmed)todo.push('Confirm runtime');
     jobs.filter(function(j){return !['completed','guard_stop'].includes(j.status)}).forEach(function(j){todo.push((j.step?'Finish ':'Run ')+labels[j.id])});
     if(!todo.length){var pending=data.stages.find(function(s){return s.state!=='complete'});todo.push(pending?stageLabels[pending.id]:'Review results')}
     $('next').replaceChildren();todo.slice(0,4).forEach(function(item,index){if(index)$('next').append(node('span',null,' → '));$('next').append(document.createTextNode(item))});
     $('watchdog').textContent='Watchdog: '+(data.watchdog_armed?'armed':'awaiting install');
     $('watchdog').className=data.watchdog_armed?'green':'amber';
+    if(data.compute_rate){
+      var rate=data.compute_rate,remaining=jobs.filter(function(j){return j.status!=='guard_stop'}).reduce(function(s,j){return s+j.cap-j.step},0);
+      var pending=function(id){return data.stages.some(function(s){return s.id===id&&s.state!=='complete'})};
+      var defined=remaining+(pending('components')?900000:0)+(pending('pulling')?600000:0);
+      var ceiling=defined+(pending('pulling')?1200000:0)+(pending('heldout')?3600000:0);
+      $('eta-baseline').textContent=duration(remaining/rate.steps_per_second);
+      $('eta-program').textContent=duration(defined/rate.steps_per_second)+'*';
+      $('eta-ceiling').textContent=duration(ceiling/rate.steps_per_second)+'*';
+      $('rate-basis').textContent=rate.steps_per_second.toFixed(3)+' steps/s · 4 CPU · '+Math.round((Date.parse(rate.to)-Date.parse(rate.from))/60000)+' min sample. *Same-rate budgets; later speeds unmeasured. Pauses/qualification extra.';
+      $('hardware').textContent=rate.cpu_model+' · '+rate.threads+' threads · '+rate.logical_cpus+' visible CPUs / '+rate.cpu_quota+' CPU quota · '+rate.memory_gib+' GiB RAM · provider VM type unavailable';
+    }
     $('checked').textContent='Information updated '+age(data.information_updated_at);
     var feedStale=Date.now()-Date.parse(data.information_updated_at)>900000;
     $('feed-dot').className='dot '+(failed||feedStale||data.feed_mode!=='automatic'?'amber':'green');
@@ -130,7 +168,7 @@ export const DASHBOARD_HTML = String.raw`<!doctype html>
   }
   async function refresh(){
     if(busy)return;busy=true;$('refresh').disabled=true;
-    try{var response=await fetch('/api/nucleosome-progress',{cache:'no-store',signal:AbortSignal.timeout(12000)});if(!response.ok)throw new Error('HTTP '+response.status);var next=await response.json();if(!next.jobs||next.jobs.length!==6||!next.information_updated_at)throw new Error('Invalid progress');data=next;lastRead=Date.now();failed=false;render()}
+    try{var response=await fetch('/api/nucleosome-progress',{cache:'no-store',signal:AbortSignal.timeout(12000)});if(response.status===401){window.location.assign('/');return}if(!response.ok)throw new Error('HTTP '+response.status);var next=await response.json();if(!next.jobs||next.jobs.length!==6||!next.information_updated_at)throw new Error('Invalid progress');data=next;lastRead=Date.now();failed=false;render()}
     catch(error){failed=true;if(data)render();else{$('loading').textContent='Progress unavailable. Retrying in 30s.';$('feed-state').textContent='Connection unavailable';$('feed-dot').className='dot amber'}}
     finally{busy=false;$('refresh').disabled=false}
   }
