@@ -45,7 +45,8 @@ export async function routeMonitorAuth(request, env) {
   const reply = (body, status = 200, extra = {}) => Response.json(body, { status, headers: { ...headers, ...extra } });
   if (request.method === "GET") return reply({ configured: config.configured, authorized: await monitorAuthorized(request, env), session_days: 7,
     password_verifier_ready: config.verifierReady, session_signing_ready: config.signingReady,
-    password_case_policy: monitorPasswordCasePolicy });
+    password_case_policy: monitorPasswordCasePolicy,
+    password_verifier_scope: env.NUCLEOSOME_PASSWORD_HASH ? "monitor" : "dashboard_legacy" });
   if (!["POST", "DELETE"].includes(request.method)) return reply({ error: "Method not allowed" }, 405, { Allow: "GET, POST, DELETE" });
   // Native form submissions and fetches must originate on this Worker.
   if (request.headers.get("origin") !== new URL(request.url).origin) return reply({ error: "Origin rejected" }, 403);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deploymentFailureSummary, resolveSparkStorage, sparkDeploymentConfig, sparkMetadataSummary, SPARK_CONTEXT_NAMESPACE, verifyLinkedBuildTarget, verifySparkStorageUnchanged } from "../scripts/deploy-existing-spark.mjs";
+import { createHash } from "node:crypto";
+import { deploymentFailureSummary, initializeWeeklyMonitorVerifier, resolveSparkStorage, sparkDeploymentConfig, sparkMetadataSummary, SPARK_CONTEXT_NAMESPACE, verifyLinkedBuildTarget, verifySparkStorageUnchanged } from "../scripts/deploy-existing-spark.mjs";
 
 const generated = { name: "bitz", main: "index.js", assets: { directory: "../client", binding: "ASSETS" },
   images: { binding: "IMAGES" }, services: [{ binding: "AIRQ_BACKEND", service: "spark" }],
@@ -96,4 +97,21 @@ test("each Cloudflare build must deploy its own linked Worker", () => {
   verifyLinkedBuildTarget("spark-worker-tag", undefined);
   assert.throws(() => verifyLinkedBuildTarget("spark-worker-tag", "bitz-worker-tag"), /linked to another Worker/);
   assert.throws(() => verifyLinkedBuildTarget(undefined, "bitz-worker-tag"), /linked to another Worker/);
+});
+
+test("weekly verifier initialization is separate, private and does not reset an existing monitor credential", async () => {
+  const writes = [];
+  const before = JSON.stringify(settings);
+  assert.equal(await initializeWeeklyMonitorVerifier(settings, value => writes.push(value), "fixture-owner"), true);
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0], { name: "NUCLEOSOME_PASSWORD_HASH", type: "secret_text",
+    text: createHash("sha256").update("FIXTURE-OWNER").digest("hex") });
+  assert.equal(JSON.stringify(settings), before);
+  const existing = { ...settings, bindings: [...settings.bindings, { name: "NUCLEOSOME_PASSWORD_HASH", type: "secret_text" }] };
+  assert.equal(await initializeWeeklyMonitorVerifier(existing, () => { throw new Error("must not write"); }), false);
+  await assert.rejects(initializeWeeklyMonitorVerifier({ bindings: [{ name: "NUCLEOSOME_PASSWORD_HASH", type: "plain_text" }] }, () => {}));
+  assert.throws(() => verifySparkStorageUnchanged(storage, storage, settings, existing));
+  verifySparkStorageUnchanged(storage, storage, settings, existing, { initializedWeeklyVerifier: true });
+  const unrelated = { ...existing, bindings: [...existing.bindings, { name: "OTHER_SECRET", type: "secret_text" }] };
+  assert.throws(() => verifySparkStorageUnchanged(storage, storage, settings, unrelated, { initializedWeeklyVerifier: true }));
 });

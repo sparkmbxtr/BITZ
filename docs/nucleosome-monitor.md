@@ -8,6 +8,11 @@ Durable Object storage identities are retained.
 ## Access
 
 The monitor reuses the framework's password verifier and session signing secret.
+It checks both lowercase and uppercase spellings against the saved verifier.
+The owner-requested account-name credential is initialized once into the
+monitor's separate private verifier by Spark's own linked Git build. Existing
+air-monitoring credentials and the signing key are retained. Subsequent builds
+preserve that monitor verifier rather than resetting it.
 Keep `DASHBOARD_PASSWORD_HASH` and `DASHBOARD_SESSION_SECRET` in the existing
 Worker's secret configuration. An optional `NUCLEOSOME_PASSWORD_HASH` overrides
 the verifier for this monitor only. Passwords and verifiers must never be

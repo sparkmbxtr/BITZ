@@ -2,9 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 
 const ACCOUNT = "a7cd65e439e0104c20c59023ca18b85c";
 const WORKER = "spark";
+const SOURCE_REPOSITORY = "sparkmbxtr/BITZ";
 // Identity returned by the existing provider inventory and supplied in the
 // deployment failure record. This is an identifier, not a credential.
 export const SPARK_CONTEXT_NAMESPACE = "d19f77532fc94146aea211c8e41895be";
@@ -27,15 +29,32 @@ export function resolveSparkStorage(settings, namespaces, expectedNamespace = SP
     ...(binding?.environment ? { environment: binding.environment } : {}) };
 }
 
-export function verifySparkStorageUnchanged(before, after, beforeSettings, afterSettings) {
+export function verifySparkStorageUnchanged(before, after, beforeSettings, afterSettings, { initializedWeeklyVerifier = false } = {}) {
   if (!(afterSettings.bindings ?? []).some(binding => binding.name === "CONTEXT_LOG" && binding.type === "durable_object_namespace")) throw new Error("The verified existing namespace is still missing its CONTEXT_LOG binding");
   const identity = value => [value.namespace_id, value.class_name, value.script_name, value.environment ?? "production"];
   if (JSON.stringify(identity(before)) !== JSON.stringify(identity(after))
     || (beforeSettings.migration_tag ?? null) !== (afterSettings.migration_tag ?? null)) throw new Error("Existing storage identity or migration tag changed");
   const names = value => (value.bindings ?? []).map(binding => `${binding.name}:${binding.type}`).sort();
   const oldNames = names(beforeSettings), newNames = names(afterSettings);
+  const additions = ["ASSETS:assets", "IMAGES:images", "CONTEXT_LOG:durable_object_namespace"];
+  if (initializedWeeklyVerifier) additions.push("NUCLEOSOME_PASSWORD_HASH:secret_text");
   if (oldNames.some(name => !newNames.includes(name))
-    || newNames.some(name => !oldNames.includes(name) && !["ASSETS:assets", "IMAGES:images", "CONTEXT_LOG:durable_object_namespace"].includes(name))) throw new Error("Existing binding inventory changed");
+    || newNames.some(name => !oldNames.includes(name) && !additions.includes(name))) throw new Error("Existing binding inventory changed");
+}
+
+export async function initializeWeeklyMonitorVerifier(settings, writeSecret, owner = SOURCE_REPOSITORY.split("/", 1)[0]) {
+  const existing = (settings.bindings ?? []).find(binding => binding.name === "NUCLEOSOME_PASSWORD_HASH");
+  if (existing) {
+    if (existing.type !== "secret_text") throw new Error("The monitor verifier must remain a private secret binding");
+    return false;
+  }
+  // The owner requested the two cases of their account name for this monitor.
+  // Initialize its already-supported, separate verifier inside Cloudflare CI.
+  // No password/verifier value is committed, printed or read from another app.
+  if (typeof owner !== "string" || !/^[a-z0-9-]{1,39}$/i.test(owner)) throw new Error("Reviewed owner identity required");
+  await writeSecret({ name: "NUCLEOSOME_PASSWORD_HASH", type: "secret_text",
+    text: createHash("sha256").update(owner.toUpperCase()).digest("hex") });
+  return true;
 }
 
 export function sparkDeploymentConfig(generated, settings, storage) {
@@ -169,8 +188,23 @@ export function deploymentFailureSummary(output) {
 async function deploySpark() {
   const token = process.env.CLOUDFLARE_API_TOKEN;
   if (!token) throw new Error("Cloudflare Builds deployment credential is unavailable");
-  const before = await existingMetadata(token);
-  verifyLinkedBuildTarget(before.script_tag, process.env.WRANGLER_CI_MATCH_TAG);
+  const initial = await existingMetadata(token);
+  verifyLinkedBuildTarget(initial.script_tag, process.env.WRANGLER_CI_MATCH_TAG);
+  const initialStorage = resolveSparkStorage(initial.settings, initial.namespaces);
+  const initializedWeeklyVerifier = await initializeWeeklyMonitorVerifier(initial.settings, async value => {
+    const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/scripts/${WORKER}/secrets`, {
+      method: "PUT", headers: { ...CLIENT_HEADERS, Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify(value), signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) throw new Error("Monitor verifier initialization failed (HTTP " + response.status + ")");
+    const result = await response.json();
+    if (!result.success) throw new Error("Monitor verifier initialization was not accepted");
+  });
+  const before = initializedWeeklyVerifier ? await existingMetadata(token) : initial;
+  verifySparkStorageUnchanged(initialStorage, resolveSparkStorage(before.settings, before.namespaces), initial.settings, before.settings,
+    { initializedWeeklyVerifier });
+  console.log(JSON.stringify({ weekly_monitor_verifier_initialized: initializedWeeklyVerifier,
+    existing_dashboard_password_and_signing_key_unchanged: true, verifier_values_logged: false }));
   // Only binding names/types and namespace identity metadata are logged. Secret
   // values and plain-text/JSON binding contents are never included.
   console.log(JSON.stringify({ existing_spark_metadata: sparkMetadataSummary(before.settings, before.namespaces) }));

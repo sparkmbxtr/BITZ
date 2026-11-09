@@ -63,7 +63,7 @@ test("native forms redirect once, same-origin checks protect changes, missing se
   assert.equal((await routeNucleosomeProgress(post("EXAMPLE-TEST-PASSWORD"), {})).status, 503);
   const access = await (await routeNucleosomeProgress(request("/api/nucleosome-auth"), env)).json();
   assert.deepEqual(access, { configured: true, authorized: false, session_days: 7, password_verifier_ready: true, session_signing_ready: true,
-    password_case_policy: monitorPasswordCasePolicy });
+    password_case_policy: monitorPasswordCasePolicy, password_verifier_scope: "dashboard_legacy" });
 });
 
 test("both keyboard cases log in with either a lowercase or uppercase saved verifier", async () => {
@@ -89,6 +89,16 @@ test("both keyboard cases log in with either a lowercase or uppercase saved veri
       assert.equal((await routeNucleosomeProgress(post(rejected), configured)).status, 401);
     }
   }
+});
+
+test("the monitor-specific verifier overrides a different legacy dashboard verifier", async () => {
+  const fixture = "MONITOR-ONLY-EXAMPLE";
+  const dedicated = { ...env, NUCLEOSOME_PASSWORD_HASH: createHash("sha256").update(fixture).digest("hex") };
+  for (const value of [fixture, fixture.toLowerCase()]) assert.equal((await routeNucleosomeProgress(post(value), dedicated)).status, 200);
+  assert.equal((await routeNucleosomeProgress(post("EXAMPLE-TEST-PASSWORD"), dedicated)).status, 401);
+  const status = await (await routeNucleosomeProgress(request("/api/nucleosome-auth"), dedicated)).json();
+  assert.equal(status.password_verifier_scope, "monitor");
+  assert.equal(env.DASHBOARD_PASSWORD_HASH, dedicated.DASHBOARD_PASSWORD_HASH);
 });
 
 test("the weekly monitor reuses an existing signing key without imposing a new length policy", async () => {
