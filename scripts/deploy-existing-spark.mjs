@@ -195,7 +195,11 @@ async function deploySpark() {
   if (status.status !== 401) throw new Error("Live spark progress must require authentication");
   const auth = await fetch("https://spark.bioengineering.workers.dev/api/nucleosome-auth", { headers: CLIENT_HEADERS, signal: AbortSignal.timeout(20_000) });
   const access = auth.ok ? await auth.json() : null;
-  if (!access?.configured || access.authorized || access.session_days !== 7) throw new Error("Live spark weekly access configuration verification failed");
+  const readiness = { http_status: auth.status, configured: access?.configured === true, authorized: access?.authorized === true,
+    session_days: access?.session_days ?? null, password_verifier_ready: access?.password_verifier_ready === true,
+    session_signing_ready: access?.session_signing_ready === true };
+  console.log(JSON.stringify({ spark_weekly_access_readiness: readiness }));
+  if (!readiness.configured || readiness.authorized || readiness.session_days !== 7) throw new Error("Live spark weekly access configuration verification failed: " + JSON.stringify(readiness));
   console.log(JSON.stringify({ spark_login_verified: true, anonymous_progress_denied: true, session_days: 7, url: "https://spark.bioengineering.workers.dev" }));
 }
 

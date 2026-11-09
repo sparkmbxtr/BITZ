@@ -19,6 +19,9 @@ wallboard session from granting monitor access. Reading the monitor does not
 extend the expiry. The page and JSON API require authentication; a reader cannot
 publish status. Cookies are remembered per browser profile, including on phones
 and tablets. Clearing cookies or using a private browser session removes access.
+The monitor reuses the existing non-empty framework signing key without adding
+a separate key-length requirement or rotating it. Configuration diagnostics
+report verifier/signing readiness as booleans, never secret values or lengths.
 
 ## Verifiable update path
 

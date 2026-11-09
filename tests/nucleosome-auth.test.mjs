@@ -62,5 +62,24 @@ test("native forms redirect once, same-origin checks protect changes, missing se
   assert.match(locked.headers.get("set-cookie"), /Max-Age=0/);
   assert.equal((await routeNucleosomeProgress(post("EXAMPLE-TEST-PASSWORD"), {})).status, 503);
   const access = await (await routeNucleosomeProgress(request("/api/nucleosome-auth"), env)).json();
-  assert.deepEqual(access, { configured: true, authorized: false, session_days: 7 });
+  assert.deepEqual(access, { configured: true, authorized: false, session_days: 7, password_verifier_ready: true, session_signing_ready: true });
+});
+
+test("the weekly monitor reuses an existing signing key without imposing a new length policy", async () => {
+  const existing = { ...env, DASHBOARD_SESSION_SECRET: "test-legacy-key" };
+  const login = await routeNucleosomeProgress(post("EXAMPLE-TEST-PASSWORD"), existing);
+  assert.equal(login.status, 200);
+  const cookie = login.headers.get("set-cookie");
+  assert.match(cookie, /Max-Age=604800/);
+  const reader = request("/api/nucleosome-progress", { headers: { Cookie: cookie.split(";", 1)[0] } });
+  assert.equal((await routeNucleosomeProgress(reader, existing)).status, 200);
+  assert.equal((await routeNucleosomeProgress(reader, { ...existing, DASHBOARD_SESSION_SECRET: "different-test-key" })).status, 401);
+  for (const missing of ["", undefined, null]) {
+    const invalid = { ...existing, DASHBOARD_SESSION_SECRET: missing };
+    assert.equal((await routeNucleosomeProgress(post("EXAMPLE-TEST-PASSWORD"), invalid)).status, 503);
+    const status = await (await routeNucleosomeProgress(request("/api/nucleosome-auth"), invalid)).json();
+    assert.equal(status.session_signing_ready, false);
+    assert.equal(status.configured, false);
+    assert.ok(!JSON.stringify(status).includes(existing.DASHBOARD_SESSION_SECRET));
+  }
 });

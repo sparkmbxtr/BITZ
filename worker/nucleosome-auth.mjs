@@ -6,7 +6,11 @@ const headers = { "Cache-Control": "no-store, max-age=0", "X-Content-Type-Option
 function configuration(env) {
   const hash = env.NUCLEOSOME_PASSWORD_HASH || env.DASHBOARD_PASSWORD_HASH || "";
   const secret = env.DASHBOARD_SESSION_SECRET || "";
-  return { hash, secret, configured: passwordVerifierReady(hash) && secret.length >= 32 };
+  // Reuse the existing framework's verifier and signing key. The monitor must
+  // not add a new key-length policy that rejects an already configured device.
+  const verifierReady = typeof hash === "string" && passwordVerifierReady(hash);
+  const signingReady = typeof secret === "string" && secret.length > 0;
+  return { hash, secret, verifierReady, signingReady, configured: verifierReady && signingReady };
 }
 
 export async function monitorAuthorized(request, env) {
@@ -26,7 +30,8 @@ export function loginPage(request, configured = true) {
 export async function routeMonitorAuth(request, env) {
   const config = configuration(env);
   const reply = (body, status = 200, extra = {}) => Response.json(body, { status, headers: { ...headers, ...extra } });
-  if (request.method === "GET") return reply({ configured: config.configured, authorized: await monitorAuthorized(request, env), session_days: 7 });
+  if (request.method === "GET") return reply({ configured: config.configured, authorized: await monitorAuthorized(request, env), session_days: 7,
+    password_verifier_ready: config.verifierReady, session_signing_ready: config.signingReady });
   if (!["POST", "DELETE"].includes(request.method)) return reply({ error: "Method not allowed" }, 405, { Allow: "GET, POST, DELETE" });
   // Native form submissions and fetches must originate on this Worker.
   if (request.headers.get("origin") !== new URL(request.url).origin) return reply({ error: "Origin rejected" }, 403);
