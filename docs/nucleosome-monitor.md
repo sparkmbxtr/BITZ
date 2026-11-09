@@ -69,8 +69,16 @@ lease or guarantee uninterrupted uptime.
 ## Deployment and verification
 
 Use the existing Git-to-Cloudflare Builds deployment. `npm run build` runs the
-dashboard and regression checks; `npm run deploy` preserves the existing `spark`
-bindings and storage. The helper resolves the existing namespace through the
+dashboard and regression checks. Each existing Worker has its own linked Git
+build: `bitz` uses `npm run deploy:bitz` (also the default `npm run deploy`);
+`spark` uses `npm run deploy:spark`. Both use this repository's `main` branch
+and the repository root. In Cloudflare, open the existing `spark` Worker and
+connect its Builds configuration to this repository if it is not yet connected.
+Set build command `npm run build` and deploy command `npm run deploy:spark`.
+Do not create a replacement Worker. The linked-Worker safety check remains
+enabled; a `bitz` build cannot perform the `spark` deployment.
+
+The Spark helper preserves the existing bindings and storage. It resolves the existing namespace through the
 provider inventory, retaining an existing external `bitz` owner when present. It
 pins that namespace ID before deployment and verifies it, the migration tag and
 existing binding inventory afterward. A tag-only migration entry sends no

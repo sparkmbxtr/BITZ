@@ -103,6 +103,10 @@ export function sparkMetadataSummary(settings, namespaces) {
       .map(({ id, class: class_name, script, use_sqlite }) => ({ id, class_name, script, use_sqlite })) };
 }
 
+export function verifyLinkedBuildTarget(scriptTag, ciTag) {
+  if (ciTag && (!scriptTag || scriptTag !== ciTag)) throw new Error("This Cloudflare Git build is linked to another Worker. Run npm run deploy:spark from the existing spark Worker's Git build; the bitz build must use npm run deploy:bitz.");
+}
+
 async function existingMetadata(token) {
   const get = async path => {
     const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/${path}`, {
@@ -124,14 +128,14 @@ async function existingMetadata(token) {
     const payload = await get(`workers/durable_objects/namespaces?per_page=1000&page=${page}`);
     if (!Array.isArray(payload.result)) throw new Error("Namespace inventory is unavailable");
     namespaces.push(...payload.result);
-    if (page >= (payload.result_info?.total_pages ?? 1)) return { settings, namespaces };
+    if (page >= (payload.result_info?.total_pages ?? 1)) return { settings, namespaces, script_tag: script.tag };
   }
   throw new Error("Namespace inventory exceeds the verification bound");
 }
 
 async function command(executable, args) {
   const child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, WRANGLER_CI_OVERRIDE_NAME: WORKER } });
+    env: { ...process.env } });
   let captured = "";
   const consume = (stream, destination) => {
     let pending = "";
@@ -166,6 +170,7 @@ async function deploySpark() {
   const token = process.env.CLOUDFLARE_API_TOKEN;
   if (!token) throw new Error("Cloudflare Builds deployment credential is unavailable");
   const before = await existingMetadata(token);
+  verifyLinkedBuildTarget(before.script_tag, process.env.WRANGLER_CI_MATCH_TAG);
   // Only binding names/types and namespace identity metadata are logged. Secret
   // values and plain-text/JSON binding contents are never included.
   console.log(JSON.stringify({ existing_spark_metadata: sparkMetadataSummary(before.settings, before.namespaces) }));

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deploymentFailureSummary, resolveSparkStorage, sparkDeploymentConfig, sparkMetadataSummary, SPARK_CONTEXT_NAMESPACE, verifySparkStorageUnchanged } from "../scripts/deploy-existing-spark.mjs";
+import { deploymentFailureSummary, resolveSparkStorage, sparkDeploymentConfig, sparkMetadataSummary, SPARK_CONTEXT_NAMESPACE, verifyLinkedBuildTarget, verifySparkStorageUnchanged } from "../scripts/deploy-existing-spark.mjs";
 
 const generated = { name: "bitz", main: "index.js", assets: { directory: "../client", binding: "ASSETS" },
   images: { binding: "IMAGES" }, services: [{ binding: "AIRQ_BACKEND", service: "spark" }],
@@ -89,4 +89,11 @@ test("the wrapper retains the actual Wrangler failure instead of only exit 1", (
   const value = deploymentFailureSummary("upload progress\n\u001b[31mERROR\u001b[0m A request to the Cloudflare API failed\nreason example [code: 10000]\nLogs were written\n");
   assert.match(value, /reason example \[code: 10000\]/);
   assert.doesNotMatch(value, /upload progress|\u001b/);
+});
+
+test("each Cloudflare build must deploy its own linked Worker", () => {
+  verifyLinkedBuildTarget("spark-worker-tag", "spark-worker-tag");
+  verifyLinkedBuildTarget("spark-worker-tag", undefined);
+  assert.throws(() => verifyLinkedBuildTarget("spark-worker-tag", "bitz-worker-tag"), /linked to another Worker/);
+  assert.throws(() => verifyLinkedBuildTarget(undefined, "bitz-worker-tag"), /linked to another Worker/);
 });

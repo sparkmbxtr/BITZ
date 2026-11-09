@@ -52,4 +52,4 @@ jobs:
         if: steps.credential.outputs.ready == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node scripts/deploy-existing-spark.mjs
+        run: npm run deploy:spark
