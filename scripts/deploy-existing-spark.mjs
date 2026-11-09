@@ -7,7 +7,33 @@ const ACCOUNT = "a7cd65e439e0104c20c59023ca18b85c";
 const WORKER = "spark";
 const CLIENT_HEADERS = { "User-Agent": "SPARK-Worker-Deployment/1.0 (+https://github.com/sparkmbxtr/BITZ)" };
 
-export function sparkDeploymentConfig(generated, settings) {
+export function resolveSparkStorage(settings, namespaces) {
+  const binding = (settings.bindings ?? []).find(item => item.name === "CONTEXT_LOG");
+  if (!binding || binding.type !== "durable_object_namespace") throw new Error("Existing CONTEXT_LOG Durable Object binding is required");
+  const matches = namespaces.filter(item => binding.namespace_id ? item.id === binding.namespace_id
+    : item.class === binding.class_name && item.script === (binding.script_name ?? WORKER));
+  if (matches.length !== 1) throw new Error("Existing storage namespace must resolve uniquely; no namespace will be created");
+  const found = matches[0];
+  if (!found.id || found.class !== "ContextLog" || ![WORKER, "bitz"].includes(found.script)
+    || (binding.class_name && binding.class_name !== found.class)
+    || (binding.script_name && binding.script_name !== found.script)
+    || (binding.environment && binding.environment !== "production")
+    || found.use_sqlite !== true) throw new Error("Existing storage ownership/class/SQLite engine differs from the reviewed framework");
+  return { namespace_id: found.id, class_name: found.class, script_name: found.script,
+    ...(binding.environment ? { environment: binding.environment } : {}) };
+}
+
+export function verifySparkStorageUnchanged(before, after, beforeSettings, afterSettings) {
+  if (JSON.stringify(before) !== JSON.stringify(after)
+    || (beforeSettings.migration_tag ?? null) !== (afterSettings.migration_tag ?? null)) throw new Error("Existing storage identity or migration tag changed");
+  const names = value => (value.bindings ?? []).map(binding => `${binding.name}:${binding.type}`).sort();
+  const oldNames = names(beforeSettings), newNames = names(afterSettings);
+  if (oldNames.some(name => !newNames.includes(name))
+    || newNames.some(name => !oldNames.includes(name) && !["ASSETS:assets", "IMAGES:images"].includes(name))) throw new Error("Existing binding inventory changed");
+}
+
+export function sparkDeploymentConfig(generated, settings, storage) {
+  if (!storage?.namespace_id || storage.class_name !== "ContextLog" || ![WORKER, "bitz"].includes(storage.script_name)) throw new Error("Verified existing storage identity is required");
   const config = structuredClone(generated);
   config.name = WORKER;
   config.account_id = ACCOUNT;
@@ -17,10 +43,9 @@ export function sparkDeploymentConfig(generated, settings) {
   config.compatibility_flags = settings.compatibility_flags ?? generated.compatibility_flags;
   for (const key of ["services", "durable_objects", "migrations", "d1_databases", "kv_namespaces", "r2_buckets", "vars", "routes", "route", "env"]) delete config[key];
   const bindings = settings.bindings ?? [];
-  const storage = bindings.find(binding => binding.name === "CONTEXT_LOG");
-  if (!storage || storage.type !== "durable_object_namespace" || !storage.namespace_id
-    || (storage.class_name && storage.class_name !== "ContextLog")
-    || (storage.script_name && storage.script_name !== WORKER)) throw new Error("Existing spark storage identity must be retained");
+  if (!bindings.some(binding => binding.name === "CONTEXT_LOG" && binding.type === "durable_object_namespace")) throw new Error("Existing storage binding is missing");
+  const storageBinding = bindings.find(binding => binding.name === "CONTEXT_LOG");
+  if (storageBinding.namespace_id && storageBinding.namespace_id !== storage.namespace_id) throw new Error("Resolved namespace differs from the existing binding");
   for (const binding of bindings) {
     switch (binding.type) {
       case "secret_text": case "plain_text": case "json": break;
@@ -32,7 +57,9 @@ export function sparkDeploymentConfig(generated, settings) {
         break;
       case "durable_object_namespace":
         if (binding.name !== "CONTEXT_LOG") throw new Error("Unreviewed Durable Object binding");
-        config.durable_objects = { bindings: [{ name: "CONTEXT_LOG", class_name: "ContextLog" }] };
+        config.durable_objects = { bindings: [{ name: "CONTEXT_LOG", class_name: storage.class_name,
+          ...(storage.script_name !== WORKER ? { script_name: storage.script_name } : {}),
+          ...(storage.environment ? { environment: storage.environment } : {}) }] };
         break;
       case "service":
         (config.services ??= []).push({ binding: binding.name, service: binding.service,
@@ -53,9 +80,44 @@ export function sparkDeploymentConfig(generated, settings) {
       default: throw new Error("An existing binding needs an explicit deployment mapping: " + binding.type);
     }
   }
-  if (settings.migration_tag && settings.migration_tag !== "context-log-v1") throw new Error("Existing migration identity differs from the preserved backend configuration");
-  config.migrations = [{ tag: "context-log-v1", new_sqlite_classes: ["ContextLog"] }];
+  // A tag-only entry matches the provider's existing tag. Wrangler then sends
+  // no migration steps. There are no create/rename/delete/transfer operations.
+  if (settings.migration_tag) config.migrations = [{ tag: settings.migration_tag }];
   return config;
+}
+
+export function sparkMetadataSummary(settings, namespaces) {
+  return { migration_tag: settings.migration_tag ?? null,
+    bindings: (settings.bindings ?? []).map(({ name, type, namespace_id, class_name, script_name, environment }) =>
+      ({ name, type, namespace_id, class_name, script_name, environment })),
+    relevant_namespaces: namespaces.filter(item => [WORKER, "bitz"].includes(item.script) && item.class === "ContextLog")
+      .map(({ id, class: class_name, script, use_sqlite }) => ({ id, class_name, script, use_sqlite })) };
+}
+
+async function existingMetadata(token) {
+  const get = async path => {
+    const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/${path}`, {
+      headers: { ...CLIENT_HEADERS, Authorization: "Bearer " + token }, signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) throw new Error("Existing spark metadata read failed (HTTP " + response.status + ", " + path.split("?")[0] + ")");
+    const payload = await response.json();
+    if (!payload.success || !payload.result) throw new Error("Existing spark metadata readback failed");
+    return payload;
+  };
+  const settings = (await get(`workers/scripts/${WORKER}/settings`)).result;
+  const service = (await get(`workers/services/${WORKER}`)).result;
+  const script = service.default_environment?.script;
+  if (!script) throw new Error("Existing spark production script metadata is unavailable");
+  if (settings.migration_tag && script.migration_tag && settings.migration_tag !== script.migration_tag) throw new Error("Provider migration metadata disagrees");
+  settings.migration_tag ??= script.migration_tag;
+  const namespaces = [];
+  for (let page = 1; page <= 100; page++) {
+    const payload = await get(`workers/durable_objects/namespaces?per_page=1000&page=${page}`);
+    if (!Array.isArray(payload.result)) throw new Error("Namespace inventory is unavailable");
+    namespaces.push(...payload.result);
+    if (page >= (payload.result_info?.total_pages ?? 1)) return { settings, namespaces };
+  }
+  throw new Error("Namespace inventory exceeds the verification bound");
 }
 
 async function command(executable, args) {
@@ -70,21 +132,24 @@ async function command(executable, args) {
 async function deploySpark() {
   const token = process.env.CLOUDFLARE_API_TOKEN;
   if (!token) throw new Error("Cloudflare Builds deployment credential is unavailable");
-  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/scripts/${WORKER}/settings`, {
-    headers: { ...CLIENT_HEADERS, Authorization: "Bearer " + token }, signal: AbortSignal.timeout(20_000),
-  });
-  if (!response.ok) throw new Error("Cannot verify the existing spark settings (HTTP " + response.status + ")");
-  const payload = await response.json();
-  if (!payload.success || !payload.result) throw new Error("Existing spark configuration readback failed");
+  const before = await existingMetadata(token);
+  // Only binding names/types and namespace identity metadata are logged. Secret
+  // values and plain-text/JSON binding contents are never included.
+  console.log(JSON.stringify({ existing_spark_metadata: sparkMetadataSummary(before.settings, before.namespaces) }));
+  const storage = resolveSparkStorage(before.settings, before.namespaces);
   const redirect = resolve(".wrangler/deploy/config.json");
   const pointer = JSON.parse(await readFile(redirect, "utf8"));
   const generatedPath = resolve(dirname(redirect), pointer.configPath);
   const generated = JSON.parse(await readFile(generatedPath, "utf8"));
-  const config = sparkDeploymentConfig(generated, payload.result);
+  const config = sparkDeploymentConfig(generated, before.settings, storage);
   const deploymentPath = resolve(dirname(generatedPath), "wrangler.spark.json");
   await writeFile(deploymentPath, JSON.stringify(config, null, 2) + "\n");
   console.log("Verified the existing spark storage and bindings; deploying the progress interface.");
   await command(process.execPath, [resolve("node_modules/wrangler/bin/wrangler.js"), "deploy", "--config", deploymentPath, "--keep-vars"]);
+  const after = await existingMetadata(token);
+  verifySparkStorageUnchanged(storage, resolveSparkStorage(after.settings, after.namespaces), before.settings, after.settings);
+  console.log(JSON.stringify({ existing_storage_identity_unchanged: true, namespace_id: storage.namespace_id,
+    storage_owner: storage.script_name, migration_tag: after.settings.migration_tag ?? null }));
   const page = await fetch("https://spark.bioengineering.workers.dev/", { headers: CLIENT_HEADERS, signal: AbortSignal.timeout(20_000) });
   const html = await page.text();
   if (!page.ok || !html.includes("SPARK BMC-LMU") || !html.includes('action="/api/nucleosome-auth"') || html.includes('id="history"')) throw new Error("Live spark login verification failed");

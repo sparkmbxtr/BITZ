@@ -70,7 +70,12 @@ lease or guarantee uninterrupted uptime.
 
 Use the existing Git-to-Cloudflare Builds deployment. `npm run build` runs the
 dashboard and regression checks; `npm run deploy` preserves the existing `spark`
-bindings and storage. The deployment helper verifies the login form, anonymous
+bindings and storage. The helper resolves the existing namespace through the
+provider inventory, retaining an existing external `bitz` owner when present. It
+pins that namespace ID before deployment and verifies it, the migration tag and
+existing binding inventory afterward. A tag-only migration entry sends no
+create, rename, delete or transfer steps. Missing, ambiguous or incompatible
+namespace metadata stops deployment. The deployment helper verifies the login form, anonymous
 API denial and configured seven-day authentication. Production password success
 must be verified without logging the supplied password or cookie.
 
