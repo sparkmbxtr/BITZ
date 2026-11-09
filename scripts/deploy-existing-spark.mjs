@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 
 const ACCOUNT = "a7cd65e439e0104c20c59023ca18b85c";
 const WORKER = "spark";
+const CLIENT_HEADERS = { "User-Agent": "SPARK-Worker-Deployment/1.0 (+https://github.com/sparkmbxtr/BITZ)" };
 
 export function sparkDeploymentConfig(generated, settings) {
   const config = structuredClone(generated);
@@ -70,7 +71,7 @@ async function deploySpark() {
   const token = process.env.CLOUDFLARE_API_TOKEN;
   if (!token) throw new Error("Cloudflare Builds deployment credential is unavailable");
   const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/scripts/${WORKER}/settings`, {
-    headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(20_000),
+    headers: { ...CLIENT_HEADERS, Authorization: "Bearer " + token }, signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) throw new Error("Cannot verify the existing spark settings (HTTP " + response.status + ")");
   const payload = await response.json();
@@ -84,12 +85,12 @@ async function deploySpark() {
   await writeFile(deploymentPath, JSON.stringify(config, null, 2) + "\n");
   console.log("Verified the existing spark storage and bindings; deploying the progress interface.");
   await command(process.execPath, [resolve("node_modules/wrangler/bin/wrangler.js"), "deploy", "--config", deploymentPath, "--keep-vars"]);
-  const page = await fetch("https://spark.bioengineering.workers.dev/", { signal: AbortSignal.timeout(20_000) });
+  const page = await fetch("https://spark.bioengineering.workers.dev/", { headers: CLIENT_HEADERS, signal: AbortSignal.timeout(20_000) });
   const html = await page.text();
   if (!page.ok || !html.includes("SPARK BMC-LMU") || !html.includes('action="/api/nucleosome-auth"') || html.includes('id="history"')) throw new Error("Live spark login verification failed");
-  const status = await fetch("https://spark.bioengineering.workers.dev/api/nucleosome-progress", { signal: AbortSignal.timeout(20_000) });
+  const status = await fetch("https://spark.bioengineering.workers.dev/api/nucleosome-progress", { headers: CLIENT_HEADERS, signal: AbortSignal.timeout(20_000) });
   if (status.status !== 401) throw new Error("Live spark progress must require authentication");
-  const auth = await fetch("https://spark.bioengineering.workers.dev/api/nucleosome-auth", { signal: AbortSignal.timeout(20_000) });
+  const auth = await fetch("https://spark.bioengineering.workers.dev/api/nucleosome-auth", { headers: CLIENT_HEADERS, signal: AbortSignal.timeout(20_000) });
   const access = auth.ok ? await auth.json() : null;
   if (!access?.configured || access.authorized || access.session_days !== 7) throw new Error("Live spark weekly access configuration verification failed");
   console.log(JSON.stringify({ spark_login_verified: true, anonymous_progress_denied: true, session_days: 7, url: "https://spark.bioengineering.workers.dev" }));

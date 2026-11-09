@@ -13,6 +13,7 @@ import urllib.parse
 import urllib.request
 
 ENDPOINT = "https://spark.bioengineering.workers.dev/api/nucleosome-progress"
+USER_AGENT = "SPARK-Nucleosome-Publisher/1.0 (+https://github.com/sparkmbxtr/BITZ)"
 
 
 def read_snapshot(root):
@@ -33,7 +34,7 @@ def read_snapshot(root):
 
 
 def fetch_json(url, method="GET", token=None, payload=None):
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
     if token:
         headers["Authorization"] = "Bearer " + token
     raw = None if payload is None else json.dumps(payload, separators=(",", ":")).encode()
