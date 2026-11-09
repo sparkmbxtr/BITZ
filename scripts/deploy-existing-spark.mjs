@@ -5,31 +5,36 @@ import { spawn } from "node:child_process";
 
 const ACCOUNT = "a7cd65e439e0104c20c59023ca18b85c";
 const WORKER = "spark";
+// Identity returned by the existing provider inventory and supplied in the
+// deployment failure record. This is an identifier, not a credential.
+export const SPARK_CONTEXT_NAMESPACE = "d19f77532fc94146aea211c8e41895be";
 const CLIENT_HEADERS = { "User-Agent": "SPARK-Worker-Deployment/1.0 (+https://github.com/sparkmbxtr/BITZ)" };
 
-export function resolveSparkStorage(settings, namespaces) {
+export function resolveSparkStorage(settings, namespaces, expectedNamespace = SPARK_CONTEXT_NAMESPACE) {
   const binding = (settings.bindings ?? []).find(item => item.name === "CONTEXT_LOG");
-  if (!binding || binding.type !== "durable_object_namespace") throw new Error("Existing CONTEXT_LOG Durable Object binding is required");
-  const matches = namespaces.filter(item => binding.namespace_id ? item.id === binding.namespace_id
+  if (binding && binding.type !== "durable_object_namespace") throw new Error("Existing CONTEXT_LOG binding has a different resource type");
+  const matches = namespaces.filter(item => !binding ? item.id === expectedNamespace && item.class === "ContextLog" && item.script === WORKER
+    : binding.namespace_id ? item.id === binding.namespace_id
     : item.class === binding.class_name && item.script === (binding.script_name ?? WORKER));
   if (matches.length !== 1) throw new Error("Existing storage namespace must resolve uniquely; no namespace will be created");
   const found = matches[0];
-  if (!found.id || found.class !== "ContextLog" || ![WORKER, "bitz"].includes(found.script)
-    || (binding.class_name && binding.class_name !== found.class)
-    || (binding.script_name && binding.script_name !== found.script)
-    || (binding.environment && binding.environment !== "production")
+  if (!found.id || found.id !== expectedNamespace || found.class !== "ContextLog" || ![WORKER, "bitz"].includes(found.script)
+    || (binding?.class_name && binding.class_name !== found.class)
+    || (binding?.script_name && binding.script_name !== found.script)
+    || (binding?.environment && binding.environment !== "production")
     || found.use_sqlite !== true) throw new Error("Existing storage ownership/class/SQLite engine differs from the reviewed framework");
   return { namespace_id: found.id, class_name: found.class, script_name: found.script,
-    ...(binding.environment ? { environment: binding.environment } : {}) };
+    ...(binding?.environment ? { environment: binding.environment } : {}) };
 }
 
 export function verifySparkStorageUnchanged(before, after, beforeSettings, afterSettings) {
-  if (JSON.stringify(before) !== JSON.stringify(after)
+  const identity = value => [value.namespace_id, value.class_name, value.script_name, value.environment ?? "production"];
+  if (JSON.stringify(identity(before)) !== JSON.stringify(identity(after))
     || (beforeSettings.migration_tag ?? null) !== (afterSettings.migration_tag ?? null)) throw new Error("Existing storage identity or migration tag changed");
   const names = value => (value.bindings ?? []).map(binding => `${binding.name}:${binding.type}`).sort();
   const oldNames = names(beforeSettings), newNames = names(afterSettings);
   if (oldNames.some(name => !newNames.includes(name))
-    || newNames.some(name => !oldNames.includes(name) && !["ASSETS:assets", "IMAGES:images"].includes(name))) throw new Error("Existing binding inventory changed");
+    || newNames.some(name => !oldNames.includes(name) && !["ASSETS:assets", "IMAGES:images", "CONTEXT_LOG:durable_object_namespace"].includes(name))) throw new Error("Existing binding inventory changed");
 }
 
 export function sparkDeploymentConfig(generated, settings, storage) {
@@ -42,8 +47,11 @@ export function sparkDeploymentConfig(generated, settings, storage) {
   config.compatibility_date = settings.compatibility_date ?? generated.compatibility_date;
   config.compatibility_flags = settings.compatibility_flags ?? generated.compatibility_flags;
   for (const key of ["services", "durable_objects", "migrations", "d1_databases", "kv_namespaces", "r2_buckets", "vars", "routes", "route", "env"]) delete config[key];
-  const bindings = settings.bindings ?? [];
-  if (!bindings.some(binding => binding.name === "CONTEXT_LOG" && binding.type === "durable_object_namespace")) throw new Error("Existing storage binding is missing");
+  const bindings = [...(settings.bindings ?? [])];
+  if (!bindings.some(binding => binding.name === "CONTEXT_LOG")) {
+    if (storage.namespace_id !== SPARK_CONTEXT_NAMESPACE || storage.script_name !== WORKER) throw new Error("Only the pinned existing namespace can repair the missing binding");
+    bindings.push({ name: "CONTEXT_LOG", type: "durable_object_namespace" });
+  }
   const storageBinding = bindings.find(binding => binding.name === "CONTEXT_LOG");
   if (storageBinding.namespace_id && storageBinding.namespace_id !== storage.namespace_id) throw new Error("Resolved namespace differs from the existing binding");
   for (const binding of bindings) {

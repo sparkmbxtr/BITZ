@@ -79,6 +79,11 @@ namespace metadata stops deployment. The deployment helper verifies the login fo
 API denial and configured seven-day authentication. Production password success
 must be verified without logging the supplied password or cookie.
 
+The provider-confirmed ContextLog namespace is pinned in the helper. If its
+binding is missing, the helper can restore the binding only to that existing
+SQLite namespace under `spark`. The namespace ID is checked again afterward;
+the repair creates no namespace or class migration.
+
 The optional `Deploy existing spark Worker from Git` workflow can reuse an
 already configured GitHub `CLOUDFLARE_API_TOKEN` secret. It skips deployment when
 that existing binding is absent and records the reason in its job summary.
