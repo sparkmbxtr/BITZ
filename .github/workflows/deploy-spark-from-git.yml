@@ -1,0 +1,55 @@
+name: Deploy existing spark Worker from Git
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/deploy-spark-from-git.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-existing-spark
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check the existing deployment credential binding
+        id: credential
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+            echo 'Existing GitHub deployment credential is configured.'
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::No existing GitHub CLOUDFLARE_API_TOKEN binding; the Cloudflare Builds deployment remains the configured route.'
+            echo 'Deployment was not attempted: the existing Cloudflare credential is not configured in GitHub Actions.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Check out the reviewed source
+        if: steps.credential.outputs.ready == 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        if: steps.credential.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies and build
+        if: steps.credential.outputs.ready == 'true'
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Deploy and verify the existing spark Worker
+        if: steps.credential.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/deploy-existing-spark.mjs

@@ -74,6 +74,12 @@ bindings and storage. The deployment helper verifies the login form, anonymous
 API denial and configured seven-day authentication. Production password success
 must be verified without logging the supplied password or cookie.
 
+The optional `Deploy existing spark Worker from Git` workflow can reuse an
+already configured GitHub `CLOUDFLARE_API_TOKEN` secret. It skips deployment when
+that existing binding is absent and records the reason in its job summary.
+Credentials are not copied from another machine. The workflow deploys only the
+existing `spark` Worker through the same binding-preserving helper.
+
 Run `node --test tests/nucleosome-*.test.mjs` for session expiry, tampering,
 reader/writer separation, OIDC signature and claim checks, payload validation,
 freshness and deployment binding preservation. Responsive browser checks should

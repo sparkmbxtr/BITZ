@@ -58,7 +58,10 @@ def main():
     result = fetch_json(ENDPOINT, method="PUT", token=identity, payload=snapshot)
     saved = fetch_json(ENDPOINT, token=identity)
     expected = sum(job["step"] for job in snapshot["jobs"])
-    if not result.get("published") or saved.get("total_steps") != expected or saved.get("information_updated_at") != snapshot["information_updated_at"]:
+    if (not result.get("published") or saved.get("total_steps") != expected
+            or saved.get("information_updated_at") != snapshot["information_updated_at"]
+            or any(saved.get(key) != snapshot.get(key) for key in
+                   ("jobs", "stages", "runtime_observation", "compute_rate", "watchdog_armed"))):
         raise RuntimeError("Monitoring readback differs from the committed snapshot")
     print(json.dumps({"published": True, "readback_verified": True, "saved_steps": expected,
                       "cloud_observed_at": observed.isoformat(), "source_path": str(path), "sha256": digest}))
