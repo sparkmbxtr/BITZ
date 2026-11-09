@@ -124,6 +124,20 @@ test("the monitor-specific verifier overrides a different legacy dashboard verif
   assert.equal(env.DASHBOARD_PASSWORD_HASH, dedicated.DASHBOARD_PASSWORD_HASH);
 });
 
+test("an old browser poll refreshes its UI while the same weekly cookie stays valid", async () => {
+  const response = await routeNucleosomeProgress(post("EXAMPLE-TEST-PASSWORD"), env);
+  const cookie = response.headers.get("set-cookie").split(";", 1)[0];
+  const headers = { Cookie: cookie, Referer: origin + "/", "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "empty" };
+  const legacy = await routeNucleosomeProgress(request("/api/nucleosome-progress", { headers }), env);
+  assert.equal(legacy.status, 401);
+  assert.equal(legacy.headers.get("x-spark-client-refresh"), "/");
+  assert.equal(legacy.headers.get("set-cookie"), null, "upgrade never deletes or renews the login");
+  const page = await routeNucleosomeProgress(request("/", { headers: { Cookie: cookie } }), env);
+  assert.match(await page.text(), /id="history"/);
+  assert.equal((await routeNucleosomeProgress(request("/api/nucleosome-progress?at=123", { headers }), env)).status, 200);
+  assert.equal((await routeNucleosomeProgress(request("/api/nucleosome-progress", { headers: { Cookie: cookie } }), env)).status, 200, "ordinary API readers remain compatible");
+});
+
 test("the weekly monitor reuses an existing signing key without imposing a new length policy", async () => {
   const existing = { ...env, DASHBOARD_SESSION_SECRET: "test-legacy-key" };
   const login = await routeNucleosomeProgress(post("EXAMPLE-TEST-PASSWORD"), existing);

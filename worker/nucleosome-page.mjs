@@ -1,4 +1,6 @@
 import { workspaceNavigation } from "./dashboard-tabs.mjs";
+import { DASHBOARD_BUILD_VERSION } from "../lib/dashboard-version.ts";
+import { createDisplayUpdateMonitor } from "../lib/display-updates.ts";
 
 export const DASHBOARD_HTML = String.raw`<!doctype html>
 <html lang="en">
@@ -6,6 +8,7 @@ export const DASHBOARD_HTML = String.raw`<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
+<meta name="spark-ui-build" content="${DASHBOARD_BUILD_VERSION}">
 <meta name="robots" content="noindex,nofollow">
 <title>SPARK BMC-LMU · Nucleosome-C</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%230f1115'/%3E%3Cpath d='M7 24V8h5l8 12V8h5v16h-5L12 12v12z' fill='%2378bf8a'/%3E%3C/svg%3E">
@@ -53,12 +56,14 @@ header{background:#100b13}.workspace-tabs{max-width:2000px;margin:auto;display:f
 @media(max-height:850px) and (min-width:701px){.stage-number{display:none}.stage{padding-top:7px;padding-bottom:7px}.stage-note{margin-top:4px;line-height:1.2}.metric{padding-top:9px;padding-bottom:9px}.metric .value{line-height:1.1}.metric .total-bar{margin-top:6px}}
 @media(max-height:600px) and (max-width:700px){.title-row{display:none}main{grid-template-rows:minmax(0,1fr)}}
 @media(max-height:450px){.metric,.metric:first-child{padding:4px 6px}.metric .value,.metric:first-child .value{font-size:20px;line-height:1;margin:1px 0}.metric .eyebrow,.metric-note{font-size:7.5px;line-height:1.1}.metric .total-bar{margin-top:3px;height:3px}}
+.connection-group{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap}.connection-group .feed{white-space:nowrap}.dot.red{background:var(--red)}
+@media(max-width:700px){.connection-group{flex-direction:column;align-items:flex-end;gap:2px}}
 </style>
 </head>
 <body data-workspace="nucleosome-c">
 <header><div class="header-inner"><div class="brand">SPARK BMC-LMU</div><time id="updated" class="header-time" aria-label="Information update time in Berlin">------------</time></div>${workspaceNavigation("nucleosome-c")}</header>
 <main id="nucleosome-c" aria-labelledby="tab-nucleosome-c">
-<div class="title-row"><h1>Nucleosome <span>/ experiment</span></h1><div class="feed"><i class="dot" id="feed-dot" aria-hidden="true"></i><span id="feed-state" role="status">Connecting</span></div></div>
+<div class="title-row"><h1>Nucleosome <span>/ experiment</span></h1><div class="connection-group"><div class="feed"><i class="dot" id="feed-dot" aria-hidden="true"></i><span id="feed-state" role="status">Connecting</span></div><div class="feed" id="wsl-connection" title="Awaiting a verified WSL relay report. Cloud computation is independent of WSL."><i class="dot" id="wsl-dot" aria-hidden="true"></i><span id="wsl-state" role="status">WSL unconfirmed</span></div></div></div>
 <div id="loading" class="loading" role="status">Loading progress…</div>
 <div id="content" hidden>
 <section class="overview" aria-label="Baseline overview">
@@ -180,11 +185,15 @@ header{background:#100b13}.workspace-tabs{max-width:2000px;margin:auto;display:f
     var feedStale=Date.now()-Date.parse(data.information_updated_at)>900000;
     $('feed-dot').className='dot '+(failed||feedStale||data.feed_mode!=='automatic'?'amber':'green');
     $('feed-state').textContent=failed?'Refresh failed · saved data':data.feed_mode!=='automatic'?'Saved snapshot':feedStale?'Feed update overdue':'Feed connected';
+    var wsl=data.wsl_connection,wslState=!wsl?'unconfirmed':wsl.reported_state==='connected'&&wsl.last_seen_at&&Date.now()-Date.parse(wsl.last_seen_at)<=900000?'connected':'disconnected';
+    $('wsl-dot').className='dot '+(wslState==='connected'?'green':wslState==='disconnected'?'red':'');
+    $('wsl-state').textContent='WSL '+wslState;
+    $('wsl-connection').title=wsl?'Last verified WSL relay signal '+age(wsl.observed_at)+'. Connection expires after 15 minutes without a new signal. Cloud computation continues independently.':'No verified WSL relay presence is available. Feed availability does not establish WSL connectivity. Cloud computation continues independently.';
     $('loading').hidden=true;$('content').hidden=false;
   }
   async function refresh(){
     if(busy)return;busy=true;$('refresh').disabled=true;
-    try{var response=await fetch('/api/nucleosome-progress',{cache:'no-store',signal:AbortSignal.timeout(12000)});if(response.status===401){window.location.assign('/');return}if(!response.ok)throw new Error('HTTP '+response.status);var next=await response.json();if(!next.jobs||next.jobs.length!==6||!next.information_updated_at)throw new Error('Invalid progress');data=next;lastRead=Date.now();failed=false;render()}
+    try{var response=await fetch('/api/nucleosome-progress?at='+Date.now(),{cache:'no-store',credentials:'same-origin',signal:AbortSignal.timeout(12000)});if(response.status===401){window.location.assign('/');return}if(!response.ok)throw new Error('HTTP '+response.status);var next=await response.json();if(!next.jobs||next.jobs.length!==6||!next.information_updated_at)throw new Error('Invalid progress');data=next;lastRead=Date.now();failed=false;render()}
     catch(error){failed=true;if(data)render();else{$('loading').textContent='Progress unavailable. Retrying in 30s.';$('feed-state').textContent='Connection unavailable';$('feed-dot').className='dot amber'}}
     finally{busy=false;$('refresh').disabled=false}
   }
@@ -193,6 +202,22 @@ header{background:#100b13}.workspace-tabs{max-width:2000px;margin:auto;display:f
   window.addEventListener('online',refresh);
   setInterval(function(){if(!document.hidden)refresh()},30000);
   setInterval(function(){if(data&&!document.hidden)render()},15000);
+  var loadedUiVersion=${JSON.stringify(DASHBOARD_BUILD_VERSION)};
+  if(/^[a-f0-9]{24}$/.test(loadedUiVersion)){
+    var updateAttempt=null,updateKey='spark-nucleosome-update-attempt';
+    var updateMonitor=(${createDisplayUpdateMonitor.toString()})({
+      currentVersion:loadedUiVersion,
+      loadVersion:async function(){var response=await fetch('/api/display-version?at='+Date.now(),{cache:'no-store',credentials:'same-origin',signal:AbortSignal.timeout(12000)});return response.ok?(await response.json()).version:null},
+      canReload:function(){return !document.hidden},
+      prepareReload:async function(){var response=await fetch('/api/nucleosome-auth?at='+Date.now(),{cache:'no-store',credentials:'same-origin',signal:AbortSignal.timeout(12000)});return response.ok&&(await response.json()).authorized===true},
+      readAttempt:function(){try{return JSON.parse(window.sessionStorage.getItem(updateKey))||updateAttempt}catch{return updateAttempt}},
+      writeAttempt:function(attempt){updateAttempt=attempt;try{window.sessionStorage.setItem(updateKey,JSON.stringify(attempt))}catch{}},
+      reload:function(version){var url=new URL(window.location.href);url.searchParams.set('_display_build',version);window.location.replace(url.toString())}
+    });
+    var checkUiVersion=function(){void updateMonitor.check()};
+    setInterval(checkUiVersion,30000);
+    document.addEventListener('visibilitychange',checkUiVersion);window.addEventListener('online',checkUiVersion);checkUiVersion();
+  }
   refresh();
 })();
 </script>

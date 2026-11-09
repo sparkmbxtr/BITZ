@@ -65,7 +65,7 @@ try {
     assert.ok(Math.abs(cookie.expires - Date.now() / 1000 - 604800) < 15);
     await page.reload({ waitUntil: "domcontentloaded" });
     assert.equal(await page.locator("#history").count(), 1);
-    const api = await page.evaluate(async () => (await fetch("/api/nucleosome-progress")).status);
+    const api = await page.evaluate(async () => (await fetch("/api/nucleosome-progress?at=" + Date.now())).status);
     assert.equal(api, 200);
     assert.equal(submissions.at(-1).origin, base);
     cases.push({ name, browser_generated_origin_matches: true, protected_page: true,

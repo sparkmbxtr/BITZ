@@ -56,6 +56,30 @@ Runtime confirmation expires after six minutes without a new actual observation.
 The feed and checkpoint ages remain separate. Persistent storage rejects step
 regressions and changes to already terminal jobs.
 
+Progress requests include a changing query value and use `cache: no-store`.
+The protected page and JSON responses also disable browser and CDN caching.
+An already-open page updates its data without navigation. Returning to a tab or
+reconnecting the device immediately checks for fresh data.
+
+The page embeds the build fingerprint it actually loaded and checks the existing
+`/api/display-version` endpoint every 30 seconds. Two matching observations of a
+different build, at least ten seconds apart, trigger one automatic replacement
+of the page with a versioned URL. This preserves the same weekly cookie and its
+original expiry. It also works when session storage is unavailable. The previous
+unversioned page is upgraded through its existing root-navigation handler on its
+next browser poll; its cookie is retained. Failed/offline version checks leave
+the current view and login untouched. Authentication expiry still requires login;
+no browser can fetch updates while it is offline or suspended.
+
+`WSL connected` is a separate presence signal, never inferred from `Feed connected`.
+Only a recent report from the original WSL catch-up relay counts as connected.
+Fifteen minutes without a new signal changes a previously confirmed connection
+to `WSL disconnected`. With no verified report, the page shows `WSL unconfirmed`.
+The private publisher validates the original relay identity, WSL kernel and actual
+observation timestamp, then publishes only the state and times. Full laptop
+identifiers remain private. Republishing a cloud snapshot cannot renew WSL
+presence, and missing WSL evidence cannot fail progress delivery or stop MD.
+
 ## Design and estimates
 
 All six study stages and all six baseline replicas remain in the viewport on
@@ -128,6 +152,12 @@ Run `node --experimental-strip-types --test tests/nucleosome-*.test.mjs` for ses
 reader/writer separation, OIDC signature and claim checks, payload validation,
 freshness and deployment binding preservation. Responsive browser checks should
 include small portrait and landscape phones, tablet, laptop and large monitor.
+
+`npm run test:browser:updates` exercises an already-open Chromium page receiving
+new progress and WSL states, followed by a new UI build, without manual reload or
+cookie clearing. It checks the exact same cookie and expiry and seven viewport
+sizes. Use the installed browser and an externally available pinned
+`playwright-core` module via `PLAYWRIGHT_MODULE`.
 
 The explicit type-stripping flag keeps direct TypeScript auth-module tests
 compatible with the existing Node22.13 minimum; it does not depend on the later

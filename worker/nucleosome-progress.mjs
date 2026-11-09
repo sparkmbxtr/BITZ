@@ -2,6 +2,7 @@ import { DASHBOARD_HTML } from "./nucleosome-page.mjs";
 import { INITIAL_SNAPSHOT } from "./nucleosome-snapshot.mjs";
 import { progressWriterAuthorized } from "./nucleosome-oidc.mjs";
 import { loginPage, monitorAuthorized, routeMonitorAuth } from "./nucleosome-auth.mjs";
+import { validateWslConnection, wslConnectionStatus } from "./nucleosome-wsl.mjs";
 
 const IDS = ["601-A", "control-A", "601-B", "control-B", "601-C", "control-C"];
 const STATES = ["pending", "in_progress", "complete", "guard_stop"];
@@ -74,6 +75,7 @@ export function validateSnapshot(input) {
   }
   return { version: 1, information_updated_at: input.information_updated_at, source_revision: input.source_revision,
     jobs, stages, watchdog_armed: input.watchdog_armed,
+    ...(input.wsl_connection != null ? { wsl_connection: validateWslConnection(input.wsl_connection) } : {}),
     ...(observation ? { runtime_observation: observation } : {}),
     ...(rate ? { compute_rate: rate } : {}),
     history: history.map(point => ({ at: point.at, step: point.step })) };
@@ -85,6 +87,7 @@ export function publicSnapshot(snapshot, mode, now = Date.now()) {
   const total = snapshot.jobs.reduce((sum, job) => sum + job.step, 0);
   const current = snapshot.jobs.find(job => job.status === "checkpoint") ?? snapshot.jobs.find(job => job.status === "queued") ?? null;
   return { ...snapshot, source_revision: undefined, feed_mode: mode,
+    wsl_connection: snapshot.wsl_connection ?? null, wsl_status: wslConnectionStatus(snapshot.wsl_connection, now),
     total_steps: total, total_cap: 600_000, percent: total / 6_000,
     completed_runs: completed, terminal_runs: terminal,
     current_job: current?.id ?? null,
@@ -95,7 +98,7 @@ export function publicSnapshot(snapshot, mode, now = Date.now()) {
 }
 
 function json(value, status = 200) {
-  return Response.json(value, { status, headers: { "Cache-Control": "no-store, max-age=0", "X-Content-Type-Options": "nosniff" } });
+  return Response.json(value, { status, headers: { "Cache-Control": "no-store, max-age=0, must-revalidate", "CDN-Cache-Control": "no-store", "Pragma": "no-cache", "X-Content-Type-Options": "nosniff" } });
 }
 
 export async function routeNucleosomeProgress(request, env, authorize = progressWriterAuthorized) {
@@ -108,13 +111,24 @@ export async function routeNucleosomeProgress(request, env, authorize = progress
     if (!["GET", "HEAD"].includes(request.method)) return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
     const authorized = await monitorAuthorized(request, env);
     return new Response(request.method === "HEAD" ? null : authorized ? DASHBOARD_HTML : loginPage(request), { headers: {
-      "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, max-age=0",
+      "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, max-age=0, must-revalidate", "CDN-Cache-Control": "no-store", "Pragma": "no-cache",
       "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
       "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin", "X-Robots-Tag": "noindex, nofollow" } });
   }
   const stub = env.CONTEXT_LOG?.getByName("nucleosome-progress");
   if (request.method === "GET") {
-    if (!await monitorAuthorized(request, env) && !await authorize(request)) return json({ error: "Monitor login required" }, 401);
+    const readerAuthorized = await monitorAuthorized(request, env);
+    if (!readerAuthorized && !await authorize(request)) return json({ error: "Monitor login required" }, 401);
+    // The earlier page already handles a401 by navigating to the root. Use
+    // that compatibility hook only for its identifiable old browser poll.
+    // Keep the valid weekly cookie; the root immediately opens the new UI.
+    let source;
+    try { source = new URL(request.headers.get("referer")); } catch { /* API client without a page referrer. */ }
+    const legacyPagePoll = readerAuthorized && !url.searchParams.has("at")
+      && request.headers.get("sec-fetch-site") === "same-origin" && request.headers.get("sec-fetch-dest") === "empty"
+      && source?.origin === url.origin && ["/", "/nucleosome"].includes(source.pathname);
+    if (legacyPagePoll) return new Response(JSON.stringify({ error: "Dashboard update available", reload: "/" }), {
+      status: 401, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "CDN-Cache-Control": "no-store", "X-Spark-Client-Refresh": "/" } });
     let stored;
     try { stored = stub ? await stub.readNucleosomeProgress() : null; } catch { stored = null; }
     let data;
