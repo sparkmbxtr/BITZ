@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveSparkStorage, sparkDeploymentConfig, sparkMetadataSummary, SPARK_CONTEXT_NAMESPACE, verifySparkStorageUnchanged } from "../scripts/deploy-existing-spark.mjs";
+import { deploymentFailureSummary, resolveSparkStorage, sparkDeploymentConfig, sparkMetadataSummary, SPARK_CONTEXT_NAMESPACE, verifySparkStorageUnchanged } from "../scripts/deploy-existing-spark.mjs";
 
 const generated = { name: "bitz", main: "index.js", assets: { directory: "../client", binding: "ASSETS" },
   images: { binding: "IMAGES" }, services: [{ binding: "AIRQ_BACKEND", service: "spark" }],
@@ -81,5 +81,12 @@ test("the missing binding is restored to the provider-verified existing namespac
   assert.doesNotMatch(JSON.stringify(config), /new_classes|new_sqlite_classes|deleted_classes|transferred_classes/);
   const repaired = { ...value, bindings: [...value.bindings, settings.bindings[0]] };
   verifySparkStorageUnchanged(existing, resolveSparkStorage(repaired, namespaces), value, repaired);
+  assert.throws(() => verifySparkStorageUnchanged(existing, existing, value, value), /still missing/);
   assert.throws(() => resolveSparkStorage(value, [{ ...namespaces[0], id: "replacement" }]));
+});
+
+test("the wrapper retains the actual Wrangler failure instead of only exit 1", () => {
+  const value = deploymentFailureSummary("upload progress\n\u001b[31mERROR\u001b[0m A request to the Cloudflare API failed\nreason example [code: 10000]\nLogs were written\n");
+  assert.match(value, /reason example \[code: 10000\]/);
+  assert.doesNotMatch(value, /upload progress|\u001b/);
 });

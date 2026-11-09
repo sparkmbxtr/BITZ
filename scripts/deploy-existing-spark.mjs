@@ -28,6 +28,7 @@ export function resolveSparkStorage(settings, namespaces, expectedNamespace = SP
 }
 
 export function verifySparkStorageUnchanged(before, after, beforeSettings, afterSettings) {
+  if (!(afterSettings.bindings ?? []).some(binding => binding.name === "CONTEXT_LOG" && binding.type === "durable_object_namespace")) throw new Error("The verified existing namespace is still missing its CONTEXT_LOG binding");
   const identity = value => [value.namespace_id, value.class_name, value.script_name, value.environment ?? "production"];
   if (JSON.stringify(identity(before)) !== JSON.stringify(identity(after))
     || (beforeSettings.migration_tag ?? null) !== (afterSettings.migration_tag ?? null)) throw new Error("Existing storage identity or migration tag changed");
@@ -129,12 +130,36 @@ async function existingMetadata(token) {
 }
 
 async function command(executable, args) {
-  const child = spawn(executable, args, { stdio: "inherit",
+  const child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, WRANGLER_CI_OVERRIDE_NAME: WORKER } });
+  let captured = "";
+  const consume = (stream, destination) => {
+    let pending = "";
+    const emit = line => {
+      for (const secret of [process.env.CLOUDFLARE_API_TOKEN, process.env.GH_TOKEN, process.env.GITHUB_TOKEN].filter(Boolean)) line = line.replaceAll(secret, "[REDACTED]");
+      destination.write(line);
+      captured = (captured + line).slice(-32_000);
+    };
+    stream.setEncoding("utf8");
+    stream.on("data", chunk => {
+      pending += chunk;
+      let newline;
+      while ((newline = pending.indexOf("\n")) !== -1) { emit(pending.slice(0, newline + 1)); pending = pending.slice(newline + 1); }
+    });
+    stream.on("end", () => { if (pending) emit(pending); });
+  };
+  consume(child.stdout, process.stdout);
+  consume(child.stderr, process.stderr);
   await new Promise((resolvePromise, reject) => {
     child.once("error", reject);
-    child.once("exit", code => code === 0 ? resolvePromise() : reject(new Error("Spark deployment command failed with exit " + code)));
+    child.once("close", code => code === 0 ? resolvePromise() : reject(new Error("Spark deployment command failed with exit " + code + "\n" + deploymentFailureSummary(captured))));
   });
+}
+
+export function deploymentFailureSummary(output) {
+  const lines = output.replace(/\u001b\[[0-9;]*m/g, "").split("\n");
+  const start = lines.findIndex(line => /ERROR|A request to the Cloudflare API|Error:/.test(line));
+  return (start === -1 ? lines.slice(-20) : lines.slice(start, start + 30)).join("\n").slice(0, 6000);
 }
 
 async function deploySpark() {
