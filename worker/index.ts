@@ -1,5 +1,7 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { routeNucleosomeProgress } from "./nucleosome-progress.mjs";
+import { routeDeploymentMetadata } from "./nucleosome-deployment.mjs";
+declare const __SPARK_DEPLOYMENT_METADATA__: Record<string, unknown>;
 import { DurableObject } from "cloudflare:workers";
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
@@ -340,6 +342,8 @@ const worker = {
     // protected API work stays in the existing credential-bearing Worker via a
     // private service binding, so no sensor or access secret is duplicated.
     const isNeutralDisplay = url.hostname === "bitz.bioengineering.workers.dev";
+    const deploymentMetadata = await routeDeploymentMetadata(request, __SPARK_DEPLOYMENT_METADATA__);
+    if (deploymentMetadata) return deploymentMetadata;
     if (isNeutralDisplay && url.pathname.startsWith("/api/") && url.pathname !== "/api/display-version") {
       const backendUrl = new URL(request.url);
       backendUrl.hostname = "spark.bioengineering.workers.dev";

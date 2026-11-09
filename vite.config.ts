@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 import { sites } from "./build/sites-vite-plugin";
 import { dashboardBuildVersion } from "./build/dashboard-version.mjs";
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
@@ -16,10 +17,13 @@ export default defineConfig(async () => {
 
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
+  let deploymentMetadata = {};
+  try { deploymentMetadata = JSON.parse(await readFile(".wrangler/spark-deployment-metadata.json", "utf8")); } catch { /* No configured build metadata. */ }
 
   return {
     define: {
       __BITZ_BUILD_VERSION__: JSON.stringify(dashboardBuildVersion(fileURLToPath(new URL(".", import.meta.url)))),
+      __SPARK_DEPLOYMENT_METADATA__: JSON.stringify(deploymentMetadata),
     },
     server: {
       host: "0.0.0.0",

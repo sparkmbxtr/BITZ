@@ -93,3 +93,10 @@ include small portrait and landscape phones, tablet, laptop and large monitor.
 The explicit type-stripping flag keeps direct TypeScript auth-module tests
 compatible with the existing Node22.13 minimum; it does not depend on the later
 Node22 release that enables stripping by default.
+
+The existing neutral Worker also exposes `/api/nucleosome-deployment-metadata`
+only to the pinned GitHub OIDC publisher. Its build captures an allowlist of
+binding names/types, namespace identities and provider read errors. Secret
+values and binding contents are excluded at capture and response time. The
+private Git verification job retrieves this to diagnose deployments without
+manual log transfers. It cannot modify configuration, renew a lease or run MD.

@@ -8,6 +8,7 @@
   "scripts": {
     "install:ci": "bash scripts/install-ci.sh",
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
+    "prebuild": "node scripts/capture-spark-deployment.mjs",
     "build": "npm run test:dashboard && vinext build",
     "deploy": "vinext deploy --skip-build && node scripts/deploy-existing-spark.mjs",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
