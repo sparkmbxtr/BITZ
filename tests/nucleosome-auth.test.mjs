@@ -14,6 +14,8 @@ test("password grants a seven-day device cookie; anonymous page and JSON stay pr
   const page = await routeNucleosomeProgress(request("/"), env);
   const html = await page.text();
   assert.match(html, /type="password"/);
+  assert.equal(page.headers.get("referrer-policy"), "same-origin");
+  assert.match(html, /<meta name="referrer" content="same-origin">/);
   assert.doesNotMatch(html, /id="history"/);
   assert.equal((await routeNucleosomeProgress(request("/api/nucleosome-progress"), env)).status, 401);
   assert.equal((await routeNucleosomeProgress(post("wrong"), env)).status, 401);
@@ -63,7 +65,28 @@ test("native forms redirect once, same-origin checks protect changes, missing se
   assert.equal((await routeNucleosomeProgress(post("EXAMPLE-TEST-PASSWORD"), {})).status, 503);
   const access = await (await routeNucleosomeProgress(request("/api/nucleosome-auth"), env)).json();
   assert.deepEqual(access, { configured: true, authorized: false, session_days: 7, password_verifier_ready: true, session_signing_ready: true,
-    password_case_policy: monitorPasswordCasePolicy, password_verifier_scope: "dashboard_legacy" });
+    password_case_policy: monitorPasswordCasePolicy, password_verifier_scope: "dashboard_legacy", form_referrer_policy: "same-origin" });
+});
+
+test("stale null-origin forms refresh without a session while untrusted JSON and lock requests stay rejected", async () => {
+  for (const originHeader of ["null", "https://other.example", null]) {
+    const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+    if (originHeader !== null) headers.Origin = originHeader;
+    const rejected = await routeNucleosomeProgress(request("/api/nucleosome-auth", { method: "POST", headers,
+      body: new URLSearchParams({ password: "EXAMPLE-TEST-PASSWORD" }).toString() }), env);
+    assert.equal(rejected.status, 303);
+    assert.equal(rejected.headers.get("location"), "/?login=refresh");
+    assert.equal(rejected.headers.get("set-cookie"), null);
+    const jsonRejected = await routeNucleosomeProgress(post("EXAMPLE-TEST-PASSWORD", { Origin: originHeader ?? "" }), env);
+    assert.equal(jsonRejected.status, 403);
+    assert.equal(jsonRejected.headers.get("set-cookie"), null);
+    const lockRejected = await routeNucleosomeProgress(request("/api/nucleosome-auth", { method: "DELETE", headers }), env);
+    assert.equal(lockRejected.status, 403);
+    assert.equal(lockRejected.headers.get("set-cookie"), null);
+  }
+  const refreshed = await routeNucleosomeProgress(request("/?login=refresh"), env);
+  assert.match(await refreshed.text(), /login page has been refreshed/);
+  assert.equal(refreshed.headers.get("referrer-policy"), "same-origin");
 });
 
 test("both keyboard cases log in with either a lowercase or uppercase saved verifier", async () => {

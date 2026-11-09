@@ -1,7 +1,7 @@
 import { passwordVerifierReady, scopedDashboardSession, verifyPassword } from "../lib/dashboard-auth.ts";
 
 export const monitorSession = scopedDashboardSession("__Host-spark_nucleosome_week", "spark-nucleosome-week-v1", 7);
-const headers = { "Cache-Control": "no-store, max-age=0", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
+const headers = { "Cache-Control": "no-store, max-age=0", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin" };
 export const monitorPasswordCasePolicy = "saved-lowercase-or-uppercase-v1";
 
 export async function verifyMonitorPassword(supplied, hash) {
@@ -33,10 +33,11 @@ export async function monitorAuthorized(request, env) {
 
 export function loginPage(request, configured = true) {
   const incorrect = new URL(request.url).searchParams.get("login") === "incorrect";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SPARK BMC-LMU · Monitor access</title><style>
+  const refresh = new URL(request.url).searchParams.get("login") === "refresh";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="same-origin"><title>SPARK BMC-LMU · Monitor access</title><style>
   *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#101216;color:#e6e9ee;font:15px ui-monospace,SFMono-Regular,monospace;padding:24px}main{width:min(100%,420px);border:1px solid #343a43;border-radius:12px;padding:32px}h1{font-size:20px;line-height:1.5}p{color:#a8b0bd;line-height:1.6}label{display:block;margin:24px 0 8px}input,button{font:inherit;width:100%;padding:13px;border:1px solid #46505e;border-radius:6px}input{background:#191d24;color:#fff}button{margin-top:16px;background:#86c99a;color:#102018;cursor:pointer}.error{color:#efb38a}small{display:block;color:#a8b0bd;margin-top:20px;line-height:1.6}
   </style></head><body><main><p>SPARK BMC-LMU</p><h1>Nucleosome computation monitor</h1><p>Enter the access password. This browser will remember access for seven days.</p>
-  ${!configured ? '<p class="error">Access configuration is unavailable. Please contact the page owner.</p>' : `${incorrect ? '<p class="error" role="alert">Password not accepted. Please try again.</p>' : ''}<form action="/api/nucleosome-auth" method="post"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256" autofocus><button type="submit">Open monitor</button></form>`}
+  ${!configured ? '<p class="error">Access configuration is unavailable. Please contact the page owner.</p>' : `${incorrect ? '<p class="error" role="alert">Password not accepted. Please try again.</p>' : refresh ? '<p class="error" role="alert">The login page has been refreshed. Please enter the password again.</p>' : ''}<form action="/api/nucleosome-auth" method="post"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256" autofocus><button type="submit">Open monitor</button></form>`}
   <small>Access is remembered on this device and browser. Private browsing or clearing cookies removes it.</small></main></body></html>`;
 }
 
@@ -46,14 +47,22 @@ export async function routeMonitorAuth(request, env) {
   if (request.method === "GET") return reply({ configured: config.configured, authorized: await monitorAuthorized(request, env), session_days: 7,
     password_verifier_ready: config.verifierReady, session_signing_ready: config.signingReady,
     password_case_policy: monitorPasswordCasePolicy,
-    password_verifier_scope: env.NUCLEOSOME_PASSWORD_HASH ? "monitor" : "dashboard_legacy" });
+    password_verifier_scope: env.NUCLEOSOME_PASSWORD_HASH ? "monitor" : "dashboard_legacy",
+    form_referrer_policy: "same-origin" });
   if (!["POST", "DELETE"].includes(request.method)) return reply({ error: "Method not allowed" }, 405, { Allow: "GET, POST, DELETE" });
-  // Native form submissions and fetches must originate on this Worker.
-  if (request.headers.get("origin") !== new URL(request.url).origin) return reply({ error: "Origin rejected" }, 403);
+  const type = request.headers.get("content-type")?.split(";", 1)[0].trim();
+  // Preserve the strict origin check. Old pages sent no-referrer, which makes
+  // browser form navigations serialize Origin as null. Refresh those forms
+  // onto the corrected same-origin page without granting any session.
+  if (request.headers.get("origin") !== new URL(request.url).origin) {
+    if (request.method === "POST" && type === "application/x-www-form-urlencoded") {
+      return new Response(null, { status: 303, headers: { ...headers, Location: "/?login=refresh" } });
+    }
+    return reply({ error: "Origin rejected" }, 403);
+  }
   if (request.method === "DELETE") return reply({ locked: true }, 200, { "Set-Cookie": monitorSession.expiredCookie() });
   if (!config.configured) return reply({ error: "Access configuration unavailable" }, 503);
   if (Number(request.headers.get("content-length")) > 2048) return reply({ error: "Request too large" }, 413);
-  const type = request.headers.get("content-type")?.split(";", 1)[0].trim();
   if (!["application/json", "application/x-www-form-urlencoded"].includes(type)) return reply({ error: "Form or JSON required" }, 415);
   let password;
   try {

@@ -24,6 +24,11 @@ wallboard session from granting monitor access. Reading the monitor does not
 extend the expiry. The page and JSON API require authentication; a reader cannot
 publish status. Cookies are remembered per browser profile, including on phones
 and tablets. Clearing cookies or using a private browser session removes access.
+Native login pages use a `same-origin` referrer policy so browsers retain the
+Origin header on form submissions. The strict origin check remains in place.
+Stale pages that submit a null origin return to a refreshed login form without
+granting a session, rather than leaving the user on a raw JSON error.
+
 The monitor reuses the existing non-empty framework signing key without adding
 a separate key-length requirement or rotating it. Configuration diagnostics
 report verifier/signing readiness as booleans, never secret values or lengths.

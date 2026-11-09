@@ -110,7 +110,7 @@ export async function routeNucleosomeProgress(request, env, authorize = progress
     return new Response(request.method === "HEAD" ? null : authorized ? DASHBOARD_HTML : loginPage(request), { headers: {
       "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, max-age=0",
       "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
-      "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow" } });
+      "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin", "X-Robots-Tag": "noindex, nofollow" } });
   }
   const stub = env.CONTEXT_LOG?.getByName("nucleosome-progress");
   if (request.method === "GET") {
