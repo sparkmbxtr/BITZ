@@ -3,6 +3,8 @@ import { routeNucleosomeProgress } from "./nucleosome-progress.mjs";
 import { routeDeploymentMetadata } from "./nucleosome-deployment.mjs";
 import { routePilotLibrary } from "./pilot-library.mjs";
 import { PilotStorage } from "./pilot-storage.mjs";
+import { MonitorPasswordStorage } from "./monitor-password-storage.mjs";
+import { routeExtraMonitorAccess } from "./monitor-extra-password.mjs";
 declare const __SPARK_DEPLOYMENT_METADATA__: Record<string, unknown>;
 import { DurableObject } from "cloudflare:workers";
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
@@ -143,6 +145,8 @@ export class ContextLog extends DurableObject<Env> {
   }
 
   async readPilotManifest(revision: string) { return new PilotStorage(this.ctx.storage.sql).manifest(revision); }
+  async readExtraMonitorAccess(enrollment: string) { return new MonitorPasswordStorage(this.ctx.storage.sql).read(enrollment); }
+  async putExtraMonitorAccess(enrollment: string, payload: string) { return new MonitorPasswordStorage(this.ctx.storage.sql).put(enrollment, payload); }
   async putPilotManifest(revision: string, payload: string) { return new PilotStorage(this.ctx.storage.sql).putManifest(revision, payload); }
   async readPilotChunk(revision: string, asset: string, part: number) { return new PilotStorage(this.ctx.storage.sql).chunk(revision, asset, part); }
   async putPilotChunk(revision: string, asset: string, part: number, payload: ArrayBuffer) { return new PilotStorage(this.ctx.storage.sql).putChunk(revision, asset, part, payload); }
@@ -358,6 +362,8 @@ const worker = {
       return env.AIRQ_BACKEND.fetch(new Request(backendUrl, request));
     }
 
+    const extraAccessResponse = await routeExtraMonitorAccess(request, env);
+    if (extraAccessResponse) return extraAccessResponse;
     const pilotResponse = await routePilotLibrary(request, env);
     if (pilotResponse) return pilotResponse;
     const progressResponse = await routeNucleosomeProgress(request, env);

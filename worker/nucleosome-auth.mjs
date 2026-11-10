@@ -1,4 +1,5 @@
 import { passwordVerifierReady, scopedDashboardSession, verifyPassword } from "../lib/dashboard-auth.ts";
+import { verifyExtraMonitorPassword } from "./monitor-extra-password.mjs";
 
 export const monitorSession = scopedDashboardSession("__Host-spark_nucleosome_week", "spark-nucleosome-week-v1", 7);
 const headers = { "Cache-Control": "no-store, max-age=0", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin" };
@@ -83,7 +84,7 @@ export async function routeMonitorAuth(request, env) {
     const raw = new TextDecoder().decode(bytes);
     password = type === "application/json" ? JSON.parse(raw).password : new URLSearchParams(raw).get("password");
   } catch { return reply({ error: "Invalid request" }, 400); }
-  if (!await verifyMonitorPassword(password, config.hash)) {
+  if (!await verifyMonitorPassword(password, config.hash) && !await verifyExtraMonitorPassword(password, env)) {
     return type === "application/json" ? reply({ error: "Password not accepted" }, 401)
       : new Response(null, { status: 303, headers: { ...headers, Location: "/?login=incorrect" } });
   }
