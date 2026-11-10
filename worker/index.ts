@@ -1,6 +1,8 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { routeNucleosomeProgress } from "./nucleosome-progress.mjs";
 import { routeDeploymentMetadata } from "./nucleosome-deployment.mjs";
+import { routePilotLibrary } from "./pilot-library.mjs";
+import { PilotStorage } from "./pilot-storage.mjs";
 declare const __SPARK_DEPLOYMENT_METADATA__: Record<string, unknown>;
 import { DurableObject } from "cloudflare:workers";
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
@@ -139,6 +141,12 @@ export class ContextLog extends DurableObject<Env> {
       "SELECT payload FROM nucleosome_progress WHERE state_key = 'current' LIMIT 1",
     ).toArray()[0]?.payload ?? null;
   }
+
+  async readPilotManifest(revision: string) { return new PilotStorage(this.ctx.storage.sql).manifest(revision); }
+  async putPilotManifest(revision: string, payload: string) { return new PilotStorage(this.ctx.storage.sql).putManifest(revision, payload); }
+  async readPilotChunk(revision: string, asset: string, part: number) { return new PilotStorage(this.ctx.storage.sql).chunk(revision, asset, part); }
+  async putPilotChunk(revision: string, asset: string, part: number, payload: ArrayBuffer) { return new PilotStorage(this.ctx.storage.sql).putChunk(revision, asset, part, payload); }
+  async pilotAssetStatus(revision: string, asset: string) { return new PilotStorage(this.ctx.storage.sql).status(revision, asset); }
 
   async stageWeeklyReport(report: StoredWeeklyReport): Promise<StoredWeeklyReportRow> {
     if (!report.id || !report.reportName || !report.periodLabel || report.byteSize <= 0
@@ -350,6 +358,8 @@ const worker = {
       return env.AIRQ_BACKEND.fetch(new Request(backendUrl, request));
     }
 
+    const pilotResponse = await routePilotLibrary(request, env);
+    if (pilotResponse) return pilotResponse;
     const progressResponse = await routeNucleosomeProgress(request, env);
     if (progressResponse) return progressResponse;
 

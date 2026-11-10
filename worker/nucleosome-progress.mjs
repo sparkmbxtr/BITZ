@@ -1,5 +1,6 @@
 import { DASHBOARD_HTML } from "./nucleosome-page.mjs";
 import { EXPERIMENT_DESIGN_HTML } from "./nucleosome-design.mjs";
+import { PILOT_EXPLORER_HTML, UNWRAP_PILOT_HTML } from "./pilot-pages.mjs";
 import { INITIAL_SNAPSHOT } from "./nucleosome-snapshot.mjs";
 import { progressWriterAuthorized } from "./nucleosome-oidc.mjs";
 import { loginPage, monitorAuthorized, routeMonitorAuth } from "./nucleosome-auth.mjs";
@@ -107,7 +108,8 @@ export async function routeNucleosomeProgress(request, env, authorize = progress
   if (url.hostname !== "spark.bioengineering.workers.dev") return null;
   if (url.pathname === "/api/nucleosome-auth") return routeMonitorAuth(request, env);
   const api = url.pathname === "/api/nucleosome-progress";
-  const pages = { "/": DASHBOARD_HTML, "/nucleosome": DASHBOARD_HTML, "/experiment-design": EXPERIMENT_DESIGN_HTML };
+  const pages = { "/": DASHBOARD_HTML, "/nucleosome": DASHBOARD_HTML, "/experiment-design": EXPERIMENT_DESIGN_HTML,
+    "/pilot-explorer": PILOT_EXPLORER_HTML, "/unwrap-pilot": UNWRAP_PILOT_HTML };
   if (!api && !Object.hasOwn(pages, url.pathname)) return null;
   if (!api) {
     if (!["GET", "HEAD"].includes(request.method)) return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });

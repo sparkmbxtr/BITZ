@@ -2,6 +2,8 @@
 export const WORKSPACE_TABS = Object.freeze([
   Object.freeze({ id: "nucleosome-c", label: "Nucleosome-C", href: "/nucleosome" }),
   Object.freeze({ id: "experiment-design", label: "Experiment Design", href: "/experiment-design" }),
+  Object.freeze({ id: "pilot-explorer", label: "Pilot Explorer", href: "/pilot-explorer" }),
+  Object.freeze({ id: "unwrap-pilot", label: "Unwrap Pilot", href: "/unwrap-pilot" }),
 ]);
 
 // Both sections use the same viewport, header, tab metrics and content frame.
@@ -14,10 +16,11 @@ body[data-workspace]>header{position:relative;top:auto;z-index:3;min-width:0;bor
 body[data-workspace] .header-inner{width:100%;max-width:2000px;height:clamp(36px,5vh,60px);margin:0 auto;padding:0 var(--workspace-gutter);display:flex;justify-content:space-between;align-items:center;gap:16px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;line-height:1.5}
 body[data-workspace] .brand{flex-shrink:0;font-size:15px;font-weight:650;letter-spacing:.045em}
 body[data-workspace] .header-note,body[data-workspace] .header-time{min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:400;line-height:1.5;text-align:right;font-variant-numeric:tabular-nums}
-body[data-workspace] .workspace-tabs{width:100%;max-width:2000px;min-width:0;margin:0 auto;padding:0 var(--workspace-gutter);display:flex;align-items:stretch;gap:6px}
+body[data-workspace] .workspace-tabs{width:100%;max-width:2000px;min-width:0;margin:0 auto;padding:0 var(--workspace-gutter);display:grid;grid-template-columns:repeat(4,max-content);align-items:stretch;gap:6px}
 body[data-workspace] .workspace-tab{flex:0 0 auto;display:inline-flex;align-items:center;min-height:34px;padding:5px 17px;border:1px solid;border-bottom:0;border-radius:9px 9px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:12px;font-weight:600;line-height:1.5;letter-spacing:.025em;text-decoration:none;white-space:nowrap}
 body[data-workspace] #tab-nucleosome-c{background:#432039;color:#efd9e9;border-color:#6a3855}
 body[data-workspace] #tab-experiment-design{background:#f3d780;color:#4b1b31;border-color:#b59656}
+body[data-workspace] #tab-pilot-explorer,body[data-workspace] #tab-unwrap-pilot{background:#0a1119;color:#d4e0ed;border-color:#354452}
 body[data-workspace] .workspace-tab[aria-current="page"]{box-shadow:inset 0 3px currentColor}
 body[data-workspace]>main{width:100%;max-width:2000px;height:100%;min-width:0;min-height:0;margin:0 auto;padding:var(--workspace-pad) var(--workspace-gutter);display:grid;grid-template-rows:auto minmax(0,1fr);gap:var(--workspace-gap);overflow:hidden}
 body[data-workspace] .title-row{display:flex;min-height:34px;min-width:0;margin:0;align-items:center;justify-content:space-between;gap:12px}
@@ -26,6 +29,7 @@ body[data-workspace] .title-row h1{margin:0;font-family:ui-monospace,SFMono-Regu
 @media(max-height:650px) and (min-width:701px){body[data-workspace]{--workspace-pad:8px;--workspace-gap:7px}body[data-workspace] .header-inner{height:32px}}
 @media(max-height:600px) and (max-width:700px){body[data-workspace]{--workspace-gutter:10px;--workspace-pad:7px;--workspace-gap:4px}body[data-workspace] .header-inner{height:24px}body[data-workspace] .workspace-tab{min-height:26px;padding:3px 10px;font-size:9px}}
 @media(max-height:450px){body[data-workspace]{--workspace-gutter:12px;--workspace-pad:6px;--workspace-gap:5px}body[data-workspace] .header-inner{height:24px}body[data-workspace] .workspace-tab{min-height:25px;padding:3px 12px;font-size:10px}body[data-workspace] .title-row{min-height:24px}}
+@media(max-width:700px){body[data-workspace] .workspace-tabs{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}body[data-workspace] .workspace-tab{justify-content:center;min-width:0;min-height:38px;padding:4px 3px;white-space:normal;text-align:center;font-size:10px;line-height:1.35}}
 @media print{html,body[data-workspace]{height:auto;overflow:visible;display:block}body[data-workspace]>main{height:auto;display:block;overflow:visible}body[data-workspace]>header{display:none}}
 `;
 

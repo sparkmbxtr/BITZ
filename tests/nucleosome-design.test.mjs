@@ -22,7 +22,7 @@ async function cookie() {
 }
 
 test("the new section shares navigation with the Bordeaux monitor", () => {
-  assert.equal(WORKSPACE_TABS.length, 2);
+  assert.equal(WORKSPACE_TABS.length, 4);
   const nav = workspaceNavigation("experiment-design");
   assert.match(nav, /href="\/nucleosome"/);
   assert.match(nav, /id="tab-experiment-design" href="\/experiment-design" aria-current="page"/);

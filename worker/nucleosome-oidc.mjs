@@ -26,7 +26,7 @@ export function allowedProgressClaims(claims, now = Math.floor(Date.now() / 1000
     && (claims.nbf === undefined || (Number.isFinite(claims.nbf) && claims.nbf <= now + 60));
 }
 
-export async function progressWriterAuthorized(request, fetcher = fetch) {
+export async function verifyGithubWriter(request, allowedClaims, fetcher = fetch) {
   const token = request.headers.get("authorization")?.match(/^Bearer ([A-Za-z0-9_.-]+)$/i)?.[1];
   if (!token || token.length > 16_384) return false;
   try {
@@ -34,7 +34,7 @@ export async function progressWriterAuthorized(request, fetcher = fetch) {
     if (parts.length !== 3) return false;
     const header = JSON.parse(new TextDecoder().decode(decode(parts[0])));
     const claims = JSON.parse(new TextDecoder().decode(decode(parts[1])));
-    if (header.alg !== "RS256" || typeof header.kid !== "string" || !allowedProgressClaims(claims)) return false;
+    if (header.alg !== "RS256" || typeof header.kid !== "string" || !allowedClaims(claims)) return false;
     if (!cachedKeys || cachedKeys.expiresAt < Date.now() || !cachedKeys.keys.some(k => k.kid === header.kid)) {
       const response = await fetcher(`${ISSUER}/.well-known/jwks`, { signal: AbortSignal.timeout(10_000) });
       if (!response.ok) return false;
@@ -49,4 +49,8 @@ export async function progressWriterAuthorized(request, fetcher = fetch) {
   } catch {
     return false;
   }
+}
+
+export function progressWriterAuthorized(request, fetcher = fetch) {
+  return verifyGithubWriter(request, allowedProgressClaims, fetcher);
 }
