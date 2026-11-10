@@ -1,4 +1,4 @@
-import { workspaceNavigation } from "./dashboard-tabs.mjs";
+import { workspaceNavigation, WORKSPACE_SHELL_CSS } from "./dashboard-tabs.mjs";
 import { DASHBOARD_BUILD_VERSION } from "../lib/dashboard-version.ts";
 import { createDisplayUpdateMonitor } from "../lib/display-updates.ts";
 
@@ -59,6 +59,7 @@ header{background:#100b13}.workspace-tabs{max-width:2000px;margin:auto;display:f
 @media(max-height:450px){.metric,.metric:first-child{padding:4px 6px}.metric .value,.metric:first-child .value{font-size:20px;line-height:1;margin:1px 0}.metric .eyebrow,.metric-note{font-size:7.5px;line-height:1.1}.metric .total-bar{margin-top:3px;height:3px}}
 .connection-group{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap}.connection-group .feed{white-space:nowrap}.dot.red{background:var(--red)}
 @media(max-width:700px){.connection-group{flex-direction:column;align-items:flex-end;gap:2px}}
+${WORKSPACE_SHELL_CSS}
 </style>
 </head>
 <body data-workspace="nucleosome-c">

@@ -8,7 +8,11 @@ prerequisite-gated component/clamp/held-out programme. The 1KX5-sequence control
 is explicitly not GC matched. Scientific seed/input/runtime identifiers remain
 in the private journal. The page uses the same weekly session, no-store live
 feed and stable-build replacement mechanism as the Nucleosome-C overview.
-The longer methods document scrolls; the overview retains its viewport fit.
+Both sections share the same header, tab dimensions, gutters, title position and
+viewport-sized content frame. The longer methods document scrolls inside that
+frame while the tabs remain in place; the overview retains its viewport fit.
+Active tab labels keep the same font metrics, and a document scrollbar does not
+resize or recenter the workspace.
 
 The existing `spark` Cloudflare Worker serves the graphical experiment overview
 at `https://spark.bioengineering.workers.dev/`. Its source and changes are
@@ -168,6 +172,12 @@ new progress and WSL states, followed by a new UI build, without manual reload o
 cookie clearing. It checks the exact same cookie and expiry and seven viewport
 sizes. Use the installed browser and an externally available pinned
 `playwright-core` module via `PLAYWRIGHT_MODULE`.
+
+`npm run test:browser:layout` compares actual Chromium bounding boxes before and
+after switching between both sections, scrolling the document and returning to
+the overview. It covers nine portrait/landscape sizes, checks frame and tab
+coordinates within half a pixel, and preserves the cookie value and expiry.
+`LAYOUT_QA_DIR` optionally saves the measured geometry and fixture screenshots.
 
 The explicit type-stripping flag keeps direct TypeScript auth-module tests
 compatible with the existing Node22.13 minimum; it does not depend on the later

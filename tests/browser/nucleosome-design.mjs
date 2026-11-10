@@ -92,7 +92,7 @@ try {
   if (process.env.SCREENSHOT_DIR) {
     mkdirSync(process.env.SCREENSHOT_DIR, { recursive: true });
     for (const [name,width,height] of [["desktop",1440,1000],["phone",390,844]]) {
-      await page.setViewportSize({ width,height });await page.evaluate(() => scrollTo(0,0));
+      await page.setViewportSize({ width,height });await page.evaluate(() => document.getElementById("design-scroll").scrollTo({ top: 0, behavior: "instant" }));
       await page.screenshot({ path: process.env.SCREENSHOT_DIR + "/experiment-design-" + name + ".png", fullPage: true, animations: "disabled" });
     }
   }

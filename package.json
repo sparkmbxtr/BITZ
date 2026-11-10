@@ -21,6 +21,7 @@
     "test:browser:nucleosome": "node --experimental-strip-types tests/browser/nucleosome-native-login.mjs",
     "test:browser:updates": "node --experimental-strip-types tests/browser/nucleosome-live-updates.mjs",
     "test:browser:design": "node --experimental-strip-types tests/browser/nucleosome-design.mjs",
+    "test:browser:layout": "node --experimental-strip-types tests/browser/nucleosome-layout.mjs",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },
