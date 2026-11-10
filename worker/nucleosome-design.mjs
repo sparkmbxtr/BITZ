@@ -34,7 +34,7 @@ ${WORKSPACE_SHELL_CSS}
 @media(prefers-reduced-motion:reduce){.design-scroll{scroll-behavior:auto}}@media print{.design-scroll{overflow:visible;display:block;padding:0}.title-row{margin-bottom:20px}}
 </style></head>
 <body data-workspace="experiment-design">
-<header><div class="header-inner"><div class="brand">SPARK BMC-LMU</div><span class="header-note">Reviewed study protocol · 01 Nov 2026</span></div>${workspaceNavigation("experiment-design")}</header>
+<header><div class="header-inner"><div class="brand">SPARK BMC-LMU</div><span class="header-note">Experiment Design // Study Protocol</span></div>${workspaceNavigation("experiment-design")}</header>
 <main id="experiment-design" aria-labelledby="tab-experiment-design">
 <div class="title-row"><h1>Experiment design</h1></div>
 <div class="design-scroll" id="design-scroll" tabindex="0" aria-label="Experiment design details">
