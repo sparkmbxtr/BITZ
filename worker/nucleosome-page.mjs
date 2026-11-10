@@ -48,6 +48,7 @@ header{background:#100b13}.workspace-tabs{max-width:2000px;margin:auto;display:f
 .workspace-tab{display:inline-flex;align-items:center;min-height:34px;padding:5px 17px;border:1px solid transparent;border-bottom:0;border-radius:9px 9px 0 0;color:var(--muted);text-decoration:none;font-size:12px;letter-spacing:.025em;white-space:nowrap}
 .workspace-tab[aria-current="page"]{color:#efd9e9;background:#432039;border-color:#6a3855;box-shadow:inset 0 2px #ad668e}
 .workspace-tab:hover{color:var(--text);background:#2c182c}.workspace-tab:focus-visible{outline:2px solid var(--cyan);outline-offset:-3px}
+#tab-experiment-design{background:#f3d780;color:#4b1b31;border-color:#b59656}#tab-experiment-design:hover{background:#ffe9a6;color:#4b1b31}
 .run-track,.total-segment,.stage-line{background:#3a263d}.run+.run{border-top-color:#3a263d}.stage[data-state="in_progress"]{background:linear-gradient(130deg,#3a203d,#211226)}
 .attention{background:#202122;border-color:#41423f}.overview,.panel,.stages{box-shadow:0 4px 20px #08040a18}
 @media(max-width:700px){.workspace-tabs{padding:0 12px}.workspace-tab{min-height:29px;font-size:10px;padding:4px 12px}.header-inner{padding-top:7px;padding-bottom:7px}}

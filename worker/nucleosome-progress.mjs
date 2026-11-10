@@ -1,4 +1,5 @@
 import { DASHBOARD_HTML } from "./nucleosome-page.mjs";
+import { EXPERIMENT_DESIGN_HTML } from "./nucleosome-design.mjs";
 import { INITIAL_SNAPSHOT } from "./nucleosome-snapshot.mjs";
 import { progressWriterAuthorized } from "./nucleosome-oidc.mjs";
 import { loginPage, monitorAuthorized, routeMonitorAuth } from "./nucleosome-auth.mjs";
@@ -106,11 +107,12 @@ export async function routeNucleosomeProgress(request, env, authorize = progress
   if (url.hostname !== "spark.bioengineering.workers.dev") return null;
   if (url.pathname === "/api/nucleosome-auth") return routeMonitorAuth(request, env);
   const api = url.pathname === "/api/nucleosome-progress";
-  if (!api && url.pathname !== "/" && url.pathname !== "/nucleosome") return null;
+  const pages = { "/": DASHBOARD_HTML, "/nucleosome": DASHBOARD_HTML, "/experiment-design": EXPERIMENT_DESIGN_HTML };
+  if (!api && !Object.hasOwn(pages, url.pathname)) return null;
   if (!api) {
     if (!["GET", "HEAD"].includes(request.method)) return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
     const authorized = await monitorAuthorized(request, env);
-    return new Response(request.method === "HEAD" ? null : authorized ? DASHBOARD_HTML : loginPage(request), { headers: {
+    return new Response(request.method === "HEAD" ? null : authorized ? pages[url.pathname] : loginPage(request), { headers: {
       "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, max-age=0, must-revalidate", "CDN-Cache-Control": "no-store", "Pragma": "no-cache",
       "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
       "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin", "X-Robots-Tag": "noindex, nofollow" } });

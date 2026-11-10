@@ -20,6 +20,7 @@
     "test:dashboard": "node --experimental-strip-types --test tests/graphs-only.test.mjs tests/display-pairing.test.mjs tests/display-updates.test.mjs tests/frontend-proxy.test.mjs tests/nucleosome-*.test.mjs",
     "test:browser:nucleosome": "node --experimental-strip-types tests/browser/nucleosome-native-login.mjs",
     "test:browser:updates": "node --experimental-strip-types tests/browser/nucleosome-live-updates.mjs",
+    "test:browser:design": "node --experimental-strip-types tests/browser/nucleosome-design.mjs",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },

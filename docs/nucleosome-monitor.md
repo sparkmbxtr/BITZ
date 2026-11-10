@@ -1,5 +1,15 @@
 # Nucleosome program monitor
 
+The shared workspace navigation includes an authenticated **Experiment Design**
+tab at `/experiment-design`. It uses warm yellow surfaces and Bordeaux text.
+It defines the two DNA constructs, flexible histone octamer, fixed conditions,
+six-run seed-paired baseline, original guards and measurements, and the later
+prerequisite-gated component/clamp/held-out programme. The 1KX5-sequence control
+is explicitly not GC matched. Scientific seed/input/runtime identifiers remain
+in the private journal. The page uses the same weekly session, no-store live
+feed and stable-build replacement mechanism as the Nucleosome-C overview.
+The longer methods document scrolls; the overview retains its viewport fit.
+
 The existing `spark` Cloudflare Worker serves the graphical experiment overview
 at `https://spark.bioengineering.workers.dev/`. Its source and changes are
 auditable in this Git repository. The independent air-Q application and existing
