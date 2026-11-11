@@ -549,6 +549,36 @@ export async function GET(request: Request) {
     return Response.json({ error: "Invalid export time range" }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
+  // Protected, credential-free connection checks for the existing two feeds.
+  if (requestUrl.searchParams.get("diagnostics") === "1" && sessionAuthorized) {
+    const probe = async (deviceId: string, endpoint: "latest" | "timerange") => {
+      const url = new URL(`${API_ROOT}/devices/${encodeURIComponent(deviceId)}/sensordata/${endpoint}`);
+      if (endpoint === "timerange") {
+        url.searchParams.set("f", String(range.from));
+        url.searchParams.set("t", String(range.to));
+      }
+      try {
+        const response = await fetch(url, {
+          headers: { "Api-Key": apiKey, Accept: "application/json" },
+          cache: "no-store", signal: AbortSignal.timeout(15_000),
+        });
+        const payload = await response.json().catch(() => null);
+        const records = sensorRecords(payload);
+        const timestamps = records.map(record => numberValue(record, "timestamp")).filter((value): value is number => value !== null);
+        return { status: response.status, records: records.length, latestTimestamp: timestamps.length ? Math.max(...timestamps) : null,
+          fields: payload && typeof payload === "object" && !Array.isArray(payload) ? Object.keys(payload) : [] };
+      } catch {
+        return { status: "unavailable", records: 0, latestTimestamp: null, fields: [] };
+      }
+    };
+    const room = async (deviceId: string) => {
+      const [timerange, latest] = await Promise.all([probe(deviceId, "timerange"), probe(deviceId, "latest")]);
+      return { timerange, latest };
+    };
+    const [lab, office] = await Promise.all([room(labId), room(officeId)]);
+    return Response.json({ checkedAt: Date.now(), rooms: { lab, office } }, { headers: { "Cache-Control": "no-store" } });
+  }
+
   const build = () => buildDashboardPayload(
     labId,
     officeId,
