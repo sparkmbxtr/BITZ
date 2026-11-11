@@ -246,8 +246,8 @@ function mergeSupplementalSample(history: Sample[], supplemental: Sample | null)
   return history.sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function roomSnapshot(name: "LAB" | "OFFICE", history: Sample[]) {
-  return { name, samples: history, latest: history.at(-1) ?? null };
+function roomSnapshot(name: "LAB" | "OFFICE", history: Sample[], range: TimeRange) {
+  return { name, samples: history.filter(sample => sample.timestamp >= range.from && sample.timestamp <= range.to), latest: history.at(-1) ?? null };
 }
 
 type TimeRange = { from: number; to: number; exact: boolean };
@@ -302,14 +302,18 @@ async function fetchRoom(
     latestRequest = fetch(latestUrl, {
       headers: { "Api-Key": apiKey, Accept: "application/json" },
       cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
     }).catch(() => null);
   }
 
-  const response = await fetch(url, { headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" });
-  if (!response.ok) throw new Error("air-Q request failed");
-  const payload = await response.json();
+  const response = await fetch(url, {
+    headers: { "Api-Key": apiKey, Accept: "application/json" }, cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  }).catch(() => null);
+  if (range.exact && !response?.ok) throw new Error("air-Q history request failed");
+  const payload = response?.ok ? await response.json().catch(() => null) : null;
   const records = sensorRecords(payload);
-  if (!records.length) throw new Error("Unexpected air-Q response");
+  if (range.exact && !records.length) throw new Error("Unexpected air-Q response");
   const history = records
     .map((record) => normalize(record as RawRecord, includeAdditionalEnvironmental))
     .filter((sample): sample is Sample => sample !== null)
@@ -509,8 +513,8 @@ async function buildDashboardPayload(
     analysisMinutes: ANALYSIS_MINUTES,
     outdoor,
     rooms: {
-      lab: roomSnapshot("LAB", labHistory),
-      office: roomSnapshot("OFFICE", officeHistory),
+      lab: roomSnapshot("LAB", labHistory, range),
+      office: roomSnapshot("OFFICE", officeHistory, range),
     },
   };
 }

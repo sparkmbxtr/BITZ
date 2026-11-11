@@ -17,7 +17,7 @@
     "deploy:spark": "node scripts/deploy-existing-spark.mjs",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --experimental-strip-types --test tests/*.test.mjs",
-    "test:dashboard": "node --experimental-strip-types --test tests/graphs-only.test.mjs tests/display-pairing.test.mjs tests/display-updates.test.mjs tests/frontend-proxy.test.mjs tests/nucleosome-*.test.mjs",
+    "test:dashboard": "node --experimental-strip-types --test tests/airq-connection.test.mjs tests/graphs-only.test.mjs tests/display-pairing.test.mjs tests/display-updates.test.mjs tests/frontend-proxy.test.mjs tests/nucleosome-*.test.mjs",
     "test:browser:nucleosome": "node --experimental-strip-types tests/browser/nucleosome-native-login.mjs",
     "test:browser:updates": "node --experimental-strip-types tests/browser/nucleosome-live-updates.mjs",
     "test:browser:design": "node --experimental-strip-types tests/browser/nucleosome-design.mjs",
