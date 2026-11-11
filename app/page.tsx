@@ -705,6 +705,7 @@ export default function Home() {
 
   const room = selectedRoom === "OFFICE" ? data.rooms.office : data.rooms.lab;
   const ageMinutes = room.latest ? Math.max(0, Math.floor((clock - room.latest.timestamp) / 60_000)) : null;
+  const fresh = room.latest !== null && clock - room.latest.timestamp <= 5 * 60_000;
 
   return (
     <main className={`sensor-board ${presentationMode ? "is-fullscreen" : ""}`}>
@@ -716,8 +717,8 @@ export default function Home() {
         </nav>
         <strong className="sensor-title">BITZ AIR MONITORING</strong>
         <div className="sensor-controls">
-          <span className={`feed-dot ${room.latest ? "has-data" : ""}`} aria-hidden="true" />
-          <span className="feed-time">{room.latest ? `${berlinDateTime(room.latest.timestamp)} · ${ageMinutes} MIN` : `${selectedRoom} · NO CURRENT DATA`}</span>
+          <span className={`feed-dot ${fresh ? "has-data" : ""}`} aria-hidden="true" />
+          <span className="feed-time">{room.latest ? `${berlinDateTime(room.latest.timestamp)} · ${ageMinutes} MIN${fresh ? "" : " · STALE"}` : `${selectedRoom} · NO CURRENT DATA`}</span>
           {refreshing ? <span className="refreshing">UPDATING</span> : null}
           <button type="button" onClick={lockBoard}>LOCK</button>
           <button type="button" onClick={toggleFullscreen}>{presentationMode ? "EXIT" : "FULL SCREEN"}</button>
