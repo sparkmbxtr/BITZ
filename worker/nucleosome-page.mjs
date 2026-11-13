@@ -65,7 +65,7 @@ ${WORKSPACE_SHELL_CSS}
 <body data-workspace="nucleosome-c">
 <header><div class="header-inner"><div class="brand">SPARK BMC-LMU</div><time id="updated" class="header-time" aria-label="Information update time in Berlin">------------</time></div>${workspaceNavigation("nucleosome-c")}</header>
 <main id="nucleosome-c" aria-labelledby="tab-nucleosome-c">
-<div class="title-row"><h1>Nucleosome <span>/ experiment</span></h1><div class="connection-group"><div class="feed"><i class="dot" id="feed-dot" aria-hidden="true"></i><span id="feed-state" role="status">Connecting</span></div><div class="feed" id="wsl-connection" title="Awaiting a verified WSL relay report. Cloud computation is independent of WSL."><i class="dot" id="wsl-dot" aria-hidden="true"></i><span id="wsl-state" role="status">WSL unconfirmed</span></div></div></div>
+<div class="title-row"><h1>Nucleosome <span>/ experiment</span></h1><div class="connection-group"><div class="feed"><i class="dot" id="feed-dot" aria-hidden="true"></i><span id="feed-state" role="status">Connecting</span></div></div></div>
 <div id="loading" class="loading" role="status">Loading progress…</div>
 <div id="content" hidden>
 <section class="overview" aria-label="Baseline overview">
@@ -187,10 +187,6 @@ ${WORKSPACE_SHELL_CSS}
     var feedStale=Date.now()-Date.parse(data.information_updated_at)>900000;
     $('feed-dot').className='dot '+(failed||feedStale||data.feed_mode!=='automatic'?'amber':'green');
     $('feed-state').textContent=failed?'Refresh failed · saved data':data.feed_mode!=='automatic'?'Saved snapshot':feedStale?'Feed update overdue':'Feed connected';
-    var wsl=data.wsl_connection,wslState=!wsl?'unconfirmed':wsl.reported_state==='connected'&&wsl.last_seen_at&&Date.now()-Date.parse(wsl.last_seen_at)<=900000?'connected':'disconnected';
-    $('wsl-dot').className='dot '+(wslState==='connected'?'green':wslState==='disconnected'?'red':'');
-    $('wsl-state').textContent='WSL '+wslState;
-    $('wsl-connection').title=wsl?'Last verified WSL relay signal '+age(wsl.observed_at)+'. Connection expires after 15 minutes without a new signal. Cloud computation continues independently.':'No verified WSL relay presence is available. Feed availability does not establish WSL connectivity. Cloud computation continues independently.';
     $('loading').hidden=true;$('content').hidden=false;
   }
   async function refresh(){
