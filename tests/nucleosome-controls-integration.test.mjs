@@ -71,8 +71,19 @@ test("both control columns mirror the baseline bars while retaining stopped and 
  const {get}=await renderSnapshot(input),apo=get("apo-runs").children,dna=get("dna-runs").children;
  assert.equal(apo.length,3);assert.equal(dna.length,6);assert.equal(get("controls-complete").textContent,"2 / 9 complete");
  for(const row of apo.slice(0,2)){assert.equal(row.children[1].children[0].style.width,"100%");assert.equal(row.children[2].textContent,"100%");assert.equal(row.children[3].textContent,"✓ done")}
- assert.equal(apo[2].children[1].children[0].style.width,"0.12%");assert.equal(apo[2].children[3].textContent,"saved");
+ assert.equal(apo[2].children[1].children[0].style.width,"0.12%");assert.equal(apo[2].children[3].textContent,"Active");
+ assert.match(apo[2].children[3].title,/Active at the source observation/);
  assert.equal(dna[0].children[1].children[0].style.width,"8.88%");assert.equal(dna[0].children[3].textContent,"stopped");
  assert.equal(dna[1].children[1].children[0].style.width,"0%");assert.equal(dna[1].children[3].textContent,"queued");
+});
+
+test("an older active observation retains its recorded status while runtime confirmation expires",async()=>{
+ const input=snapshot(),at=input.information_updated_at;
+ class Later extends Date {static now(){return Date.parse(at)+600000}}
+ const {get}=await renderSnapshot(input,Later);
+ assert.equal(get("apo-runs").children[2].children[3].textContent,"Active");
+ assert.match(get("apo-runs").children[2].children[3].title,/source observation/);
+ assert.equal(get("runtime").className,"amber");
+ assert.match(get("runtime").textContent,/unconfirmed/);
 });
 

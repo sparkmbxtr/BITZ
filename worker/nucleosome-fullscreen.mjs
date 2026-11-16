@@ -1,4 +1,6 @@
 export const FULLSCREEN_CSS = String.raw`
+html[data-fullscreen="true"],html[data-fullscreen="true"] body{width:100%;height:100%;min-height:0;margin:0;overflow:hidden}
+html[data-fullscreen="true"] main,html[data-fullscreen="true"] .header-inner,html[data-fullscreen="true"] .workspace-tabs{width:100%;max-width:none;margin-left:0;margin-right:0}
 .header-actions{display:flex;align-items:center;gap:clamp(10px,1.4vw,24px);min-width:0}
 .fullscreen-toggle{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:36px;min-height:34px;padding:6px 9px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text);font:inherit;font-size:13px;cursor:pointer;flex-shrink:0}
 .fullscreen-toggle:hover{background:var(--panel);border-color:var(--muted)}
@@ -21,6 +23,7 @@ export function createFullscreenControl(doc, win, onChange) {
   const active=()=>Boolean(doc.fullscreenElement||doc.webkitFullscreenElement);
   function sync(){
     const full=active(),text=full?"Exit full screen":"Enter full screen";
+    if(root.setAttribute)root.setAttribute("data-fullscreen",String(full));
     button.setAttribute("aria-pressed",String(full));button.setAttribute("aria-label",text);button.title=text;
     if(label)label.textContent=full?"Exit full screen":"Full screen";
     if(onChange)onChange();

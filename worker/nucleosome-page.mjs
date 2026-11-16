@@ -160,8 +160,11 @@ ${FULLSCREEN_CSS}
         var label=node('div','run-label');label.append(node('span','control-label-full',controlLabels[j.id]),node('span','control-label-short',shortControlLabels[j.id]));row.append(label);
         var track=node('div','run-track'),fill=node('div','run-fill');fill.style.width=(j.step/1000)+'%';track.append(fill);track.setAttribute('role','progressbar');track.setAttribute('aria-label',controlLabels[j.id]);track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');track.setAttribute('aria-valuenow',String(j.step/1000));row.append(track);
         row.append(node('span','run-percent'+(complete||j.status==='checkpoint'?' green':stopped?' amber':' muted'),(j.step/1000).toFixed(j.step%1000?1:0)+'%'));
-        row.append(node('span','run-state'+(complete?' complete':stopped?' stopped':j.status==='checkpoint'?' green':''),complete?'✓ done':stopped?'stopped':j.status==='checkpoint'?'saved':'queued'));
-        row.setAttribute('aria-label',controlLabels[j.id]+': '+nf.format(j.step)+' of 100,000 saved steps; '+j.status+(j.native_step!=null?'; native recovery '+nf.format(j.native_step):''));target.append(row);
+        var reportedActive=j.status==='checkpoint',stateLabel=complete?'✓ done':stopped?'stopped':reportedActive?'Active':'queued';
+        var state=node('span','run-state'+(complete?' complete':stopped?' stopped':reportedActive?' green':''),stateLabel);
+        if(reportedActive){state.title='Active at the source observation '+day(data.information_updated_at)+' '+time(data.information_updated_at)+'; see runtime confirmation below';row.title=state.title}
+        row.append(state);
+        row.setAttribute('aria-label',controlLabels[j.id]+': '+nf.format(j.step)+' of 100,000 saved steps; '+(reportedActive?'Active at the source observation; current runtime confirmation is shown below':j.status)+(j.native_step!=null?'; native recovery '+nf.format(j.native_step):''));target.append(row);
       });
     }
     controlRows('apo-runs',true);controlRows('dna-runs',false);
