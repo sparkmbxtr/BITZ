@@ -1,3 +1,4 @@
+import { validateControls, validateActivities, validateNextActions } from "./nucleosome-controls.mjs";
 import { DASHBOARD_HTML } from "./nucleosome-page.mjs";
 import { EXPERIMENT_DESIGN_HTML } from "./nucleosome-design.mjs";
 import { PILOT_EXPLORER_HTML, UNWRAP_PILOT_HTML } from "./pilot-pages.mjs";
@@ -77,6 +78,9 @@ export function validateSnapshot(input) {
   }
   return { version: 1, information_updated_at: input.information_updated_at, source_revision: input.source_revision,
     jobs, stages, watchdog_armed: input.watchdog_armed,
+    ...(input.controls != null ? { controls: validateControls(input.controls, input.information_updated_at) } : {}),
+    ...(input.activities != null ? { activities: validateActivities(input.activities) } : {}),
+    ...(input.next_actions != null ? { next_actions: validateNextActions(input.next_actions) } : {}),
     ...(input.wsl_connection != null ? { wsl_connection: validateWslConnection(input.wsl_connection) } : {}),
     ...(observation ? { runtime_observation: observation } : {}),
     ...(rate ? { compute_rate: rate } : {}),
@@ -171,3 +175,4 @@ export async function routeNucleosomeProgress(request, env, authorize = progress
       source_revision: data.source_revision, total_steps: data.jobs.reduce((sum, job) => sum + job.step, 0) });
   } catch { return json({ error: "Progress publication unavailable" }, 503); }
 }
+

@@ -82,7 +82,7 @@ ${WORKSPACE_SHELL_CSS}
 </div>
 </div>
 <section class="stages" id="stages" aria-label="Study stages"></section>
-<div class="next"><div class="next-line"><span class="next-label">NEXT</span><div class="next-text" id="next">—</div></div><div class="timing"><span>Baseline <strong id="eta-baseline">measuring…</strong></span><span>Defined program <strong id="eta-program">measuring…</strong></span><span>Conditional ceiling <strong id="eta-ceiling">measuring…</strong></span></div><div class="rate-basis" id="rate-basis">Time estimates await measured cloud progression.</div><div class="rate-basis hardware" id="hardware">CPU / VM properties awaiting verification</div></div>
+<div class="next"><div class="next-line"><span class="next-label" id="activity-label">NOW / NEXT</span><div class="next-text" id="next">—</div></div><div class="timing"><span>Baseline <strong id="eta-baseline">measuring…</strong></span><span>Defined program <strong id="eta-program">measuring…</strong></span><span>Conditional ceiling <strong id="eta-ceiling">measuring…</strong></span></div><div class="rate-basis" id="rate-basis">Time estimates await measured cloud progression.</div><div class="rate-basis hardware" id="hardware">CPU / VM properties awaiting verification</div></div>
 <footer class="bottom"><div class="bottom-left"><span id="watchdog">Watchdog: —</span><span id="checked">—</span><span>Refresh: 30s</span></div><span class="capacity">21 defined runs · up to 48 conditional · 69 maximum</span><button class="refresh" id="refresh" type="button">Refresh ↻</button></footer>
 </div>
 <noscript><p>JavaScript is required to display progress.</p></noscript>
@@ -110,7 +110,9 @@ ${WORKSPACE_SHELL_CSS}
     var done=jobs.filter(function(j){return j.status==='completed'}).length;
     var stops=jobs.filter(function(j){return j.status==='guard_stop'}).length;
     var active=jobs.find(function(j){return j.status==='checkpoint'})||jobs.find(function(j){return j.status==='queued'})||null;
-    var current=active||(jobs.length?jobs[jobs.length-1]:null);
+    var controls=data.controls||[],controlCurrent=controls.find(function(j){return j.status==='checkpoint'})||null;
+    var controlLabels={'free-601-A':'601 DNA A','free-601-B':'601 DNA B','free-601-C':'601 DNA C','free-control-A':'Control DNA A','free-control-B':'Control DNA B','free-control-C':'Control DNA C','apo-A':'Apo A','apo-B':'Apo B','apo-C':'Apo C'};
+    var current=controlCurrent||active||(jobs.length?jobs[jobs.length-1]:null);
     $('updated').textContent=stamp(data.information_updated_at);
     $('updated').dateTime=data.information_updated_at;
     $('updated').title='Information updated '+day(data.information_updated_at)+' '+time(data.information_updated_at)+' · Europe/Berlin';
@@ -133,21 +135,22 @@ ${WORKSPACE_SHELL_CSS}
       runRows.append(row);
     });
     if(current){
-      $('active-name').textContent=labels[current.id];$('active-percent').textContent=(current.step/1000)+'%';
+      $('active-name').textContent=controlLabels[current.id]||labels[current.id];$('active-percent').textContent=(current.step/1000)+'%';
       $('active-steps').textContent=nf.format(current.step)+' / 100,000';
-      $('active-guards').textContent=current.guards_pass===true?'6 / 6 pass':current.guards_pass===false?'Guard stop':'Pending';
+      $('active-guards').textContent=current.guards_pass===true?(controlCurrent?'All saved guards pass':'6 / 6 pass'):current.guards_pass===false?'Guard stop':'Pending';
       $('active-guards').className=current.guards_pass===true?'green':current.guards_pass===false?'red':'muted';
       $('active-at').textContent=current.checkpoint_at?day(current.checkpoint_at)+' · '+time(current.checkpoint_at):'Pending';
       $('active-status').textContent=current.checkpoint_at?age(current.checkpoint_at):'Queued';
     }
     var stale=current&&current.checkpoint_at&&Date.now()-Date.parse(current.checkpoint_at)>1500000;
-    var runtime=data.runtime_observation,confirmed=data.runtime_confirmed&&runtime&&Date.now()-Date.parse(runtime.at)<=360000;
-    $('runtime').textContent=done+stops===6?'Tranche finished':confirmed?'Advancing · '+age(runtime.at):'Unconfirmed';
+    var runtime=controlCurrent?controlCurrent.runtime:data.runtime_observation;
+    var confirmed=controlCurrent?Boolean(runtime&&runtime.identity_verified&&runtime.advancing&&Date.now()-Date.parse(runtime.at)<=360000):data.runtime_confirmed&&runtime&&Date.now()-Date.parse(runtime.at)<=360000;
+    $('runtime').textContent=controlCurrent?(confirmed?'Advancing · '+age(runtime.at):'Latest saved control; runtime unconfirmed'):done+stops===6?'Bound runs finished':confirmed?'Advancing · '+age(runtime.at):'Unconfirmed';
     $('runtime').className=done+stops===6||confirmed?'green':'amber';
     if(confirmed&&current&&runtime.job===current.id){$('active-status').textContent=nf.format(runtime.observed_step)+' observed';$('active-guards').textContent=runtime.guards_pass?'6 / 6 pass':'Guard stop';$('active-guards').className=runtime.guards_pass?'green':'red'}
     $('attention').hidden=done+stops===6&&!stops;
     $('attention-title').textContent=stops?'Guard stop recorded':confirmed?'Simulation advancing':stale?'Runtime observation overdue':'Awaiting current runtime update';
-    $('attention-meta').textContent=confirmed?(runtime.observed_step/1000).toFixed(2)+' ps observed':current&&current.checkpoint_at?'Last checkpoint '+age(current.checkpoint_at):'Next run queued';
+    $('attention-meta').textContent=confirmed?((controlCurrent?controlCurrent.step:runtime.observed_step)/1000).toFixed(2)+' ps observed':current&&current.checkpoint_at?'Last checkpoint '+age(current.checkpoint_at):'Next run queued';
     var chart=$('history');chart.replaceChildren();
     var history=data.history||[],width=360,height=112;
     [0,0.5,1].forEach(function(f){chart.append(svgNode('line',{x1:0,y1:height-f*height,x2:width,y2:height-f*height,stroke:'#2b3039','stroke-width':1,'stroke-dasharray':'3 5'}))});
@@ -163,19 +166,22 @@ ${WORKSPACE_SHELL_CSS}
     $('history-total').textContent=(total/1000)+' / 600 ps';
     chart.setAttribute('aria-label','Saved progress: '+(total/1000)+' of 600 picoseconds');
     var stages=$('stages');stages.replaceChildren();
-    data.stages.forEach(function(stage,index){var card=node('div','stage');card.setAttribute('data-state',stage.state);card.append(node('div','stage-number','0'+(index+1)));card.append(node('div','stage-name',stageLabels[stage.id]));var state=stage.id==='baseline'&&stage.state==='in_progress'?pct.toFixed(1)+'% saved':stage.state==='complete'?'✓ complete':stage.state==='in_progress'?'in progress':stage.state==='guard_stop'?'guard stop':'pending';card.append(node('div','stage-state '+stage.state,state));var line=node('div','stage-line'+(stage.state==='in_progress'?' current':'')),fill=node('i');fill.style.width=stage.state==='complete'?'100%':stage.id==='baseline'?pct+'%':'0%';line.append(fill);card.append(line);card.append(node('div','stage-note',stageNotes[stage.id]));stages.append(card)});
+    data.stages.forEach(function(stage,index){var card=node('div','stage');card.setAttribute('data-state',stage.state);card.append(node('div','stage-number','0'+(index+1)));card.append(node('div','stage-name',stageLabels[stage.id]));var state=stage.id==='baseline'&&stage.state==='in_progress'?pct.toFixed(1)+'% saved':stage.state==='complete'?'✓ complete':stage.state==='in_progress'?'in progress':stage.state==='guard_stop'?'guard stop':'pending';if(stage.id==='components'&&controls.length){var completeControls=controls.filter(function(j){return j.status==='completed'}).length;state=completeControls+' / 9 complete';if(controlCurrent)state+=' · '+controlLabels[controlCurrent.id]+' '+(controlCurrent.step/1000).toFixed(1)+'%'}card.append(node('div','stage-state '+stage.state,state));var line=node('div','stage-line'+(stage.state==='in_progress'?' current':'')),fill=node('i');fill.style.width=stage.state==='complete'?'100%':stage.id==='baseline'?pct+'%':stage.id==='components'&&controls.length?(controls.reduce(function(n,j){return n+j.step},0)/9000)+'%':'0%';line.append(fill);card.append(line);card.append(node('div','stage-note',stageNotes[stage.id]));stages.append(card)});
     var todo=[];
     if(stops)todo.push('Review guard stop');
     if(done+stops<6&&!confirmed)todo.push('Confirm runtime');
     jobs.filter(function(j){return !['completed','guard_stop'].includes(j.status)}).forEach(function(j){todo.push((j.step?'Finish ':'Run ')+labels[j.id])});
     if(!todo.length){var pending=data.stages.find(function(s){return s.state!=='complete'});todo.push(pending?stageLabels[pending.id]:'Review results')}
+    if(data.next_actions&&data.next_actions.length)todo=data.next_actions;
+    if(data.activities&&data.activities.length)todo=data.activities.filter(function(a){return a.state==='active'||a.state==='blocked'}).map(function(a){return a.label+': '+a.detail}).concat(todo);
+    $('activity-label').textContent=Date.now()-Date.parse(data.information_updated_at)>900000?'LAST OBSERVED':'NOW / NEXT';
     $('next').replaceChildren();todo.slice(0,4).forEach(function(item,index){if(index)$('next').append(node('span',null,' → '));$('next').append(document.createTextNode(item))});
-    $('watchdog').textContent='Watchdog: '+(data.watchdog_armed?'armed':'awaiting install');
+    $('watchdog').textContent='Watchdog: '+(data.watchdog_armed?'armed':done+stops===6&&!controlCurrent?'no active scope':'not armed');
     $('watchdog').className=data.watchdog_armed?'green':'amber';
     if(data.compute_rate){
       var rate=data.compute_rate,remaining=jobs.filter(function(j){return j.status!=='guard_stop'}).reduce(function(s,j){return s+j.cap-j.step},0);
       var pending=function(id){return data.stages.some(function(s){return s.id===id&&s.state!=='complete'})};
-      var defined=remaining+(pending('components')?900000:0)+(pending('pulling')?600000:0);
+      var defined=remaining+(pending('components')?(controls.length?controls.reduce(function(n,j){return n+(j.status==='stopped'?0:j.cap-j.step)},0):900000):0)+(pending('pulling')?600000:0);
       var ceiling=defined+(pending('pulling')?1200000:0)+(pending('heldout')?3600000:0);
       $('eta-baseline').textContent=duration(remaining/rate.steps_per_second);
       $('eta-program').textContent=duration(defined/rate.steps_per_second)+'*';
@@ -221,3 +227,4 @@ ${WORKSPACE_SHELL_CSS}
 </script>
 </body>
 </html>`;
+

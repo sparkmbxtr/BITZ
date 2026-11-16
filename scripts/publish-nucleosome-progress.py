@@ -84,7 +84,7 @@ def main():
     observed, path, snapshot, digest = read_snapshot(".")
     # A GitHub run never refreshes the scientific observation timestamp.
     snapshot["source_revision"] = os.environ["GITHUB_SHA"]
-    snapshot["wsl_connection"] = read_wsl_connection(".", os.environ.get("EXPECTED_WSL_THREAD"))
+    snapshot["wsl_connection"] = None  # External-device tasks are retired; never inspect presence files.
     url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
     url += ("&" if "?" in url else "?") + urllib.parse.urlencode({"audience": "nucleosome-progress"})
     identity = fetch_json(url, token=os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"])["value"]
@@ -100,11 +100,11 @@ def main():
     if (not result.get("published") or saved.get("total_steps") != expected
             or saved.get("information_updated_at") != snapshot["information_updated_at"]
             or any(saved.get(key) != snapshot.get(key) for key in
-                   ("jobs", "stages", "runtime_observation", "compute_rate", "watchdog_armed", "wsl_connection"))):
+                   ("jobs", "stages", "runtime_observation", "compute_rate", "watchdog_armed", "wsl_connection", "controls", "activities", "next_actions"))):
         raise RuntimeError("Monitoring readback differs from the committed snapshot")
     print(json.dumps({"published": True, "readback_verified": True, "saved_steps": expected,
                       "cloud_observed_at": observed.isoformat(), "source_path": str(path), "sha256": digest,
-                      "wsl_status": saved.get("wsl_status", "unconfirmed"), "wsl_presence_verified": snapshot["wsl_connection"] is not None}))
+                      "control_saved_steps": sum(job["step"] for job in saved.get("controls", [])), "control_jobs": len(saved.get("controls", [])), "activities": saved.get("activities", []), "next_actions": saved.get("next_actions", [])}))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf8") as stream:
@@ -113,3 +113,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

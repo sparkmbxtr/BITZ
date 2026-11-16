@@ -77,6 +77,7 @@ ${WORKSPACE_SHELL_CSS}
     $('design-live-phase').textContent='Latest phase: '+(phase?(phases[phase.id]||phase.id):'Review study status');
     var terminal=data.jobs.every(function(job){return job.status==='completed'||job.status==='guard_stop'});
     $('design-live-summary').textContent=(current?labels[current.id]+': '+nf.format(current.step)+' saved steps. ':terminal?'All bound branches are terminal. ':'Awaiting the next bound branch. ')+(fresh?nf.format(runtime.observed_step)+' steps observed; '+(runtime.guards_pass?'guards pass. ':'guard stop recorded. '):'Present integration is unconfirmed by this feed. ')+'Source observation '+stamp(data.information_updated_at)+' · Berlin.';
+    var control=(data.controls||[]).find(function(job){return job.status==='checkpoint'});if(control){var controlFresh=control.runtime&&control.runtime.identity_verified&&control.runtime.advancing&&Date.now()-Date.parse(control.runtime.at)<=360000;$('design-live-summary').textContent=control.id.replace('apo-','Apo ').replace('free-601-','601 DNA ').replace('free-control-','Control DNA ')+': '+nf.format(control.step)+' saved steps; '+(control.guards_pass?'all saved guards pass. ':'guard stop recorded. ')+(controlFresh?'Runtime advancing at the source observation. ':'Current runtime unconfirmed by this dated observation. ')+'Source observation '+stamp(data.information_updated_at)+' · Berlin.';}
     var stale=Date.now()-Date.parse(data.information_updated_at)>900000;
     $('design-connection').textContent=(failed?'Refresh failed':stale?'Feed update overdue':data.feed_mode==='automatic'?'Feed connected':'Saved snapshot');
     $('design-checked').textContent='Source updated '+stamp(data.information_updated_at)+' · Europe/Berlin';
@@ -102,3 +103,4 @@ ${WORKSPACE_SHELL_CSS}
   refresh();
 })();
 </script></body></html>`;
+

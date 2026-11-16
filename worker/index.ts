@@ -1,3 +1,4 @@
+import { controlsAreMonotonic } from "./nucleosome-controls.mjs";
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { routeNucleosomeProgress } from "./nucleosome-progress.mjs";
 import { routeDeploymentMetadata } from "./nucleosome-deployment.mjs";
@@ -126,6 +127,7 @@ export class ContextLog extends DurableObject<Env> {
     if (prior) {
       const previous = JSON.parse(prior);
       const incoming = JSON.parse(payload);
+      if (!controlsAreMonotonic(previous.controls, incoming.controls)) return;
       if (previous.jobs.some((old: { id: string; step: number; status: string }) => {
         const next = incoming.jobs.find((job: { id: string }) => job.id === old.id);
         return !next || next.step < old.step
@@ -395,4 +397,5 @@ const worker = {
 };
 
 export default worker;
+
 
