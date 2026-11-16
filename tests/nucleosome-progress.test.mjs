@@ -182,7 +182,10 @@ test("the terminal UI renders six runs and the exact Berlin update header", asyn
   intervals.find(interval => interval.delay === 30000).fn();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(elements.get("updated").textContent, before);
-  assert.doesNotMatch(DASHBOARD_HTML, /<button|data-dashboard-view|data-detail-direction/);
+  assert.doesNotMatch(DASHBOARD_HTML, /data-dashboard-view|data-detail-direction/);
+  assert.equal((DASHBOARD_HTML.match(/<button\b/g)||[]).length,1);
+  assert.match(DASHBOARD_HTML, /<header>[\s\S]*id="fullscreen-toggle"[\s\S]*<\/header>/);
+  assert.doesNotMatch(DASHBOARD_HTML.slice(DASHBOARD_HTML.indexOf('<main')), /<button\b/);
   assert.match(DASHBOARD_HTML, /ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas/);
 });
 

@@ -3,6 +3,7 @@ import { stagePresentation } from "./nucleosome-stage-details.mjs";
 import { workspaceNavigation, WORKSPACE_SHELL_CSS } from "./dashboard-tabs.mjs";
 import { DASHBOARD_BUILD_VERSION } from "../lib/dashboard-version.ts";
 import { createDisplayUpdateMonitor } from "../lib/display-updates.ts";
+import { FULLSCREEN_CSS, FULLSCREEN_HTML, createFullscreenControl } from "./nucleosome-fullscreen.mjs";
 
 export const DASHBOARD_HTML = String.raw`<!doctype html>
 <html lang="en">
@@ -64,11 +65,12 @@ header{background:#100b13}.workspace-tabs{max-width:2000px;margin:auto;display:f
 ${WORKSPACE_SHELL_CSS}
 
 ${FITTED_LAYOUT_CSS}
+${FULLSCREEN_CSS}
 
 </style>
 </head>
 <body data-workspace="nucleosome-c">
-<header><div class="header-inner"><div class="brand">SPARK BMC-LMU</div><time id="updated" class="header-time" aria-label="Information update time in Berlin">------------</time></div>${workspaceNavigation("nucleosome-c")}</header>
+<header><div class="header-inner"><div class="brand">SPARK BMC-LMU</div><div class="header-actions"><time id="updated" class="header-time" aria-label="Information update time in Berlin">------------</time>${FULLSCREEN_HTML}</div></div>${workspaceNavigation("nucleosome-c")}</header>
 <main id="nucleosome-c" aria-labelledby="tab-nucleosome-c">
 <div class="title-row"><h1>Nucleosome <span>/ experiment</span></h1><div class="connection-group"><div class="feed"><i class="dot" id="feed-dot" aria-hidden="true"></i><span id="feed-state" role="status">Connecting</span></div></div></div>
 <div id="loading" class="loading" role="status">Loading progress…</div>
@@ -117,6 +119,7 @@ ${FITTED_LAYOUT_CSS}
   function svgNode(tag,attributes){var n=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.keys(attributes).forEach(function(k){n.setAttribute(k,attributes[k])});return n}
   var stageModel=(${stagePresentation.toString()});
   var fittedLayout=(${createFittedLayout.toString()})(document,window,function(){render()});
+  (${createFullscreenControl.toString()})(document,window,function(){fittedLayout.update()});
   function render(){
     if(!data)return;
     var layout=fittedLayout.configuration();
