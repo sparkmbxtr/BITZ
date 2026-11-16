@@ -179,7 +179,10 @@ test("the terminal UI renders six runs and the exact Berlin update header", asyn
   assert.equal(elements.get("runtime").textContent, "Unconfirmed");
   assert.ok(intervals.some(interval => interval.delay === 30000));
   const before = elements.get("updated").textContent;
-  await elements.get("refresh").events.click();
+  intervals.find(interval => interval.delay === 30000).fn();
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(elements.get("updated").textContent, before);
+  assert.doesNotMatch(DASHBOARD_HTML, /<button|data-dashboard-view|data-detail-direction/);
   assert.match(DASHBOARD_HTML, /ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas/);
 });
+

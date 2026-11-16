@@ -34,3 +34,22 @@ test("baseline completion is separate from pending conditional stages",()=>{
  assert.ok(stagePresentation({id:"pulling",state:"pending"},data).rows.some(r=>r.text.includes("only if triggered")));
  assert.ok(stagePresentation({id:"heldout",state:"pending"},data).rows.some(r=>r.text.includes("conditional capacity")));
 });
+test("single-view concise details preserve actual completion and the earlier native DNA recovery point",()=>{
+ const jobs=controls();for(const j of jobs.slice(6,8))Object.assign(j,{status:"completed",step:100000,native_step:100000});
+ Object.assign(jobs[8],{status:"checkpoint",step:23980,native_step:23000});Object.assign(jobs[0],{status:"stopped",step:8880,native_step:8000});
+ for(const density of [1,2]){
+  const model=stagePresentation({id:"components",state:"in_progress"},{jobs:baseline(),controls:jobs},density),text=model.rows.map(r=>r.text).join(" ");
+  assert.match(text,/A\/B/);assert.match(text,/native 8,000/);assert.doesNotMatch(text,/native 8,880/);
+  assert.match(model.summary,/Apo C 24.0%/);
+ }
+ const smallest=stagePresentation({id:"components",state:"in_progress"},{jobs:baseline(),controls:jobs},3);
+ assert.equal(smallest.status,"2 / 9 done");assert.match(smallest.rows[0].text,/A\/B done; DNA stop/);
+});
+test("condensing details never marks queued controls or pending stages complete",()=>{
+ for(const density of [1,2,3]){
+  const model=stagePresentation({id:"components",state:"in_progress"},{jobs:baseline(),controls:controls()},density);
+  assert.doesNotMatch(model.rows.map(r=>r.text).join(" "),/A\/B.*done|A\/B.*complete/);
+  assert.equal(stagePresentation({id:"heldout",state:"pending"},{jobs:baseline()},density).status,"Pending");
+  assert.match(stagePresentation({id:"heldout",state:"pending"},{jobs:baseline()},density).rows.map(r=>r.text).join(" "),/conditional/);
+ }
+});

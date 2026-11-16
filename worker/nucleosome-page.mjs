@@ -72,16 +72,14 @@ ${FITTED_LAYOUT_CSS}
 <main id="nucleosome-c" aria-labelledby="tab-nucleosome-c">
 <div class="title-row"><h1>Nucleosome <span>/ experiment</span></h1><div class="connection-group"><div class="feed"><i class="dot" id="feed-dot" aria-hidden="true"></i><span id="feed-state" role="status">Connecting</span></div></div></div>
 <div id="loading" class="loading" role="status">Loading progress…</div>
-<div id="content" hidden data-layout="full" data-view="current" data-progress="current">
-<nav class="dashboard-views" aria-label="Dashboard view"><button class="view-button" type="button" data-dashboard-view="current" aria-pressed="true">Current</button><button class="view-button" type="button" data-dashboard-view="stages" aria-pressed="false">Stages</button><button class="view-button" type="button" data-dashboard-view="activity" aria-pressed="false">Activity</button><button class="view-button" type="button" data-dashboard-view="checks" aria-pressed="false">Checks</button></nav>
-<div class="progress-pane">
+<div id="content" hidden data-layout="single" data-density="0">
+<div class="progress-pane"><div class="current-band"><div class="band-title"><span id="band-name">—</span><span id="band-steps">—</span></div><div class="band-evidence" id="band-evidence">—</div></div>
 <section class="overview" aria-label="Baseline overview">
 <div class="metric"><div class="eyebrow">Baseline saved</div><div class="value green" id="overall">—</div><div class="metric-note" id="saved-total">—</div><div class="total-bar" id="total-bar" role="progressbar" aria-label="Overall saved simulation steps" aria-valuemin="0" aria-valuemax="100"></div></div>
 <div class="metric"><div class="eyebrow">Runs complete</div><div class="value" id="finished">—</div><div class="metric-note" id="finished-note">—</div></div>
 <div class="metric"><div class="eyebrow">Study stages</div><div class="value" id="remaining">—</div><div class="metric-note" id="remaining-note">—</div></div>
 </section>
 <div class="attention" id="attention" role="status"><div class="attention-main"><i class="dot amber" aria-hidden="true"></i><span id="attention-title">—</span></div><div class="attention-meta" id="attention-meta">—</div></div>
-<nav class="progress-views" aria-label="Progress details"><button class="view-button" type="button" data-progress-view="current" aria-pressed="true">Current computation</button><button class="view-button" type="button" data-progress-view="baseline" aria-pressed="false">Baseline runs</button></nav>
 <div class="grid">
 <section class="panel baseline-panel" aria-labelledby="runs-heading"><div class="panel-head"><h2 class="panel-title" id="runs-heading">Baseline · six replicas</h2><span class="panel-hint">100 ps each</span></div><div class="runs" id="runs"></div></section>
 <div class="side">
@@ -90,11 +88,11 @@ ${FITTED_LAYOUT_CSS}
 </div>
 </div>
 </div>
-<section class="stage-area" aria-label="Study stages"><div class="stage-navigation"><strong>Study stages</strong><div class="stage-navigation-controls" id="stage-navigation-controls"><button class="page-button" id="stage-prev" type="button" aria-label="Previous stages">←</button><span id="stage-page-count"></span><button class="page-button" id="stage-next" type="button" aria-label="Next stages">→</button></div></div><div class="stages" id="stages"></div></section>
+<section class="stages" id="stages" aria-label="Study stages"></section>
 <div class="activity-pane">
-<div class="next"><div class="next-line"><span class="next-label" id="activity-label">NOW / NEXT</span><div class="next-text" id="next">—</div></div><div class="detail-pages" id="activity-pages" hidden><button class="page-button" type="button" data-detail-direction="-1" aria-label="Previous activities">←</button><span class="page-count"></span><button class="page-button" type="button" data-detail-direction="1" aria-label="Next activities">→</button></div><div class="timing"><span>Baseline <strong id="eta-baseline">measuring…</strong></span><span>Defined program <strong id="eta-program">measuring…</strong></span><span>Conditional ceiling <strong id="eta-ceiling">measuring…</strong></span></div><div class="rate-basis" id="rate-basis">Time estimates await measured computation progression.</div></div>
+<div class="next"><div class="next-line"><span class="next-label" id="activity-label">NOW / NEXT</span><div class="next-text" id="next">—</div></div><div class="timing"><span>Baseline <strong id="eta-baseline">measuring…</strong></span><span>Defined program <strong id="eta-program">measuring…</strong></span><span>Conditional ceiling <strong id="eta-ceiling">measuring…</strong></span></div><div class="rate-basis" id="rate-basis">Time estimates await measured computation progression.</div></div>
 </div>
-<footer class="bottom" aria-label="Computation safeguards and source observation"><section class="guard-status"><div class="guard-title" id="watchdog">Computation safeguards</div><div class="guard-metrics"><span id="guard-checks">Saved guard checks: —</span><span id="native-recovery">Native recovery point: —</span><span id="controller-confirmed">Controller confirmation: —</span><span id="controller-deadline">Controller check due: —</span></div><div class="guard-note" id="guard-note">Safeguards are reported at the source observation time.</div></section><div class="footer-actions"><span id="checked">—</span><span>Page checks every 30s</span><button class="refresh" id="refresh" type="button">Refresh ↻</button></div><span class="capacity">21 defined runs · up to 48 conditional · 69 maximum</span></footer>
+<footer class="bottom" aria-label="Computation safeguards and source observation"><div class="guard-compact"><span id="guard-compact-state">—</span><span id="guard-compact-contact">—</span></div><section class="guard-status"><div class="guard-title" id="watchdog">Computation safeguards</div><div class="guard-metrics"><span id="guard-checks">Saved guard checks: —</span><span id="native-recovery">Native recovery point: —</span><span id="controller-confirmed">Controller confirmation: —</span><span id="controller-deadline">Controller check due: —</span></div><div class="guard-note" id="guard-note">Safeguards are reported at the source observation time.</div></section><div class="footer-actions"><span id="checked">—</span><span>Page checks every 30s</span></div><span class="capacity">21 defined runs · up to 48 conditional · 69 maximum</span></footer>
 </div>
 <noscript><p>JavaScript is required to display progress.</p></noscript>
 </main>
@@ -116,9 +114,10 @@ ${FITTED_LAYOUT_CSS}
   function node(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
   function svgNode(tag,attributes){var n=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.keys(attributes).forEach(function(k){n.setAttribute(k,attributes[k])});return n}
   var stageModel=(${stagePresentation.toString()});
-  var fittedLayout=(${createFittedLayout.toString()})(document,window);
+  var fittedLayout=(${createFittedLayout.toString()})(document,window,function(){render()});
   function render(){
     if(!data)return;
+    var layout=fittedLayout.configuration();
     var jobs=data.jobs,total=jobs.reduce(function(s,j){return s+j.step},0),pct=total/6000;
     var done=jobs.filter(function(j){return j.status==='completed'}).length;
     var stops=jobs.filter(function(j){return j.status==='guard_stop'}).length;
@@ -180,14 +179,16 @@ ${FITTED_LAYOUT_CSS}
     chart.setAttribute('aria-label','Saved progress: '+(total/1000)+' of 600 picoseconds');
     var stages=$('stages');stages.replaceChildren();
     data.stages.forEach(function(stage,index){
-      var model=stageModel(stage,data),card=node('div','stage');card.setAttribute('data-state',stage.state);card.setAttribute('data-stage-id',stage.id);
+      var model=stageModel(stage,data,layout.density),card=node('div','stage');card.setAttribute('data-state',stage.state);card.setAttribute('data-stage-id',stage.id);
       var head=node('div','stage-header'),top=node('div','stage-topline');
       top.append(node('div','stage-number','0'+(index+1)),node('div','stage-state '+stage.state,model.status));head.append(top);
-      head.append(node('div','stage-name',stageLabels[stage.id]),node('div','stage-summary',model.summary));
+      head.append(node('div','stage-name',layout.density>=3&&stage.id==='heldout'?'Confirm':stageLabels[stage.id]),node('div','stage-summary',model.summary));
       var line=node('div','stage-line'+(stage.state==='in_progress'?' current':'')),fill=node('i');fill.style.width=Math.max(0,Math.min(100,model.percent))+'%';line.append(fill);head.append(line);card.append(head);
-      var details=node('div','stage-details');details.append(node('div','stage-details-heading',model.heading));var list=node('ul','stage-details-list');model.rows.forEach(function(row){list.append(node('li','stage-detail '+row.tone,row.text))});details.append(list);var pager=node('div','detail-pages');pager.hidden=true;
-      var prev=node('button','page-button','←'),next=node('button','page-button','→');prev.type=next.type='button';prev.setAttribute('data-detail-direction','-1');next.setAttribute('data-detail-direction','1');prev.setAttribute('aria-label','Previous '+stageLabels[stage.id]+' details');next.setAttribute('aria-label','Next '+stageLabels[stage.id]+' details');pager.append(prev,node('span','page-count'),next);details.append(pager);card.append(details);stages.append(card);
+      var details=node('div','stage-details');details.append(node('div','stage-details-heading',model.heading));var list=node('ul','stage-details-list');model.rows.forEach(function(row){list.append(node('li','stage-detail '+row.tone,row.text))});details.append(list);card.append(details);stages.append(card);
     });
+    $('band-name').textContent=current?(controlLabels[current.id]||labels[current.id]):'Computation';
+    $('band-steps').textContent=current?nf.format(current.step)+' / 100,000':'Awaiting update';
+    $('band-evidence').textContent=controlCurrent?nf.format(controlCurrent.guard_rows)+' guards pass · Native '+nf.format(controlCurrent.native_step)+(confirmed?' · advancing':' · runtime unconfirmed'):'Baseline '+done+' / 6 complete';
     var todo=[];
     if(stops)todo.push('Review guard stop');
     if(done+stops<6&&!confirmed)todo.push('Confirm runtime');
@@ -195,11 +196,18 @@ ${FITTED_LAYOUT_CSS}
     if(!todo.length){var pending=data.stages.find(function(s){return s.state!=='complete'});todo.push(pending?stageLabels[pending.id]:'Review results')}
     if(data.next_actions&&data.next_actions.length)todo=data.next_actions;
     if(data.activities&&data.activities.length)todo=data.activities.filter(function(a){return a.state==='active'||a.state==='blocked'}).map(function(a){return a.label+': '+a.detail}).concat(todo);
+    if(layout.density>0){
+      var activities=(data.activities||[]).filter(function(a){return (a.state==='active'||a.state==='blocked')&&a.label!=='Apo C'});
+      todo=activities.map(function(a){return a.label==='Library migration'?(layout.density>=2?'Library: recovery/offload':'Library migration: verifying recovery and offloading files'):a.label+': '+a.detail});
+      todo=todo.concat((data.next_actions||[]).map(function(t){return layout.density>=2?t.replace('Finish apo C','Finish C').replace('Review the remaining DNA controls','Review DNA controls'):t}));
+    }
     $('activity-label').textContent=Date.now()-Date.parse(data.information_updated_at)>900000?'LAST OBSERVED':'NOW / NEXT';
     $('next').replaceChildren();todo.slice(0,4).forEach(function(item){$('next').append(node('span','activity-item',item))});
     var safety=data.guard_summary,expired=Boolean(safety&&safety.armed&&Date.now()>Date.parse(safety.controller_deadline_at));
     $('watchdog').textContent=expired?'Controller confirmation due · current state unconfirmed':data.watchdog_armed?'Communication guard armed at last observation':'No active guarded computation at last observation';
     $('watchdog').className='guard-title '+(expired?'amber':data.watchdog_armed?'green':'muted');
+    $('guard-compact-state').textContent=expired?'Controller check due · runtime unconfirmed':data.watchdog_armed?'Guard armed at last observation':'No active guarded computation';
+    $('guard-compact-contact').textContent=safety?'Controller '+time(safety.controller_confirmed_at)+' · due '+time(safety.controller_deadline_at):'Controller timing unconfirmed';
     $('guard-checks').textContent=controlCurrent?'Saved guard checks: '+nf.format(controlCurrent.guard_rows)+' / '+nf.format(controlCurrent.guard_rows)+(controlCurrent.guards_pass?' passed':' · review stop'):'Saved guards: see completed stage records';
     $('native-recovery').textContent=controlCurrent?'Local native recovery point: '+nf.format(controlCurrent.native_step)+' steps':'Bound and completed control checkpoints preserved';
     $('controller-confirmed').textContent=safety?'Controller confirmed: '+day(safety.controller_confirmed_at)+' · '+time(safety.controller_confirmed_at):'Controller timing is not included in this saved observation';
@@ -223,12 +231,11 @@ ${FITTED_LAYOUT_CSS}
     $('loading').hidden=true;$('content').hidden=false;$('content').setAttribute('data-has-rate',String(Boolean(data.compute_rate)));fittedLayout.update();
   }
   async function refresh(){
-    if(busy)return;busy=true;$('refresh').disabled=true;
+    if(busy)return;busy=true;
     try{var response=await fetch('/api/nucleosome-progress?at='+Date.now(),{cache:'no-store',credentials:'same-origin',signal:AbortSignal.timeout(12000)});if(response.status===401){window.location.assign('/');return}if(!response.ok)throw new Error('HTTP '+response.status);var next=await response.json();if(!next.jobs||next.jobs.length!==6||!next.information_updated_at)throw new Error('Invalid progress');data=next;lastRead=Date.now();failed=false;render()}
     catch(error){failed=true;if(data)render();else{$('loading').textContent='Progress unavailable. Retrying in 30s.';$('feed-state').textContent='Connection unavailable';$('feed-dot').className='dot amber'}}
-    finally{busy=false;$('refresh').disabled=false}
+    finally{busy=false}
   }
-  $('refresh').addEventListener('click',refresh);
   document.addEventListener('visibilitychange',function(){if(!document.hidden)refresh()});
   window.addEventListener('online',refresh);
   setInterval(function(){if(!document.hidden)refresh()},30000);
