@@ -43,6 +43,17 @@ export function validateNextActions(value) {
   if (!Array.isArray(value) || value.length > 4 || value.some(s => typeof s !== "string" || !s.trim() || s.length > 180)) throw Error("Next actions rejected");
   return [...value];
 }
+export function validateGuardSummary(value, observedAt, armed) {
+  if (value == null) return undefined;
+  if (typeof value.armed !== "boolean" || value.armed !== armed
+    || value.timeout_seconds !== 9000 || value.guard_interval_steps !== 20 || value.checkpoint_interval_steps !== 1000
+    || !instant(value.controller_confirmed_at) || !instant(value.controller_deadline_at)
+    || Date.parse(value.controller_confirmed_at) > Date.parse(observedAt) + 60000
+    || Math.abs(Date.parse(value.controller_deadline_at)-Date.parse(value.controller_confirmed_at)-9000000) > 2000
+    || (armed && Date.parse(value.controller_deadline_at) <= Date.parse(observedAt))) throw Error("Guard summary rejected");
+  return {armed:value.armed,controller_confirmed_at:value.controller_confirmed_at,controller_deadline_at:value.controller_deadline_at,
+    timeout_seconds:9000,guard_interval_steps:20,checkpoint_interval_steps:1000};
+}
 export function controlsAreMonotonic(previous, incoming) {
   if (!previous) return true;
   return previous.every(old => {

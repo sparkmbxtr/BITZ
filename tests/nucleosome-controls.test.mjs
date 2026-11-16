@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {validateControls,validateActivities,validateNextActions,controlsAreMonotonic} from "../worker/nucleosome-controls.mjs";
+import {validateControls,validateActivities,validateNextActions,validateGuardSummary,controlsAreMonotonic} from "../worker/nucleosome-controls.mjs";
 const at="2026-11-16T10:48:00.000Z";
 const ids=["free-601-A","free-601-B","free-601-C","free-control-A","free-control-B","free-control-C","apo-A","apo-B","apo-C"];
 const fixture=()=>ids.map(id=>({id,step:0,status:"queued",guard_rows:0,guards_pass:null,native_step:null,checkpoint_at:null}));
@@ -28,5 +28,17 @@ test("activities and next actions are bounded allowlisted text",()=>{
  assert.throws(()=>validateActivities([{label:"Library",detail:"x".repeat(201),state:"active"}]));
  assert.deepEqual(validateNextActions(["Finish apo C"]),["Finish apo C"]);
  assert.throws(()=>validateNextActions(Array(5).fill("Repeated")));
+});
+const guard=()=>({armed:true,controller_confirmed_at:at,controller_deadline_at:"2026-11-16T13:18:00.000Z",timeout_seconds:9000,guard_interval_steps:20,checkpoint_interval_steps:1000});
+test("guard details retain only actual public timing and fixed check intervals",()=>{
+ const value=guard();assert.deepEqual(validateGuardSummary({...value,nonce:"private",pid:123,host:"private"},at,true),value);
+ assert.equal(validateGuardSummary(undefined,at,true),undefined);
+});
+test("invented controller windows, mismatched armed state and expired live records are rejected",()=>{
+ for(const edit of [g=>g.armed=false,g=>g.timeout_seconds=600,g=>g.guard_interval_steps=100,g=>g.checkpoint_interval_steps=2000,g=>g.controller_deadline_at="2026-11-16T14:18:00.000Z",g=>g.controller_confirmed_at="invalid"]){
+  const value=guard();edit(value);assert.throws(()=>validateGuardSummary(value,at,true),/Guard summary/);
+ }
+ assert.throws(()=>validateGuardSummary(guard(),"2026-11-16T13:19:00.000Z",true),/Guard summary/);
+ assert.throws(()=>validateGuardSummary(guard(),"2026-11-16T10:40:00.000Z",true),/Guard summary/);
 });
 

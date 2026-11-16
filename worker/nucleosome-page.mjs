@@ -1,3 +1,4 @@
+import { stagePresentation } from "./nucleosome-stage-details.mjs";
 import { workspaceNavigation, WORKSPACE_SHELL_CSS } from "./dashboard-tabs.mjs";
 import { DASHBOARD_BUILD_VERSION } from "../lib/dashboard-version.ts";
 import { createDisplayUpdateMonitor } from "../lib/display-updates.ts";
@@ -60,6 +61,101 @@ header{background:#100b13}.workspace-tabs{max-width:2000px;margin:auto;display:f
 .connection-group{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap}.connection-group .feed{white-space:nowrap}.dot.red{background:var(--red)}
 @media(max-width:700px){.connection-group{flex-direction:column;align-items:flex-end;gap:2px}}
 ${WORKSPACE_SHELL_CSS}
+
+/* Readable summaries: fixed shared frame, scrollable evidence, aligned stage details. */
+body[data-workspace="nucleosome-c"]{font-size:16px}
+body[data-workspace="nucleosome-c"] #content{display:flex;flex-direction:column;gap:18px;min-height:0;height:100%;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;padding-right:3px}
+body[data-workspace="nucleosome-c"] .title-row{flex-wrap:wrap}
+body[data-workspace="nucleosome-c"] .feed{font-size:14px}
+body[data-workspace="nucleosome-c"] .overview{flex:0 0 auto;min-height:120px;grid-template-columns:1.45fr 1fr 1fr}
+body[data-workspace="nucleosome-c"] .metric{padding:18px 22px}
+body[data-workspace="nucleosome-c"] .eyebrow{font-size:14px;line-height:1.4}
+body[data-workspace="nucleosome-c"] .metric-note{font-size:14px;line-height:1.5}
+body[data-workspace="nucleosome-c"] .value{font-size:48px;line-height:1.15;margin:6px 0}
+body[data-workspace="nucleosome-c"] .grid{flex:0 0 auto;min-height:270px;grid-template-columns:1.35fr 1fr;gap:18px}
+body[data-workspace="nucleosome-c"] .panel-head{padding:13px 16px}
+body[data-workspace="nucleosome-c"] .panel-title{font-size:15px}
+body[data-workspace="nucleosome-c"] .panel-hint{font-size:13px}
+body[data-workspace="nucleosome-c"] .runs{padding:0 16px}
+body[data-workspace="nucleosome-c"] .run{min-height:38px;grid-template-columns:100px minmax(28px,1fr) 56px 80px;gap:12px;padding:6px 0}
+body[data-workspace="nucleosome-c"] .run-label,body[data-workspace="nucleosome-c"] .run-percent{font-size:15px}
+body[data-workspace="nucleosome-c"] .run-state{font-size:14px}
+body[data-workspace="nucleosome-c"] .side{grid-template-columns:1fr}
+body[data-workspace="nucleosome-c"] .side .panel:last-child{display:none}
+body[data-workspace="nucleosome-c"] .active-body{padding:16px 20px;justify-content:flex-start;gap:10px}
+body[data-workspace="nucleosome-c"] .active-name,body[data-workspace="nucleosome-c"] .active-percent{font-size:27px}
+body[data-workspace="nucleosome-c"] .detail{display:flex;font-size:15px;line-height:1.5;margin:8px 0;gap:16px}
+body[data-workspace="nucleosome-c"] .detail dd{overflow-wrap:break-word}
+body[data-workspace="nucleosome-c"] .attention{font-size:14px}
+body[data-workspace="nucleosome-c"] .attention-meta{font-size:13px}
+body[data-workspace="nucleosome-c"] #stages{flex:1 0 auto;min-height:440px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));align-items:stretch;margin:0}
+body[data-workspace="nucleosome-c"] #stages .stage{display:grid;grid-template-rows:148px auto;align-content:start;justify-content:stretch;padding:20px 16px;line-height:1.5}
+body[data-workspace="nucleosome-c"] .stage-header{display:flex;flex-direction:column;min-width:0;gap:10px}
+body[data-workspace="nucleosome-c"] .stage-topline{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
+body[data-workspace="nucleosome-c"] .stage-number{display:block;font-size:13px;margin:0}
+body[data-workspace="nucleosome-c"] .stage-state{font-size:14px;margin:0}
+body[data-workspace="nucleosome-c"] .stage-name{font-size:18px;white-space:normal;font-weight:600;line-height:1.35}
+body[data-workspace="nucleosome-c"] .stage-summary{font-size:14px;line-height:1.5;color:var(--text);min-height:42px}
+body[data-workspace="nucleosome-c"] .stage-line{margin:0 0 14px;height:5px;flex:none}
+body[data-workspace="nucleosome-c"] .stage-details{border-top:1px solid var(--border);padding-top:18px;min-width:0}
+body[data-workspace="nucleosome-c"] .stage-details-heading{font-size:13px;font-weight:600;color:var(--text);line-height:1.4;margin:0 0 14px}
+body[data-workspace="nucleosome-c"] .stage-details-list{display:grid;gap:13px;list-style:none;margin:0;padding:0}
+body[data-workspace="nucleosome-c"] .stage-detail{font-size:15px;line-height:1.55;overflow-wrap:break-word}
+body[data-workspace="nucleosome-c"] .stage-detail.complete{color:var(--green)}
+body[data-workspace="nucleosome-c"] .stage-detail.current{color:var(--cyan)}
+body[data-workspace="nucleosome-c"] .stage-detail.stopped{color:var(--amber)}
+body[data-workspace="nucleosome-c"] .next{flex:0 0 auto;padding:18px 20px;font-size:16px;max-height:none;overflow:visible}
+body[data-workspace="nucleosome-c"] .next-line{display:flex;gap:18px;align-items:baseline}
+body[data-workspace="nucleosome-c"] .next-label{font-size:14px}
+body[data-workspace="nucleosome-c"] .next-text{line-height:1.65}
+body[data-workspace="nucleosome-c"] .timing{font-size:14px;gap:10px 26px;margin-top:12px;padding-top:12px}
+body[data-workspace="nucleosome-c"] .rate-basis{display:block;font-size:14px;line-height:1.5;margin-top:8px}
+body[data-workspace="nucleosome-c"] .bottom{flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px 28px;align-items:start;font-size:14px;padding:4px 2px 12px}
+body[data-workspace="nucleosome-c"] .guard-title{font-size:16px;font-weight:600;margin-bottom:10px}
+body[data-workspace="nucleosome-c"] .guard-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 24px;font-size:14px;line-height:1.5}
+body[data-workspace="nucleosome-c"] .guard-note{font-size:13px;line-height:1.5;margin-top:10px}
+body[data-workspace="nucleosome-c"] .footer-actions{display:flex;flex-direction:column;align-items:flex-end;gap:10px;font-size:13px}
+body[data-workspace="nucleosome-c"] .refresh{font-size:14px;padding:9px 14px;min-height:42px}
+body[data-workspace="nucleosome-c"] .capacity{display:block;grid-column:1/-1;margin:0;font-size:13px}
+@media(min-width:1700px){body[data-workspace="nucleosome-c"] .side{grid-template-columns:1fr 1fr}body[data-workspace="nucleosome-c"] .side .panel:last-child{display:flex}}
+@media(max-width:1050px){
+ body[data-workspace="nucleosome-c"] #stages{grid-template-columns:repeat(3,minmax(0,1fr));min-height:0}
+ body[data-workspace="nucleosome-c"] #stages .stage{grid-template-rows:138px auto;min-height:400px}
+ body[data-workspace="nucleosome-c"] #stages .stage:nth-child(n+4){border-top:1px solid var(--border)}
+ body[data-workspace="nucleosome-c"] #stages .stage:nth-child(4){border-left:0}
+ body[data-workspace="nucleosome-c"] .grid{grid-template-columns:1.2fr 1fr}
+ body[data-workspace="nucleosome-c"] .run{grid-template-columns:86px minmax(24px,1fr) 50px}
+ body[data-workspace="nucleosome-c"] .run-state{display:none}
+}
+@media(max-width:700px){
+ body[data-workspace="nucleosome-c"] .title-row h1{font-size:19px;white-space:normal}
+ body[data-workspace="nucleosome-c"] .feed{font-size:13px}
+ body[data-workspace="nucleosome-c"] #content{gap:14px}
+ body[data-workspace="nucleosome-c"] .overview{min-height:130px;grid-template-columns:1.2fr 1fr 1fr}
+ body[data-workspace="nucleosome-c"] .metric,body[data-workspace="nucleosome-c"] .metric:first-child{padding:12px 10px;grid-column:auto;border-bottom:0}
+ body[data-workspace="nucleosome-c"] .eyebrow,body[data-workspace="nucleosome-c"] .metric-note{font-size:12px;white-space:normal}
+ body[data-workspace="nucleosome-c"] .value,body[data-workspace="nucleosome-c"] .metric:first-child .value{font-size:34px}
+ body[data-workspace="nucleosome-c"] .grid{grid-template-columns:1fr;gap:14px;min-height:0}
+ body[data-workspace="nucleosome-c"] .runs{grid-template-rows:repeat(6,minmax(38px,auto))}
+ body[data-workspace="nucleosome-c"] .run{grid-template-columns:92px minmax(24px,1fr) 52px}
+ body[data-workspace="nucleosome-c"] .run-label,body[data-workspace="nucleosome-c"] .run-percent{font-size:14px}
+ body[data-workspace="nucleosome-c"] .detail{font-size:14px}
+ body[data-workspace="nucleosome-c"] #stages{grid-template-columns:repeat(2,minmax(0,1fr))}
+ body[data-workspace="nucleosome-c"] #stages .stage{grid-template-rows:148px auto;min-height:400px;padding:16px 13px}
+ body[data-workspace="nucleosome-c"] #stages .stage:nth-child(n){border-top:0;border-left:0}
+ body[data-workspace="nucleosome-c"] #stages .stage:nth-child(even){border-left:1px solid var(--border)}
+ body[data-workspace="nucleosome-c"] #stages .stage:nth-child(n+3){border-top:1px solid var(--border)}
+ body[data-workspace="nucleosome-c"] .stage-name{font-size:17px}
+ body[data-workspace="nucleosome-c"] .stage-state,body[data-workspace="nucleosome-c"] .stage-summary{font-size:13px}
+ body[data-workspace="nucleosome-c"] .stage-detail{font-size:14px}
+ body[data-workspace="nucleosome-c"] .next{padding:15px;font-size:15px}
+ body[data-workspace="nucleosome-c"] .next-line{gap:10px;flex-direction:column}
+ body[data-workspace="nucleosome-c"] .timing,body[data-workspace="nucleosome-c"] .rate-basis{font-size:13px}
+ body[data-workspace="nucleosome-c"] .bottom{grid-template-columns:1fr}
+ body[data-workspace="nucleosome-c"] .guard-metrics{grid-template-columns:1fr}
+ body[data-workspace="nucleosome-c"] .footer-actions{align-items:flex-start}
+}
+
 </style>
 </head>
 <body data-workspace="nucleosome-c">
@@ -82,8 +178,8 @@ ${WORKSPACE_SHELL_CSS}
 </div>
 </div>
 <section class="stages" id="stages" aria-label="Study stages"></section>
-<div class="next"><div class="next-line"><span class="next-label" id="activity-label">NOW / NEXT</span><div class="next-text" id="next">—</div></div><div class="timing"><span>Baseline <strong id="eta-baseline">measuring…</strong></span><span>Defined program <strong id="eta-program">measuring…</strong></span><span>Conditional ceiling <strong id="eta-ceiling">measuring…</strong></span></div><div class="rate-basis" id="rate-basis">Time estimates await measured cloud progression.</div><div class="rate-basis hardware" id="hardware">CPU / VM properties awaiting verification</div></div>
-<footer class="bottom"><div class="bottom-left"><span id="watchdog">Watchdog: —</span><span id="checked">—</span><span>Refresh: 30s</span></div><span class="capacity">21 defined runs · up to 48 conditional · 69 maximum</span><button class="refresh" id="refresh" type="button">Refresh ↻</button></footer>
+<div class="next"><div class="next-line"><span class="next-label" id="activity-label">NOW / NEXT</span><div class="next-text" id="next">—</div></div><div class="timing"><span>Baseline <strong id="eta-baseline">measuring…</strong></span><span>Defined program <strong id="eta-program">measuring…</strong></span><span>Conditional ceiling <strong id="eta-ceiling">measuring…</strong></span></div><div class="rate-basis" id="rate-basis">Time estimates await measured computation progression.</div></div>
+<footer class="bottom" aria-label="Computation safeguards and source observation"><section class="guard-status"><div class="guard-title" id="watchdog">Computation safeguards</div><div class="guard-metrics"><span id="guard-checks">Saved guard checks: —</span><span id="native-recovery">Native recovery point: —</span><span id="controller-confirmed">Controller confirmation: —</span><span id="controller-deadline">Controller check due: —</span></div><div class="guard-note" id="guard-note">Safeguards are reported at the source observation time.</div></section><div class="footer-actions"><span id="checked">—</span><span>Page checks every 30s</span><button class="refresh" id="refresh" type="button">Refresh ↻</button></div><span class="capacity">21 defined runs · up to 48 conditional · 69 maximum</span></footer>
 </div>
 <noscript><p>JavaScript is required to display progress.</p></noscript>
 </main>
@@ -104,6 +200,7 @@ ${WORKSPACE_SHELL_CSS}
   function duration(seconds){var hours=Math.ceil(seconds/3600);return hours<48?'~'+hours+'h':'~'+Math.round(hours/24*10)/10+'d'}
   function node(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
   function svgNode(tag,attributes){var n=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.keys(attributes).forEach(function(k){n.setAttribute(k,attributes[k])});return n}
+  var stageModel=(${stagePresentation.toString()});
   function render(){
     if(!data)return;
     var jobs=data.jobs,total=jobs.reduce(function(s,j){return s+j.step},0),pct=total/6000;
@@ -139,14 +236,14 @@ ${WORKSPACE_SHELL_CSS}
       $('active-steps').textContent=nf.format(current.step)+' / 100,000';
       $('active-guards').textContent=current.guards_pass===true?(controlCurrent?'All saved guards pass':'6 / 6 pass'):current.guards_pass===false?'Guard stop':'Pending';
       $('active-guards').className=current.guards_pass===true?'green':current.guards_pass===false?'red':'muted';
-      $('active-at').textContent=current.checkpoint_at?day(current.checkpoint_at)+' · '+time(current.checkpoint_at):'Pending';
+      $('active-at').textContent=current.checkpoint_at?(controlCurrent?'Native '+nf.format(current.native_step)+' · ':'')+day(current.checkpoint_at)+' · '+time(current.checkpoint_at):'Pending';
       $('active-status').textContent=current.checkpoint_at?age(current.checkpoint_at):'Queued';
     }
     var stale=current&&current.checkpoint_at&&Date.now()-Date.parse(current.checkpoint_at)>1500000;
     var runtime=controlCurrent?controlCurrent.runtime:data.runtime_observation;
     var confirmed=controlCurrent?Boolean(runtime&&runtime.identity_verified&&runtime.advancing&&Date.now()-Date.parse(runtime.at)<=360000):data.runtime_confirmed&&runtime&&Date.now()-Date.parse(runtime.at)<=360000;
     $('runtime').textContent=controlCurrent?(confirmed?'Advancing · '+age(runtime.at):'Latest saved control; runtime unconfirmed'):done+stops===6?'Bound runs finished':confirmed?'Advancing · '+age(runtime.at):'Unconfirmed';
-    $('runtime').className=done+stops===6||confirmed?'green':'amber';
+    $('runtime').className=(controlCurrent?confirmed:done+stops===6||confirmed)?'green':'amber';
     if(confirmed&&current&&runtime.job===current.id){$('active-status').textContent=nf.format(runtime.observed_step)+' observed';$('active-guards').textContent=runtime.guards_pass?'6 / 6 pass':'Guard stop';$('active-guards').className=runtime.guards_pass?'green':'red'}
     $('attention').hidden=done+stops===6&&!stops;
     $('attention-title').textContent=stops?'Guard stop recorded':confirmed?'Simulation advancing':stale?'Runtime observation overdue':'Awaiting current runtime update';
@@ -166,7 +263,14 @@ ${WORKSPACE_SHELL_CSS}
     $('history-total').textContent=(total/1000)+' / 600 ps';
     chart.setAttribute('aria-label','Saved progress: '+(total/1000)+' of 600 picoseconds');
     var stages=$('stages');stages.replaceChildren();
-    data.stages.forEach(function(stage,index){var card=node('div','stage');card.setAttribute('data-state',stage.state);card.append(node('div','stage-number','0'+(index+1)));card.append(node('div','stage-name',stageLabels[stage.id]));var state=stage.id==='baseline'&&stage.state==='in_progress'?pct.toFixed(1)+'% saved':stage.state==='complete'?'✓ complete':stage.state==='in_progress'?'in progress':stage.state==='guard_stop'?'guard stop':'pending';if(stage.id==='components'&&controls.length){var completeControls=controls.filter(function(j){return j.status==='completed'}).length;state=completeControls+' / 9 complete';if(controlCurrent)state+=' · '+controlLabels[controlCurrent.id]+' '+(controlCurrent.step/1000).toFixed(1)+'%'}card.append(node('div','stage-state '+stage.state,state));var line=node('div','stage-line'+(stage.state==='in_progress'?' current':'')),fill=node('i');fill.style.width=stage.state==='complete'?'100%':stage.id==='baseline'?pct+'%':stage.id==='components'&&controls.length?(controls.reduce(function(n,j){return n+j.step},0)/9000)+'%':'0%';line.append(fill);card.append(line);card.append(node('div','stage-note',stageNotes[stage.id]));stages.append(card)});
+    data.stages.forEach(function(stage,index){
+      var model=stageModel(stage,data),card=node('div','stage');card.setAttribute('data-state',stage.state);
+      var head=node('div','stage-header'),top=node('div','stage-topline');
+      top.append(node('div','stage-number','0'+(index+1)),node('div','stage-state '+stage.state,model.status));head.append(top);
+      head.append(node('div','stage-name',stageLabels[stage.id]),node('div','stage-summary',model.summary));
+      var line=node('div','stage-line'+(stage.state==='in_progress'?' current':'')),fill=node('i');fill.style.width=Math.max(0,Math.min(100,model.percent))+'%';line.append(fill);head.append(line);card.append(head);
+      var details=node('div','stage-details');details.append(node('div','stage-details-heading',model.heading));var list=node('ul','stage-details-list');model.rows.forEach(function(row){list.append(node('li','stage-detail '+row.tone,row.text))});details.append(list);card.append(details);stages.append(card);
+    });
     var todo=[];
     if(stops)todo.push('Review guard stop');
     if(done+stops<6&&!confirmed)todo.push('Confirm runtime');
@@ -176,8 +280,14 @@ ${WORKSPACE_SHELL_CSS}
     if(data.activities&&data.activities.length)todo=data.activities.filter(function(a){return a.state==='active'||a.state==='blocked'}).map(function(a){return a.label+': '+a.detail}).concat(todo);
     $('activity-label').textContent=Date.now()-Date.parse(data.information_updated_at)>900000?'LAST OBSERVED':'NOW / NEXT';
     $('next').replaceChildren();todo.slice(0,4).forEach(function(item,index){if(index)$('next').append(node('span',null,' → '));$('next').append(document.createTextNode(item))});
-    $('watchdog').textContent='Watchdog: '+(data.watchdog_armed?'armed':done+stops===6&&!controlCurrent?'no active scope':'not armed');
-    $('watchdog').className=data.watchdog_armed?'green':'amber';
+    var safety=data.guard_summary,expired=Boolean(safety&&safety.armed&&Date.now()>Date.parse(safety.controller_deadline_at));
+    $('watchdog').textContent=expired?'Controller confirmation due · current state unconfirmed':data.watchdog_armed?'Communication guard armed at last observation':'No active guarded computation at last observation';
+    $('watchdog').className='guard-title '+(expired?'amber':data.watchdog_armed?'green':'muted');
+    $('guard-checks').textContent=controlCurrent?'Saved guard checks: '+nf.format(controlCurrent.guard_rows)+' / '+nf.format(controlCurrent.guard_rows)+(controlCurrent.guards_pass?' passed':' · review stop'):'Saved guards: see completed stage records';
+    $('native-recovery').textContent=controlCurrent?'Local native recovery point: '+nf.format(controlCurrent.native_step)+' steps':'Bound and completed control checkpoints preserved';
+    $('controller-confirmed').textContent=safety?'Controller confirmed: '+day(safety.controller_confirmed_at)+' · '+time(safety.controller_confirmed_at):'Controller timing is not included in this saved observation';
+    $('controller-deadline').textContent=safety?(expired?'Recorded deadline: ':'Next controller check due: ')+day(safety.controller_deadline_at)+' · '+time(safety.controller_deadline_at):'Fresh timing appears with the next verified update';
+    $('guard-note').textContent=safety?'Guard checks every '+nf.format(safety.guard_interval_steps)+' steps · native checkpoints every '+nf.format(safety.checkpoint_interval_steps)+' steps · '+Math.round(safety.timeout_seconds/60)+' min controller-confirmation window.':'Source timestamps and saved recovery steps remain separate from current-runtime confirmation.';
     if(data.compute_rate){
       var rate=data.compute_rate,remaining=jobs.filter(function(j){return j.status!=='guard_stop'}).reduce(function(s,j){return s+j.cap-j.step},0);
       var pending=function(id){return data.stages.some(function(s){return s.id===id&&s.state!=='complete'})};
@@ -187,12 +297,12 @@ ${WORKSPACE_SHELL_CSS}
       $('eta-program').textContent=duration(defined/rate.steps_per_second)+'*';
       $('eta-ceiling').textContent=duration(ceiling/rate.steps_per_second)+'*';
       $('rate-basis').textContent=rate.steps_per_second.toFixed(3)+' steps/s · 4 CPU · '+Math.round((Date.parse(rate.to)-Date.parse(rate.from))/60000)+' min sample. *Same-rate budgets; later speeds unmeasured. Pauses/qualification extra.';
-      $('hardware').textContent=rate.cpu_model+' · '+rate.threads+' threads · '+rate.logical_cpus+' visible CPUs / '+rate.cpu_quota+' CPU quota · '+rate.memory_gib+' GiB RAM · provider VM type unavailable';
     }
-    $('checked').textContent='Information updated '+age(data.information_updated_at);
+    if(!data.compute_rate){$('eta-baseline').textContent=done+stops===6?'complete':'unmeasured';$('eta-program').textContent='unmeasured';$('eta-ceiling').textContent='conditional';$('rate-basis').textContent='Time estimates await measured computation progression.'}
+    $('checked').textContent='Source observation '+age(data.information_updated_at);
     var feedStale=Date.now()-Date.parse(data.information_updated_at)>900000;
     $('feed-dot').className='dot '+(failed||feedStale||data.feed_mode!=='automatic'?'amber':'green');
-    $('feed-state').textContent=failed?'Refresh failed · saved data':data.feed_mode!=='automatic'?'Saved snapshot':feedStale?'Feed update overdue':'Feed connected';
+    $('feed-state').textContent=failed?'Refresh failed · saved data':data.feed_mode!=='automatic'?'Saved snapshot':feedStale?'Latest verified observation '+age(data.information_updated_at):'Feed connected';
     $('loading').hidden=true;$('content').hidden=false;
   }
   async function refresh(){

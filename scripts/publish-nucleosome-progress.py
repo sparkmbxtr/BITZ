@@ -100,11 +100,11 @@ def main():
     if (not result.get("published") or saved.get("total_steps") != expected
             or saved.get("information_updated_at") != snapshot["information_updated_at"]
             or any(saved.get(key) != snapshot.get(key) for key in
-                   ("jobs", "stages", "runtime_observation", "compute_rate", "watchdog_armed", "wsl_connection", "controls", "activities", "next_actions"))):
+                   ("jobs", "stages", "runtime_observation", "compute_rate", "watchdog_armed", "wsl_connection", "controls", "activities", "next_actions", "guard_summary"))):
         raise RuntimeError("Monitoring readback differs from the committed snapshot")
     print(json.dumps({"published": True, "readback_verified": True, "saved_steps": expected,
                       "cloud_observed_at": observed.isoformat(), "source_path": str(path), "sha256": digest,
-                      "control_saved_steps": sum(job["step"] for job in saved.get("controls", [])), "control_jobs": len(saved.get("controls", [])), "activities": saved.get("activities", []), "next_actions": saved.get("next_actions", [])}))
+                      "control_saved_steps": sum(job["step"] for job in saved.get("controls", [])), "control_jobs": len(saved.get("controls", [])), "activities": saved.get("activities", []), "next_actions": saved.get("next_actions", []), "guard_summary": saved.get("guard_summary")}))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf8") as stream:
