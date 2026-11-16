@@ -73,8 +73,7 @@ ${FITTED_LAYOUT_CSS}
 <div class="title-row"><h1>Nucleosome <span>/ experiment</span></h1><div class="connection-group"><div class="feed"><i class="dot" id="feed-dot" aria-hidden="true"></i><span id="feed-state" role="status">Connecting</span></div></div></div>
 <div id="loading" class="loading" role="status">Loading progress…</div>
 <div id="content" hidden data-layout="single" data-density="0">
-<div class="progress-pane"><div class="current-band"><div class="band-title"><span id="band-name">—</span><span id="band-steps">—</span></div><div class="band-evidence" id="band-evidence">—</div></div>
-<section class="overview" aria-label="Baseline overview">
+<div class="progress-pane"><section class="overview" aria-label="Baseline overview">
 <div class="metric"><div class="eyebrow">Baseline saved</div><div class="value green" id="overall">—</div><div class="metric-note" id="saved-total">—</div><div class="total-bar" id="total-bar" role="progressbar" aria-label="Overall saved simulation steps" aria-valuemin="0" aria-valuemax="100"></div></div>
 <div class="metric"><div class="eyebrow">Runs complete</div><div class="value" id="finished">—</div><div class="metric-note" id="finished-note">—</div></div>
 <div class="metric"><div class="eyebrow">Study stages</div><div class="value" id="remaining">—</div><div class="metric-note" id="remaining-note">—</div></div>
@@ -83,7 +82,10 @@ ${FITTED_LAYOUT_CSS}
 <div class="grid">
 <section class="panel baseline-panel" aria-labelledby="runs-heading"><div class="panel-head"><h2 class="panel-title" id="runs-heading">Baseline · six replicas</h2><span class="panel-hint">100 ps each</span></div><div class="runs" id="runs"></div></section>
 <div class="side">
-<section class="panel" aria-labelledby="active-heading"><div class="panel-head"><h2 class="panel-title" id="active-heading">Current checkpoint</h2><span class="panel-hint" id="active-status">—</span></div><div class="active-body"><div class="active-top"><span class="active-name" id="active-name">—</span><span class="active-percent" id="active-percent">—</span></div><dl><div class="detail"><dt>Saved steps</dt><dd id="active-steps">—</dd></div><div class="detail"><dt>Guards</dt><dd id="active-guards">—</dd></div><div class="detail"><dt>Checkpoint</dt><dd id="active-at">—</dd></div><div class="detail"><dt>Runtime</dt><dd class="amber" id="runtime">Unconfirmed</dd></div></dl></div></section>
+<section class="panel controls-panel" aria-labelledby="active-heading"><div class="panel-head"><h2 class="panel-title" id="active-heading">Controls</h2><span class="panel-hint" id="controls-complete">—</span></div><div class="control-columns">
+<div class="control-group"><h3 class="control-group-title">Apo</h3><div class="control-runs" id="apo-runs"></div><div class="current-control-meta" id="control-current-meta"><div class="meta-current"><span>Current</span><strong id="active-name">—</strong><span id="active-percent">—</span><span id="active-status">—</span></div><div class="control-current-evidence" id="control-current-detail">—</div><dl hidden><div class="detail"><dt>Saved steps</dt><dd id="active-steps">—</dd></div><div class="detail"><dt>Guards</dt><dd id="active-guards">—</dd></div><div class="detail"><dt>Checkpoint</dt><dd id="active-at">—</dd></div><div class="detail"><dt>Runtime</dt><dd id="runtime">—</dd></div></dl></div></div>
+<div class="control-group"><h3 class="control-group-title">DNA controls</h3><div class="control-runs" id="dna-runs"></div></div>
+</div></section>
 <section class="panel" aria-labelledby="history-heading"><div class="panel-head"><h2 class="panel-title" id="history-heading">Saved progress</h2><span class="panel-hint" id="history-total">—</span></div><div class="chart-body"><svg id="history" class="history" viewBox="0 0 360 122" role="img" aria-label="Cumulative saved simulation progress"></svg><div class="chart-labels"><span id="history-start">—</span><span id="history-end">—</span></div></div></section>
 </div>
 </div>
@@ -146,6 +148,20 @@ ${FITTED_LAYOUT_CSS}
       row.append(node('span','run-state'+(job.status==='completed'?' complete':isCurrent?' current':isStop?' failed':''),job.status==='completed'?'✓ done':isCurrent?'saved':isStop?'guard stop':'queued'));
       runRows.append(row);
     });
+    $('controls-complete').textContent=controls.length?controls.filter(function(j){return j.status==='completed'}).length+' / 9 complete':'Awaiting verified controls';
+    var shortControlLabels={'free-601-A':'601 A','free-601-B':'601 B','free-601-C':'601 C','free-control-A':'Ctrl A','free-control-B':'Ctrl B','free-control-C':'Ctrl C','apo-A':'Apo A','apo-B':'Apo B','apo-C':'Apo C'};
+    function controlRows(id,apo){
+      var target=$(id);target.replaceChildren();
+      controls.filter(function(j){return j.id.startsWith('apo-')===apo}).forEach(function(j){
+        var complete=j.status==='completed',stopped=j.status==='stopped',row=node('div','run control-run');row.setAttribute('data-control-id',j.id);
+        var label=node('div','run-label');label.append(node('span','control-label-full',controlLabels[j.id]),node('span','control-label-short',shortControlLabels[j.id]));row.append(label);
+        var track=node('div','run-track'),fill=node('div','run-fill');fill.style.width=(j.step/1000)+'%';track.append(fill);track.setAttribute('role','progressbar');track.setAttribute('aria-label',controlLabels[j.id]);track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');track.setAttribute('aria-valuenow',String(j.step/1000));row.append(track);
+        row.append(node('span','run-percent'+(complete||j.status==='checkpoint'?' green':stopped?' amber':' muted'),(j.step/1000).toFixed(j.step%1000?1:0)+'%'));
+        row.append(node('span','run-state'+(complete?' complete':stopped?' stopped':j.status==='checkpoint'?' green':''),complete?'✓ done':stopped?'stopped':j.status==='checkpoint'?'saved':'queued'));
+        row.setAttribute('aria-label',controlLabels[j.id]+': '+nf.format(j.step)+' of 100,000 saved steps; '+j.status+(j.native_step!=null?'; native recovery '+nf.format(j.native_step):''));target.append(row);
+      });
+    }
+    controlRows('apo-runs',true);controlRows('dna-runs',false);
     if(current){
       $('active-name').textContent=controlLabels[current.id]||labels[current.id];$('active-percent').textContent=(current.step/1000)+'%';
       $('active-steps').textContent=nf.format(current.step)+' / 100,000';
@@ -182,13 +198,15 @@ ${FITTED_LAYOUT_CSS}
       var model=stageModel(stage,data,layout.density),card=node('div','stage');card.setAttribute('data-state',stage.state);card.setAttribute('data-stage-id',stage.id);
       var head=node('div','stage-header'),top=node('div','stage-topline');
       top.append(node('div','stage-number','0'+(index+1)),node('div','stage-state '+stage.state,model.status));head.append(top);
-      head.append(node('div','stage-name',layout.density>=3&&stage.id==='heldout'?'Confirm':stageLabels[stage.id]),node('div','stage-summary',model.summary));
+      head.append(node('div','stage-name',layout.density>=2&&stage.id==='heldout'?'Confirm':stageLabels[stage.id]),node('div','stage-summary',model.summary));
       var line=node('div','stage-line'+(stage.state==='in_progress'?' current':'')),fill=node('i');fill.style.width=Math.max(0,Math.min(100,model.percent))+'%';line.append(fill);head.append(line);card.append(head);
       var details=node('div','stage-details');details.append(node('div','stage-details-heading',model.heading));var list=node('ul','stage-details-list');model.rows.forEach(function(row){list.append(node('li','stage-detail '+row.tone,row.text))});details.append(list);card.append(details);stages.append(card);
     });
-    $('band-name').textContent=current?(controlLabels[current.id]||labels[current.id]):'Computation';
-    $('band-steps').textContent=current?nf.format(current.step)+' / 100,000':'Awaiting update';
-    $('band-evidence').textContent=controlCurrent?nf.format(controlCurrent.guard_rows)+' guards pass · Native '+nf.format(controlCurrent.native_step)+(confirmed?' · advancing':' · runtime unconfirmed'):'Baseline '+done+' / 6 complete';
+    $('control-current-meta').hidden=!controlCurrent;
+    $('control-current-detail').replaceChildren();
+    if(controlCurrent){
+      $('control-current-detail').append(node('span',null,nf.format(controlCurrent.step)+' saved'),node('span',null,nf.format(controlCurrent.guard_rows)+' saved guards pass'),node('span',null,'Native '+nf.format(controlCurrent.native_step)+' · '+(confirmed?'advancing':'runtime unconfirmed')));
+    }
     var todo=[];
     if(stops)todo.push('Review guard stop');
     if(done+stops<6&&!confirmed)todo.push('Confirm runtime');
@@ -206,7 +224,7 @@ ${FITTED_LAYOUT_CSS}
     var safety=data.guard_summary,expired=Boolean(safety&&safety.armed&&Date.now()>Date.parse(safety.controller_deadline_at));
     $('watchdog').textContent=expired?'Controller confirmation due · current state unconfirmed':data.watchdog_armed?'Communication guard armed at last observation':'No active guarded computation at last observation';
     $('watchdog').className='guard-title '+(expired?'amber':data.watchdog_armed?'green':'muted');
-    $('guard-compact-state').textContent=expired?'Controller check due · runtime unconfirmed':data.watchdog_armed?'Guard armed at last observation':'No active guarded computation';
+    $('guard-compact-state').textContent=expired?'Controller check due · runtime unconfirmed':data.watchdog_armed?(controlCurrent?nf.format(controlCurrent.guard_rows)+' guards pass · Native '+nf.format(controlCurrent.native_step):'Guard armed at last observation'):'No active guarded computation';
     $('guard-compact-contact').textContent=safety?'Controller '+time(safety.controller_confirmed_at)+' · due '+time(safety.controller_deadline_at):'Controller timing unconfirmed';
     $('guard-checks').textContent=controlCurrent?'Saved guard checks: '+nf.format(controlCurrent.guard_rows)+' / '+nf.format(controlCurrent.guard_rows)+(controlCurrent.guards_pass?' passed':' · review stop'):'Saved guards: see completed stage records';
     $('native-recovery').textContent=controlCurrent?'Local native recovery point: '+nf.format(controlCurrent.native_step)+' steps':'Bound and completed control checkpoints preserved';

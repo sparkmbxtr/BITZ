@@ -66,4 +66,13 @@ test("elapsed controller timing reports uncertainty without inventing a process 
  assert.match(get("controller-deadline").textContent,/Recorded deadline/);
  assert.doesNotMatch(get("watchdog").textContent,/stopped|dead|expired/i);
 });
+test("both control columns mirror the baseline bars while retaining stopped and queued evidence",async()=>{
+ const input=snapshot();Object.assign(input.controls[0],{step:8880,status:"stopped",guard_rows:445,guards_pass:true,native_step:8000,checkpoint_at:input.information_updated_at});
+ const {get}=await renderSnapshot(input),apo=get("apo-runs").children,dna=get("dna-runs").children;
+ assert.equal(apo.length,3);assert.equal(dna.length,6);assert.equal(get("controls-complete").textContent,"2 / 9 complete");
+ for(const row of apo.slice(0,2)){assert.equal(row.children[1].children[0].style.width,"100%");assert.equal(row.children[2].textContent,"100%");assert.equal(row.children[3].textContent,"✓ done")}
+ assert.equal(apo[2].children[1].children[0].style.width,"0.12%");assert.equal(apo[2].children[3].textContent,"saved");
+ assert.equal(dna[0].children[1].children[0].style.width,"8.88%");assert.equal(dna[0].children[3].textContent,"stopped");
+ assert.equal(dna[1].children[1].children[0].style.width,"0%");assert.equal(dna[1].children[3].textContent,"queued");
+});
 
