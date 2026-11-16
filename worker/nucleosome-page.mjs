@@ -1,3 +1,4 @@
+import {FITTED_LAYOUT_CSS, createFittedLayout} from "./nucleosome-fit-layout.mjs";
 import { stagePresentation } from "./nucleosome-stage-details.mjs";
 import { workspaceNavigation, WORKSPACE_SHELL_CSS } from "./dashboard-tabs.mjs";
 import { DASHBOARD_BUILD_VERSION } from "../lib/dashboard-version.ts";
@@ -62,99 +63,7 @@ header{background:#100b13}.workspace-tabs{max-width:2000px;margin:auto;display:f
 @media(max-width:700px){.connection-group{flex-direction:column;align-items:flex-end;gap:2px}}
 ${WORKSPACE_SHELL_CSS}
 
-/* Readable summaries: fixed shared frame, scrollable evidence, aligned stage details. */
-body[data-workspace="nucleosome-c"]{font-size:16px}
-body[data-workspace="nucleosome-c"] #content{display:flex;flex-direction:column;gap:18px;min-height:0;height:100%;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;padding-right:3px}
-body[data-workspace="nucleosome-c"] .title-row{flex-wrap:wrap}
-body[data-workspace="nucleosome-c"] .feed{font-size:14px}
-body[data-workspace="nucleosome-c"] .overview{flex:0 0 auto;min-height:120px;grid-template-columns:1.45fr 1fr 1fr}
-body[data-workspace="nucleosome-c"] .metric{padding:18px 22px}
-body[data-workspace="nucleosome-c"] .eyebrow{font-size:14px;line-height:1.4}
-body[data-workspace="nucleosome-c"] .metric-note{font-size:14px;line-height:1.5}
-body[data-workspace="nucleosome-c"] .value{font-size:48px;line-height:1.15;margin:6px 0}
-body[data-workspace="nucleosome-c"] .grid{flex:0 0 auto;min-height:270px;grid-template-columns:1.35fr 1fr;gap:18px}
-body[data-workspace="nucleosome-c"] .panel-head{padding:13px 16px}
-body[data-workspace="nucleosome-c"] .panel-title{font-size:15px}
-body[data-workspace="nucleosome-c"] .panel-hint{font-size:13px}
-body[data-workspace="nucleosome-c"] .runs{padding:0 16px}
-body[data-workspace="nucleosome-c"] .run{min-height:38px;grid-template-columns:100px minmax(28px,1fr) 56px 80px;gap:12px;padding:6px 0}
-body[data-workspace="nucleosome-c"] .run-label,body[data-workspace="nucleosome-c"] .run-percent{font-size:15px}
-body[data-workspace="nucleosome-c"] .run-state{font-size:14px}
-body[data-workspace="nucleosome-c"] .side{grid-template-columns:1fr}
-body[data-workspace="nucleosome-c"] .side .panel:last-child{display:none}
-body[data-workspace="nucleosome-c"] .active-body{padding:16px 20px;justify-content:flex-start;gap:10px}
-body[data-workspace="nucleosome-c"] .active-name,body[data-workspace="nucleosome-c"] .active-percent{font-size:27px}
-body[data-workspace="nucleosome-c"] .detail{display:flex;font-size:15px;line-height:1.5;margin:8px 0;gap:16px}
-body[data-workspace="nucleosome-c"] .detail dd{overflow-wrap:break-word}
-body[data-workspace="nucleosome-c"] .attention{font-size:14px}
-body[data-workspace="nucleosome-c"] .attention-meta{font-size:13px}
-body[data-workspace="nucleosome-c"] #stages{flex:1 0 auto;min-height:440px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));align-items:stretch;margin:0}
-body[data-workspace="nucleosome-c"] #stages .stage{display:grid;grid-template-rows:148px auto;align-content:start;justify-content:stretch;padding:20px 16px;line-height:1.5}
-body[data-workspace="nucleosome-c"] .stage-header{display:flex;flex-direction:column;min-width:0;gap:10px}
-body[data-workspace="nucleosome-c"] .stage-topline{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
-body[data-workspace="nucleosome-c"] .stage-number{display:block;font-size:13px;margin:0}
-body[data-workspace="nucleosome-c"] .stage-state{font-size:14px;margin:0}
-body[data-workspace="nucleosome-c"] .stage-name{font-size:18px;white-space:normal;font-weight:600;line-height:1.35}
-body[data-workspace="nucleosome-c"] .stage-summary{font-size:14px;line-height:1.5;color:var(--text);min-height:42px}
-body[data-workspace="nucleosome-c"] .stage-line{margin:0 0 14px;height:5px;flex:none}
-body[data-workspace="nucleosome-c"] .stage-details{border-top:1px solid var(--border);padding-top:18px;min-width:0}
-body[data-workspace="nucleosome-c"] .stage-details-heading{font-size:13px;font-weight:600;color:var(--text);line-height:1.4;margin:0 0 14px}
-body[data-workspace="nucleosome-c"] .stage-details-list{display:grid;gap:13px;list-style:none;margin:0;padding:0}
-body[data-workspace="nucleosome-c"] .stage-detail{font-size:15px;line-height:1.55;overflow-wrap:break-word}
-body[data-workspace="nucleosome-c"] .stage-detail.complete{color:var(--green)}
-body[data-workspace="nucleosome-c"] .stage-detail.current{color:var(--cyan)}
-body[data-workspace="nucleosome-c"] .stage-detail.stopped{color:var(--amber)}
-body[data-workspace="nucleosome-c"] .next{flex:0 0 auto;padding:18px 20px;font-size:16px;max-height:none;overflow:visible}
-body[data-workspace="nucleosome-c"] .next-line{display:flex;gap:18px;align-items:baseline}
-body[data-workspace="nucleosome-c"] .next-label{font-size:14px}
-body[data-workspace="nucleosome-c"] .next-text{line-height:1.65}
-body[data-workspace="nucleosome-c"] .timing{font-size:14px;gap:10px 26px;margin-top:12px;padding-top:12px}
-body[data-workspace="nucleosome-c"] .rate-basis{display:block;font-size:14px;line-height:1.5;margin-top:8px}
-body[data-workspace="nucleosome-c"] .bottom{flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px 28px;align-items:start;font-size:14px;padding:4px 2px 12px}
-body[data-workspace="nucleosome-c"] .guard-title{font-size:16px;font-weight:600;margin-bottom:10px}
-body[data-workspace="nucleosome-c"] .guard-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 24px;font-size:14px;line-height:1.5}
-body[data-workspace="nucleosome-c"] .guard-note{font-size:13px;line-height:1.5;margin-top:10px}
-body[data-workspace="nucleosome-c"] .footer-actions{display:flex;flex-direction:column;align-items:flex-end;gap:10px;font-size:13px}
-body[data-workspace="nucleosome-c"] .refresh{font-size:14px;padding:9px 14px;min-height:42px}
-body[data-workspace="nucleosome-c"] .capacity{display:block;grid-column:1/-1;margin:0;font-size:13px}
-@media(min-width:1700px){body[data-workspace="nucleosome-c"] .side{grid-template-columns:1fr 1fr}body[data-workspace="nucleosome-c"] .side .panel:last-child{display:flex}}
-@media(max-width:1050px){
- body[data-workspace="nucleosome-c"] #stages{grid-template-columns:repeat(3,minmax(0,1fr));min-height:0}
- body[data-workspace="nucleosome-c"] #stages .stage{grid-template-rows:138px auto;min-height:400px}
- body[data-workspace="nucleosome-c"] #stages .stage:nth-child(n+4){border-top:1px solid var(--border)}
- body[data-workspace="nucleosome-c"] #stages .stage:nth-child(4){border-left:0}
- body[data-workspace="nucleosome-c"] .grid{grid-template-columns:1.2fr 1fr}
- body[data-workspace="nucleosome-c"] .run{grid-template-columns:86px minmax(24px,1fr) 50px}
- body[data-workspace="nucleosome-c"] .run-state{display:none}
-}
-@media(max-width:700px){
- body[data-workspace="nucleosome-c"] .title-row h1{font-size:19px;white-space:normal}
- body[data-workspace="nucleosome-c"] .feed{font-size:13px}
- body[data-workspace="nucleosome-c"] #content{gap:14px}
- body[data-workspace="nucleosome-c"] .overview{min-height:130px;grid-template-columns:1.2fr 1fr 1fr}
- body[data-workspace="nucleosome-c"] .metric,body[data-workspace="nucleosome-c"] .metric:first-child{padding:12px 10px;grid-column:auto;border-bottom:0}
- body[data-workspace="nucleosome-c"] .eyebrow,body[data-workspace="nucleosome-c"] .metric-note{font-size:12px;white-space:normal}
- body[data-workspace="nucleosome-c"] .value,body[data-workspace="nucleosome-c"] .metric:first-child .value{font-size:34px}
- body[data-workspace="nucleosome-c"] .grid{grid-template-columns:1fr;gap:14px;min-height:0}
- body[data-workspace="nucleosome-c"] .runs{grid-template-rows:repeat(6,minmax(38px,auto))}
- body[data-workspace="nucleosome-c"] .run{grid-template-columns:92px minmax(24px,1fr) 52px}
- body[data-workspace="nucleosome-c"] .run-label,body[data-workspace="nucleosome-c"] .run-percent{font-size:14px}
- body[data-workspace="nucleosome-c"] .detail{font-size:14px}
- body[data-workspace="nucleosome-c"] #stages{grid-template-columns:repeat(2,minmax(0,1fr))}
- body[data-workspace="nucleosome-c"] #stages .stage{grid-template-rows:148px auto;min-height:400px;padding:16px 13px}
- body[data-workspace="nucleosome-c"] #stages .stage:nth-child(n){border-top:0;border-left:0}
- body[data-workspace="nucleosome-c"] #stages .stage:nth-child(even){border-left:1px solid var(--border)}
- body[data-workspace="nucleosome-c"] #stages .stage:nth-child(n+3){border-top:1px solid var(--border)}
- body[data-workspace="nucleosome-c"] .stage-name{font-size:17px}
- body[data-workspace="nucleosome-c"] .stage-state,body[data-workspace="nucleosome-c"] .stage-summary{font-size:13px}
- body[data-workspace="nucleosome-c"] .stage-detail{font-size:14px}
- body[data-workspace="nucleosome-c"] .next{padding:15px;font-size:15px}
- body[data-workspace="nucleosome-c"] .next-line{gap:10px;flex-direction:column}
- body[data-workspace="nucleosome-c"] .timing,body[data-workspace="nucleosome-c"] .rate-basis{font-size:13px}
- body[data-workspace="nucleosome-c"] .bottom{grid-template-columns:1fr}
- body[data-workspace="nucleosome-c"] .guard-metrics{grid-template-columns:1fr}
- body[data-workspace="nucleosome-c"] .footer-actions{align-items:flex-start}
-}
+${FITTED_LAYOUT_CSS}
 
 </style>
 </head>
@@ -163,22 +72,28 @@ body[data-workspace="nucleosome-c"] .capacity{display:block;grid-column:1/-1;mar
 <main id="nucleosome-c" aria-labelledby="tab-nucleosome-c">
 <div class="title-row"><h1>Nucleosome <span>/ experiment</span></h1><div class="connection-group"><div class="feed"><i class="dot" id="feed-dot" aria-hidden="true"></i><span id="feed-state" role="status">Connecting</span></div></div></div>
 <div id="loading" class="loading" role="status">Loading progress…</div>
-<div id="content" hidden>
+<div id="content" hidden data-layout="full" data-view="current" data-progress="current">
+<nav class="dashboard-views" aria-label="Dashboard view"><button class="view-button" type="button" data-dashboard-view="current" aria-pressed="true">Current</button><button class="view-button" type="button" data-dashboard-view="stages" aria-pressed="false">Stages</button><button class="view-button" type="button" data-dashboard-view="activity" aria-pressed="false">Activity</button><button class="view-button" type="button" data-dashboard-view="checks" aria-pressed="false">Checks</button></nav>
+<div class="progress-pane">
 <section class="overview" aria-label="Baseline overview">
 <div class="metric"><div class="eyebrow">Baseline saved</div><div class="value green" id="overall">—</div><div class="metric-note" id="saved-total">—</div><div class="total-bar" id="total-bar" role="progressbar" aria-label="Overall saved simulation steps" aria-valuemin="0" aria-valuemax="100"></div></div>
 <div class="metric"><div class="eyebrow">Runs complete</div><div class="value" id="finished">—</div><div class="metric-note" id="finished-note">—</div></div>
 <div class="metric"><div class="eyebrow">Study stages</div><div class="value" id="remaining">—</div><div class="metric-note" id="remaining-note">—</div></div>
 </section>
 <div class="attention" id="attention" role="status"><div class="attention-main"><i class="dot amber" aria-hidden="true"></i><span id="attention-title">—</span></div><div class="attention-meta" id="attention-meta">—</div></div>
+<nav class="progress-views" aria-label="Progress details"><button class="view-button" type="button" data-progress-view="current" aria-pressed="true">Current computation</button><button class="view-button" type="button" data-progress-view="baseline" aria-pressed="false">Baseline runs</button></nav>
 <div class="grid">
-<section class="panel" aria-labelledby="runs-heading"><div class="panel-head"><h2 class="panel-title" id="runs-heading">Baseline · six replicas</h2><span class="panel-hint">100 ps each</span></div><div class="runs" id="runs"></div></section>
+<section class="panel baseline-panel" aria-labelledby="runs-heading"><div class="panel-head"><h2 class="panel-title" id="runs-heading">Baseline · six replicas</h2><span class="panel-hint">100 ps each</span></div><div class="runs" id="runs"></div></section>
 <div class="side">
 <section class="panel" aria-labelledby="active-heading"><div class="panel-head"><h2 class="panel-title" id="active-heading">Current checkpoint</h2><span class="panel-hint" id="active-status">—</span></div><div class="active-body"><div class="active-top"><span class="active-name" id="active-name">—</span><span class="active-percent" id="active-percent">—</span></div><dl><div class="detail"><dt>Saved steps</dt><dd id="active-steps">—</dd></div><div class="detail"><dt>Guards</dt><dd id="active-guards">—</dd></div><div class="detail"><dt>Checkpoint</dt><dd id="active-at">—</dd></div><div class="detail"><dt>Runtime</dt><dd class="amber" id="runtime">Unconfirmed</dd></div></dl></div></section>
 <section class="panel" aria-labelledby="history-heading"><div class="panel-head"><h2 class="panel-title" id="history-heading">Saved progress</h2><span class="panel-hint" id="history-total">—</span></div><div class="chart-body"><svg id="history" class="history" viewBox="0 0 360 122" role="img" aria-label="Cumulative saved simulation progress"></svg><div class="chart-labels"><span id="history-start">—</span><span id="history-end">—</span></div></div></section>
 </div>
 </div>
-<section class="stages" id="stages" aria-label="Study stages"></section>
-<div class="next"><div class="next-line"><span class="next-label" id="activity-label">NOW / NEXT</span><div class="next-text" id="next">—</div></div><div class="timing"><span>Baseline <strong id="eta-baseline">measuring…</strong></span><span>Defined program <strong id="eta-program">measuring…</strong></span><span>Conditional ceiling <strong id="eta-ceiling">measuring…</strong></span></div><div class="rate-basis" id="rate-basis">Time estimates await measured computation progression.</div></div>
+</div>
+<section class="stage-area" aria-label="Study stages"><div class="stage-navigation"><strong>Study stages</strong><div class="stage-navigation-controls" id="stage-navigation-controls"><button class="page-button" id="stage-prev" type="button" aria-label="Previous stages">←</button><span id="stage-page-count"></span><button class="page-button" id="stage-next" type="button" aria-label="Next stages">→</button></div></div><div class="stages" id="stages"></div></section>
+<div class="activity-pane">
+<div class="next"><div class="next-line"><span class="next-label" id="activity-label">NOW / NEXT</span><div class="next-text" id="next">—</div></div><div class="detail-pages" id="activity-pages" hidden><button class="page-button" type="button" data-detail-direction="-1" aria-label="Previous activities">←</button><span class="page-count"></span><button class="page-button" type="button" data-detail-direction="1" aria-label="Next activities">→</button></div><div class="timing"><span>Baseline <strong id="eta-baseline">measuring…</strong></span><span>Defined program <strong id="eta-program">measuring…</strong></span><span>Conditional ceiling <strong id="eta-ceiling">measuring…</strong></span></div><div class="rate-basis" id="rate-basis">Time estimates await measured computation progression.</div></div>
+</div>
 <footer class="bottom" aria-label="Computation safeguards and source observation"><section class="guard-status"><div class="guard-title" id="watchdog">Computation safeguards</div><div class="guard-metrics"><span id="guard-checks">Saved guard checks: —</span><span id="native-recovery">Native recovery point: —</span><span id="controller-confirmed">Controller confirmation: —</span><span id="controller-deadline">Controller check due: —</span></div><div class="guard-note" id="guard-note">Safeguards are reported at the source observation time.</div></section><div class="footer-actions"><span id="checked">—</span><span>Page checks every 30s</span><button class="refresh" id="refresh" type="button">Refresh ↻</button></div><span class="capacity">21 defined runs · up to 48 conditional · 69 maximum</span></footer>
 </div>
 <noscript><p>JavaScript is required to display progress.</p></noscript>
@@ -201,6 +116,7 @@ body[data-workspace="nucleosome-c"] .capacity{display:block;grid-column:1/-1;mar
   function node(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
   function svgNode(tag,attributes){var n=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.keys(attributes).forEach(function(k){n.setAttribute(k,attributes[k])});return n}
   var stageModel=(${stagePresentation.toString()});
+  var fittedLayout=(${createFittedLayout.toString()})(document,window);
   function render(){
     if(!data)return;
     var jobs=data.jobs,total=jobs.reduce(function(s,j){return s+j.step},0),pct=total/6000;
@@ -264,12 +180,13 @@ body[data-workspace="nucleosome-c"] .capacity{display:block;grid-column:1/-1;mar
     chart.setAttribute('aria-label','Saved progress: '+(total/1000)+' of 600 picoseconds');
     var stages=$('stages');stages.replaceChildren();
     data.stages.forEach(function(stage,index){
-      var model=stageModel(stage,data),card=node('div','stage');card.setAttribute('data-state',stage.state);
+      var model=stageModel(stage,data),card=node('div','stage');card.setAttribute('data-state',stage.state);card.setAttribute('data-stage-id',stage.id);
       var head=node('div','stage-header'),top=node('div','stage-topline');
       top.append(node('div','stage-number','0'+(index+1)),node('div','stage-state '+stage.state,model.status));head.append(top);
       head.append(node('div','stage-name',stageLabels[stage.id]),node('div','stage-summary',model.summary));
       var line=node('div','stage-line'+(stage.state==='in_progress'?' current':'')),fill=node('i');fill.style.width=Math.max(0,Math.min(100,model.percent))+'%';line.append(fill);head.append(line);card.append(head);
-      var details=node('div','stage-details');details.append(node('div','stage-details-heading',model.heading));var list=node('ul','stage-details-list');model.rows.forEach(function(row){list.append(node('li','stage-detail '+row.tone,row.text))});details.append(list);card.append(details);stages.append(card);
+      var details=node('div','stage-details');details.append(node('div','stage-details-heading',model.heading));var list=node('ul','stage-details-list');model.rows.forEach(function(row){list.append(node('li','stage-detail '+row.tone,row.text))});details.append(list);var pager=node('div','detail-pages');pager.hidden=true;
+      var prev=node('button','page-button','←'),next=node('button','page-button','→');prev.type=next.type='button';prev.setAttribute('data-detail-direction','-1');next.setAttribute('data-detail-direction','1');prev.setAttribute('aria-label','Previous '+stageLabels[stage.id]+' details');next.setAttribute('aria-label','Next '+stageLabels[stage.id]+' details');pager.append(prev,node('span','page-count'),next);details.append(pager);card.append(details);stages.append(card);
     });
     var todo=[];
     if(stops)todo.push('Review guard stop');
@@ -279,7 +196,7 @@ body[data-workspace="nucleosome-c"] .capacity{display:block;grid-column:1/-1;mar
     if(data.next_actions&&data.next_actions.length)todo=data.next_actions;
     if(data.activities&&data.activities.length)todo=data.activities.filter(function(a){return a.state==='active'||a.state==='blocked'}).map(function(a){return a.label+': '+a.detail}).concat(todo);
     $('activity-label').textContent=Date.now()-Date.parse(data.information_updated_at)>900000?'LAST OBSERVED':'NOW / NEXT';
-    $('next').replaceChildren();todo.slice(0,4).forEach(function(item,index){if(index)$('next').append(node('span',null,' → '));$('next').append(document.createTextNode(item))});
+    $('next').replaceChildren();todo.slice(0,4).forEach(function(item){$('next').append(node('span','activity-item',item))});
     var safety=data.guard_summary,expired=Boolean(safety&&safety.armed&&Date.now()>Date.parse(safety.controller_deadline_at));
     $('watchdog').textContent=expired?'Controller confirmation due · current state unconfirmed':data.watchdog_armed?'Communication guard armed at last observation':'No active guarded computation at last observation';
     $('watchdog').className='guard-title '+(expired?'amber':data.watchdog_armed?'green':'muted');
@@ -303,7 +220,7 @@ body[data-workspace="nucleosome-c"] .capacity{display:block;grid-column:1/-1;mar
     var feedStale=Date.now()-Date.parse(data.information_updated_at)>900000;
     $('feed-dot').className='dot '+(failed||feedStale||data.feed_mode!=='automatic'?'amber':'green');
     $('feed-state').textContent=failed?'Refresh failed · saved data':data.feed_mode!=='automatic'?'Saved snapshot':feedStale?'Latest verified observation '+age(data.information_updated_at):'Feed connected';
-    $('loading').hidden=true;$('content').hidden=false;
+    $('loading').hidden=true;$('content').hidden=false;$('content').setAttribute('data-has-rate',String(Boolean(data.compute_rate)));fittedLayout.update();
   }
   async function refresh(){
     if(busy)return;busy=true;$('refresh').disabled=true;
