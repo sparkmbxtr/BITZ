@@ -94,7 +94,7 @@ ${FULLSCREEN_CSS}
 </div>
 <section class="stages" id="stages" aria-label="Study stages"></section>
 <div class="activity-pane">
-<div class="next"><div class="next-line"><span class="next-label" id="activity-label">NOW / NEXT</span><div class="next-text" id="next">—</div></div><div class="timing"><span>Baseline <strong id="eta-baseline">measuring…</strong></span><span>Defined program <strong id="eta-program">measuring…</strong></span><span>Conditional ceiling <strong id="eta-ceiling">measuring…</strong></span></div><div class="rate-basis" id="rate-basis">Time estimates await measured computation progression.</div></div>
+<div class="next"><div class="next-line"><span class="next-label" id="activity-label">NOW / NEXT</span><div class="next-text" id="next">—</div></div><div class="timing"><span>Controls <strong id="eta-controls">calculating…</strong></span><span>Defined program <strong id="eta-program">measuring…</strong></span><span>Conditional ceiling <strong id="eta-ceiling">measuring…</strong></span></div><div class="rate-basis" id="rate-basis">Daily ranges use measured saved progress.</div></div>
 </div>
 <footer class="bottom" aria-label="Computation safeguards and source observation"><div class="guard-compact"><span id="guard-compact-state">—</span><span id="guard-compact-contact">—</span></div><section class="guard-status"><div class="guard-title" id="watchdog">Computation safeguards</div><div class="guard-metrics"><span id="guard-checks">Saved guard checks: —</span><span id="native-recovery">Native recovery point: —</span><span id="controller-confirmed">Controller confirmation: —</span><span id="controller-deadline">Controller check due: —</span></div><div class="guard-note" id="guard-note">Safeguards are reported at the source observation time.</div></section><div class="footer-actions"><span id="checked">—</span><span>Page checks every 30s</span></div><span class="capacity">21 defined runs · up to 48 conditional · 69 maximum</span></footer>
 </div>
@@ -237,22 +237,28 @@ ${FULLSCREEN_CSS}
     $('controller-confirmed').textContent='Last update: '+day(data.information_updated_at)+' · '+time(data.information_updated_at);
     $('controller-deadline').textContent=controlCurrent?'Checkpoint interval: '+nf.format(safety?safety.checkpoint_interval_steps:1000)+' steps':'';
     $('guard-note').textContent=safety?'Guard checks every '+nf.format(safety.guard_interval_steps)+' steps · native checkpoints every '+nf.format(safety.checkpoint_interval_steps)+' steps.':'Progress and saved checkpoints are shown at the last update.';
-    if(data.compute_rate){
-      var rate=data.compute_rate,remaining=jobs.filter(function(j){return j.status!=='guard_stop'}).reduce(function(s,j){return s+j.cap-j.step},0);
-      var pending=function(id){return data.stages.some(function(s){return s.id===id&&s.state!=='complete'})};
-      var defined=remaining+(pending('components')?(controls.length?controls.reduce(function(n,j){return n+(j.status==='stopped'?0:j.cap-j.step)},0):900000):0)+(pending('pulling')?600000:0);
-      var ceiling=defined+(pending('pulling')?1200000:0)+(pending('heldout')?3600000:0);
-      $('eta-baseline').textContent=duration(remaining/rate.steps_per_second);
-      $('eta-program').textContent=duration(defined/rate.steps_per_second)+'*';
-      $('eta-ceiling').textContent=duration(ceiling/rate.steps_per_second)+'*';
-      $('rate-basis').textContent=rate.steps_per_second.toFixed(3)+' steps/s · 4 CPU · '+Math.round((Date.parse(rate.to)-Date.parse(rate.from))/60000)+' min sample. *Same-rate budgets; later speeds unmeasured. Pauses/qualification extra.';
+    var estimate=data.time_estimate;
+    function daysRange(range){
+      if(!range.remaining_steps)return 'complete';
+      var low=Math.floor(range.minimum_days*10)/10,high=Math.ceil(range.maximum_days*10)/10;
+      return (low?low.toFixed(1):'<0.1')+'–'+high.toFixed(1)+' days';
     }
-    if(!data.compute_rate){$('eta-baseline').textContent=done+stops===6?'complete':'unmeasured';$('eta-program').textContent='unmeasured';$('eta-ceiling').textContent='conditional';$('rate-basis').textContent='Time estimates await measured computation progression.'}
+    if(estimate&&estimate.available){
+      $('eta-controls').textContent=daysRange(estimate.controls);
+      $('eta-program').textContent=daysRange(estimate.defined);
+      $('eta-ceiling').textContent=daysRange(estimate.ceiling);
+      $('rate-basis').textContent='Measured '+estimate.window_hours.toFixed(1)+'h: '+nf.format(Math.round(estimate.average_steps_per_day))+' steps/day · fast pace '+nf.format(Math.round(estimate.fast_steps_per_day))+'/day. Compute-only; later speeds, reviews and qualification extra.';
+      $('rate-basis').title=estimate.basis+' Source window: '+estimate.from+' to '+estimate.to;
+    }else{
+      var paused=estimate&&estimate.reason==='no_recent_progress';
+      $('eta-controls').textContent=paused?'paused':'measuring';$('eta-program').textContent=paused?'paused':'measuring';$('eta-ceiling').textContent='conditional';
+      $('rate-basis').textContent=paused?'No saved progression in the measured day; a finite completion range needs progress.':'Daily ranges need at least one measured hour of saved progression.';
+    }
     $('checked').textContent='Last updated '+age(data.information_updated_at);
     var feedStale=Date.now()-Date.parse(data.information_updated_at)>900000;
     $('feed-dot').className='dot '+(failed||feedStale||data.feed_mode!=='automatic'?'amber':'green');
     $('feed-state').textContent=failed?'Refresh failed · saved data':data.feed_mode!=='automatic'?'Saved snapshot':feedStale?'Latest verified observation '+age(data.information_updated_at):'Feed connected';
-    $('loading').hidden=true;$('content').hidden=false;$('content').setAttribute('data-has-rate',String(Boolean(data.compute_rate)));fittedLayout.update();
+    $('loading').hidden=true;$('content').hidden=false;$('content').setAttribute('data-has-rate',String(Boolean(estimate&&estimate.available)));fittedLayout.update();
   }
   async function refresh(){
     if(busy)return;busy=true;

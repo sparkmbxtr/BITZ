@@ -1,3 +1,4 @@
+import { validateDailyProgressSamples, mergeDailyProgressSamples, estimateTimeRange } from './nucleosome-estimates.mjs';
 import { validateControls, validateActivities, validateNextActions, validateGuardSummary } from "./nucleosome-controls.mjs";
 import { DASHBOARD_HTML } from "./nucleosome-page.mjs";
 import { EXPERIMENT_DESIGN_HTML } from "./nucleosome-design.mjs";
@@ -76,10 +77,14 @@ export function validateSnapshot(input) {
     rate = { from: r.from, to: r.to, steps: r.steps, steps_per_second: r.steps_per_second,
       cpu_model: r.cpu_model, threads: 4, logical_cpus: r.logical_cpus, cpu_quota: 4, memory_gib: 16, provider_vm_type: "unavailable" };
   }
+  const controlRows = input.controls != null ? validateControls(input.controls, input.information_updated_at) : null;
+  const dailyTotal = jobs.reduce((n,j)=>n+j.step,0)+(controlRows??[]).reduce((n,j)=>n+j.step,0);
+  const daily = input.daily_progress_samples != null ? validateDailyProgressSamples(input.daily_progress_samples,input.information_updated_at,dailyTotal) : null;
   return { version: 1, information_updated_at: input.information_updated_at, source_revision: input.source_revision,
     jobs, stages, watchdog_armed: input.watchdog_armed,
     ...(input.guard_summary != null ? {guard_summary:validateGuardSummary(input.guard_summary, input.information_updated_at, input.watchdog_armed)} : {}),
-    ...(input.controls != null ? { controls: validateControls(input.controls, input.information_updated_at) } : {}),
+    ...(controlRows != null ? { controls: controlRows } : {}),
+    ...(daily != null ? { daily_progress_samples: daily } : {}),
     ...(input.activities != null ? { activities: validateActivities(input.activities) } : {}),
     ...(input.next_actions != null ? { next_actions: validateNextActions(input.next_actions) } : {}),
     ...(input.wsl_connection != null ? { wsl_connection: validateWslConnection(input.wsl_connection) } : {}),
@@ -93,7 +98,7 @@ export function publicSnapshot(snapshot, mode, now = Date.now()) {
   const terminal = snapshot.jobs.filter(job => ["completed", "guard_stop"].includes(job.status)).length;
   const total = snapshot.jobs.reduce((sum, job) => sum + job.step, 0);
   const current = snapshot.jobs.find(job => job.status === "checkpoint") ?? snapshot.jobs.find(job => job.status === "queued") ?? null;
-  return { ...snapshot, source_revision: undefined, feed_mode: mode,
+  return { ...snapshot, source_revision: undefined, feed_mode: mode, time_estimate: estimateTimeRange(snapshot),
     wsl_connection: snapshot.wsl_connection ?? null, wsl_status: wslConnectionStatus(snapshot.wsl_connection, now),
     total_steps: total, total_cap: 600_000, percent: total / 6_000,
     completed_runs: completed, terminal_runs: terminal,
@@ -168,6 +173,9 @@ export async function routeNucleosomeProgress(request, env, authorize = progress
     data = validateSnapshot(JSON.parse(new TextDecoder().decode(bytes)));
   } catch { return json({ error: "Progress validation failed" }, 400); }
   try {
+    let previous;
+    try { previous = JSON.parse(await stub.readNucleosomeProgress()); } catch { previous = null; }
+    data.daily_progress_samples = mergeDailyProgressSamples(previous?.daily_progress_samples, data.daily_progress_samples, data);
     const raw = JSON.stringify(data);
     await stub.writeNucleosomeProgress(raw, Date.parse(data.information_updated_at));
     const saved = await stub.readNucleosomeProgress();
