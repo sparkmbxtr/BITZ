@@ -42,28 +42,30 @@ test("the real dashboard renders current apo progress and activities after basel
  assert.equal(get("active-name").textContent,"Apo C");assert.match(get("active-steps").textContent,/120/);
  assert.match(text(get("stages")),/2 \/ 9 complete.*Apo C 0.1%/);
  assert.match(text(get("next")),/Library: Verifying file recovery/);assert.match(text(get("next")),/Finish apo C/);
- assert.match(get("runtime").textContent,/Advancing/);
+ assert.match(get("runtime").textContent,/Updated/);
  assert.equal(get("activity-label").textContent,"NOW / NEXT");
 });
-test("guard footer gives actual checkpoint and controller timing without hardware placeholders",async()=>{
+test("guard footer shows saved checks, checkpoint and last update without runtime notices",async()=>{
  const input=snapshot(),confirmed=input.information_updated_at;
  input.guard_summary={armed:true,controller_confirmed_at:confirmed,controller_deadline_at:new Date(Date.parse(confirmed)+9000000).toISOString(),timeout_seconds:9000,guard_interval_steps:20,checkpoint_interval_steps:1000};
  input.compute_rate={from:new Date(Date.parse(confirmed)-100000).toISOString(),to:confirmed,steps:50,steps_per_second:0.5,cpu_model:"TEST",threads:4,logical_cpus:4,cpu_quota:4,memory_gib:16};
  const {get,elements}=await renderSnapshot(input);
- assert.match(get("watchdog").textContent,/armed at last observation/);
+ assert.match(get("watchdog").textContent,/Saved computation guards pass/);
  assert.match(get("guard-checks").textContent,/7 \/ 7 passed/);assert.match(get("native-recovery").textContent,/0 steps/);
- assert.match(get("controller-confirmed").textContent,/Controller confirmed/);assert.match(get("controller-deadline").textContent,/Next controller check due/);
- assert.match(get("guard-note").textContent,/20 steps.*1,000 steps.*150 min/);
+ assert.match(get("controller-confirmed").textContent,/Last update/);assert.match(get("controller-deadline").textContent,/Checkpoint interval/);
+ assert.match(get("guard-note").textContent,/20 steps.*1,000 steps/);
+ assert.doesNotMatch(DASHBOARD_HTML,/unconfirmed|Runtime observation overdue|Confirm runtime/);
  assert.equal(elements.has("hardware"),false);assert.doesNotMatch(DASHBOARD_HTML,/id="hardware"|properties awaiting verification/);
 });
-test("elapsed controller timing reports uncertainty without inventing a process stop",async()=>{
+test("an older observation shows its update age and recorded guards without runtime notices",async()=>{
  const input=snapshot(),confirmed=input.information_updated_at;
  input.guard_summary={armed:true,controller_confirmed_at:confirmed,controller_deadline_at:new Date(Date.parse(confirmed)+9000000).toISOString(),timeout_seconds:9000,guard_interval_steps:20,checkpoint_interval_steps:1000};
  class Later extends Date {static now(){return Date.parse(confirmed)+9001000}}
  const {get}=await renderSnapshot(input,Later);
- assert.equal(get("watchdog").textContent,"Controller confirmation due · current state unconfirmed");
+ assert.equal(get("watchdog").textContent,"Saved computation guards pass");
+ assert.match(get("runtime").textContent,/Updated/);
  assert.equal(get("runtime").className,"amber");
- assert.match(get("controller-deadline").textContent,/Recorded deadline/);
+ assert.match(get("controller-confirmed").textContent,/Last update/);
  assert.doesNotMatch(get("watchdog").textContent,/stopped|dead|expired/i);
 });
 test("both control columns mirror the baseline bars while retaining stopped and queued evidence",async()=>{
@@ -77,13 +79,13 @@ test("both control columns mirror the baseline bars while retaining stopped and 
  assert.equal(dna[1].children[1].children[0].style.width,"0%");assert.equal(dna[1].children[3].textContent,"queued");
 });
 
-test("an older active observation retains its recorded status while runtime confirmation expires",async()=>{
+test("an older active observation retains its recorded status and visible update age",async()=>{
  const input=snapshot(),at=input.information_updated_at;
  class Later extends Date {static now(){return Date.parse(at)+600000}}
  const {get}=await renderSnapshot(input,Later);
  assert.equal(get("apo-runs").children[2].children[3].textContent,"Active");
  assert.match(get("apo-runs").children[2].children[3].title,/source observation/);
  assert.equal(get("runtime").className,"amber");
- assert.match(get("runtime").textContent,/unconfirmed/);
+ assert.match(get("runtime").textContent,/Updated 10m ago/);
 });
 

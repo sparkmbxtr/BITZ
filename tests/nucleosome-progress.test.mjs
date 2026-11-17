@@ -176,7 +176,7 @@ test("the terminal UI renders six runs and the exact Berlin update header", asyn
   assert.equal(elements.get("runs").children.length, 6);
   assert.equal(elements.get("stages").children.length, 6);
   assert.equal(elements.get("active-name").textContent, "601 C");
-  assert.equal(elements.get("runtime").textContent, "Unconfirmed");
+  assert.match(elements.get("runtime").textContent, /^Updated /);
   assert.ok(intervals.some(interval => interval.delay === 30000));
   const before = elements.get("updated").textContent;
   intervals.find(interval => interval.delay === 30000).fn();

@@ -162,9 +162,9 @@ ${FULLSCREEN_CSS}
         row.append(node('span','run-percent'+(complete||j.status==='checkpoint'?' green':stopped?' amber':' muted'),(j.step/1000).toFixed(j.step%1000?1:0)+'%'));
         var reportedActive=j.status==='checkpoint',stateLabel=complete?'✓ done':stopped?'stopped':reportedActive?'Active':'queued';
         var state=node('span','run-state'+(complete?' complete':stopped?' stopped':reportedActive?' green':''),stateLabel);
-        if(reportedActive){state.title='Active at the source observation '+day(data.information_updated_at)+' '+time(data.information_updated_at)+'; see runtime confirmation below';row.title=state.title}
+        if(reportedActive){state.title='Active at the source observation '+day(data.information_updated_at)+' '+time(data.information_updated_at)+'; latest update shown below';row.title=state.title}
         row.append(state);
-        row.setAttribute('aria-label',controlLabels[j.id]+': '+nf.format(j.step)+' of 100,000 saved steps; '+(reportedActive?'Active at the source observation; current runtime confirmation is shown below':j.status)+(j.native_step!=null?'; native recovery '+nf.format(j.native_step):''));target.append(row);
+        row.setAttribute('aria-label',controlLabels[j.id]+': '+nf.format(j.step)+' of 100,000 saved steps; '+(reportedActive?'Active at the source observation':j.status)+(j.native_step!=null?'; native recovery '+nf.format(j.native_step):''));target.append(row);
       });
     }
     controlRows('apo-runs',true);controlRows('dna-runs',false);
@@ -179,11 +179,11 @@ ${FULLSCREEN_CSS}
     var stale=current&&current.checkpoint_at&&Date.now()-Date.parse(current.checkpoint_at)>1500000;
     var runtime=controlCurrent?controlCurrent.runtime:data.runtime_observation;
     var confirmed=controlCurrent?Boolean(runtime&&runtime.identity_verified&&runtime.advancing&&Date.now()-Date.parse(runtime.at)<=360000):data.runtime_confirmed&&runtime&&Date.now()-Date.parse(runtime.at)<=360000;
-    $('runtime').textContent=controlCurrent?(confirmed?'Advancing · '+age(runtime.at):'Latest saved control; runtime unconfirmed'):done+stops===6?'Bound runs finished':confirmed?'Advancing · '+age(runtime.at):'Unconfirmed';
+    $('runtime').textContent=controlCurrent?'Updated '+age(data.information_updated_at):done+stops===6?'Bound runs finished':'Updated '+age(data.information_updated_at);
     $('runtime').className=(controlCurrent?confirmed:done+stops===6||confirmed)?'green':'amber';
     if(confirmed&&current&&runtime.job===current.id){$('active-status').textContent=nf.format(runtime.observed_step)+' observed';$('active-guards').textContent=runtime.guards_pass?'6 / 6 pass':'Guard stop';$('active-guards').className=runtime.guards_pass?'green':'red'}
     $('attention').hidden=done+stops===6&&!stops;
-    $('attention-title').textContent=stops?'Guard stop recorded':confirmed?'Simulation advancing':stale?'Runtime observation overdue':'Awaiting current runtime update';
+    $('attention-title').textContent=stops?'Guard stop recorded':confirmed?'Simulation advancing':'Latest saved progress';
     $('attention-meta').textContent=confirmed?((controlCurrent?controlCurrent.step:runtime.observed_step)/1000).toFixed(2)+' ps observed':current&&current.checkpoint_at?'Last checkpoint '+age(current.checkpoint_at):'Next run queued';
     var chart=$('history');chart.replaceChildren();
     var history=data.history||[],width=360,height=112;
@@ -211,11 +211,11 @@ ${FULLSCREEN_CSS}
     $('control-current-meta').hidden=!controlCurrent;
     $('control-current-detail').replaceChildren();
     if(controlCurrent){
-      $('control-current-detail').append(node('span',null,nf.format(controlCurrent.step)+' saved'),node('span',null,nf.format(controlCurrent.guard_rows)+' saved guards pass'),node('span',null,'Native '+nf.format(controlCurrent.native_step)+' · '+(confirmed?'advancing':'runtime unconfirmed')));
+      $('control-current-detail').append(node('span',null,nf.format(controlCurrent.step)+' saved'),node('span',null,nf.format(controlCurrent.guard_rows)+' saved guards pass'),node('span',null,'Native '+nf.format(controlCurrent.native_step)));
     }
     var todo=[];
     if(stops)todo.push('Review guard stop');
-    if(done+stops<6&&!confirmed)todo.push('Confirm runtime');
+    
     jobs.filter(function(j){return !['completed','guard_stop'].includes(j.status)}).forEach(function(j){todo.push((j.step?'Finish ':'Run ')+labels[j.id])});
     if(!todo.length){var pending=data.stages.find(function(s){return s.state!=='complete'});todo.push(pending?stageLabels[pending.id]:'Review results')}
     if(data.next_actions&&data.next_actions.length)todo=data.next_actions;
@@ -228,15 +228,15 @@ ${FULLSCREEN_CSS}
     $('activity-label').textContent=Date.now()-Date.parse(data.information_updated_at)>900000?'LAST OBSERVED':'NOW / NEXT';
     $('next').replaceChildren();todo.slice(0,4).forEach(function(item){$('next').append(node('span','activity-item',item))});
     var safety=data.guard_summary,expired=Boolean(safety&&safety.armed&&Date.now()>Date.parse(safety.controller_deadline_at));
-    $('watchdog').textContent=expired?'Controller confirmation due · current state unconfirmed':data.watchdog_armed?'Communication guard armed at last observation':'No active guarded computation at last observation';
-    $('watchdog').className='guard-title '+(expired?'amber':data.watchdog_armed?'green':'muted');
-    $('guard-compact-state').textContent=expired?'Controller check due · runtime unconfirmed':data.watchdog_armed?(controlCurrent?nf.format(controlCurrent.guard_rows)+' guards pass · Native '+nf.format(controlCurrent.native_step):'Guard armed at last observation'):'No active guarded computation';
-    $('guard-compact-contact').textContent=safety?'Controller '+time(safety.controller_confirmed_at)+' · due '+time(safety.controller_deadline_at):'Controller timing unconfirmed';
+    $('watchdog').textContent=controlCurrent&&controlCurrent.guards_pass?'Saved computation guards pass':'Computation safeguards';
+    $('watchdog').className='guard-title '+(controlCurrent&&controlCurrent.guards_pass?'green':'muted');
+    $('guard-compact-state').textContent=controlCurrent?nf.format(controlCurrent.guard_rows)+' guards pass · Native '+nf.format(controlCurrent.native_step):'Saved computation guards';
+    $('guard-compact-contact').textContent='Updated '+day(data.information_updated_at)+' · '+time(data.information_updated_at);
     $('guard-checks').textContent=controlCurrent?'Saved guard checks: '+nf.format(controlCurrent.guard_rows)+' / '+nf.format(controlCurrent.guard_rows)+(controlCurrent.guards_pass?' passed':' · review stop'):'Saved guards: see completed stage records';
     $('native-recovery').textContent=controlCurrent?'Local native recovery point: '+nf.format(controlCurrent.native_step)+' steps':'Bound and completed control checkpoints preserved';
-    $('controller-confirmed').textContent=safety?'Controller confirmed: '+day(safety.controller_confirmed_at)+' · '+time(safety.controller_confirmed_at):'Controller timing is not included in this saved observation';
-    $('controller-deadline').textContent=safety?(expired?'Recorded deadline: ':'Next controller check due: ')+day(safety.controller_deadline_at)+' · '+time(safety.controller_deadline_at):'Fresh timing appears with the next verified update';
-    $('guard-note').textContent=safety?'Guard checks every '+nf.format(safety.guard_interval_steps)+' steps · native checkpoints every '+nf.format(safety.checkpoint_interval_steps)+' steps · '+Math.round(safety.timeout_seconds/60)+' min controller-confirmation window.':'Source timestamps and saved recovery steps remain separate from current-runtime confirmation.';
+    $('controller-confirmed').textContent='Last update: '+day(data.information_updated_at)+' · '+time(data.information_updated_at);
+    $('controller-deadline').textContent=controlCurrent?'Checkpoint interval: '+nf.format(safety?safety.checkpoint_interval_steps:1000)+' steps':'';
+    $('guard-note').textContent=safety?'Guard checks every '+nf.format(safety.guard_interval_steps)+' steps · native checkpoints every '+nf.format(safety.checkpoint_interval_steps)+' steps.':'Progress and saved checkpoints are shown at the last update.';
     if(data.compute_rate){
       var rate=data.compute_rate,remaining=jobs.filter(function(j){return j.status!=='guard_stop'}).reduce(function(s,j){return s+j.cap-j.step},0);
       var pending=function(id){return data.stages.some(function(s){return s.id===id&&s.state!=='complete'})};
@@ -248,7 +248,7 @@ ${FULLSCREEN_CSS}
       $('rate-basis').textContent=rate.steps_per_second.toFixed(3)+' steps/s · 4 CPU · '+Math.round((Date.parse(rate.to)-Date.parse(rate.from))/60000)+' min sample. *Same-rate budgets; later speeds unmeasured. Pauses/qualification extra.';
     }
     if(!data.compute_rate){$('eta-baseline').textContent=done+stops===6?'complete':'unmeasured';$('eta-program').textContent='unmeasured';$('eta-ceiling').textContent='conditional';$('rate-basis').textContent='Time estimates await measured computation progression.'}
-    $('checked').textContent='Source observation '+age(data.information_updated_at);
+    $('checked').textContent='Last updated '+age(data.information_updated_at);
     var feedStale=Date.now()-Date.parse(data.information_updated_at)>900000;
     $('feed-dot').className='dot '+(failed||feedStale||data.feed_mode!=='automatic'?'amber':'green');
     $('feed-state').textContent=failed?'Refresh failed · saved data':data.feed_mode!=='automatic'?'Saved snapshot':feedStale?'Latest verified observation '+age(data.information_updated_at):'Feed connected';
