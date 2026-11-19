@@ -53,3 +53,24 @@ test("condensing details never marks queued controls or pending stages complete"
   assert.match(stagePresentation({id:"heldout",state:"pending"},{jobs:baseline()},density).rows.map(r=>r.text).join(" "),/conditional/);
  }
 });
+test("completed controls never appear pending or queued at any layout density",()=>{
+ const rows=controls().map(j=>({...j,status:"completed",step:100000,native_step:100000}));
+ for(const density of [0,1,2,3]){
+  const model=stagePresentation({id:"components",state:"complete"},{jobs:baseline(),controls:rows},density);
+  assert.equal(model.percent,100);
+  assert.match(model.summary,/9 \/ 9 complete/);
+  assert.doesNotMatch(model.rows.map(r=>r.text).join(" "),/pending|queued|not started/i);
+  if(density>=2)assert.match(model.rows.map(r=>r.text).join(" "),/DNA:? 6\s*\/\s*6/);
+ }
+});
+test("compact control details distinguish partial DNA completion from queued work",()=>{
+ const rows=controls();
+ for(const j of [...rows.slice(0,2),...rows.slice(6)])Object.assign(j,{status:"completed",step:100000,native_step:100000});
+ Object.assign(rows[2],{status:"checkpoint",step:1600,native_step:1000});
+ for(const density of [2,3]){
+  const model=stagePresentation({id:"components",state:"in_progress"},{jobs:baseline(),controls:rows},density);
+  assert.equal(model.status,"5 / 9 done");
+  assert.match(model.rows.map(r=>r.text).join(" "),/DNA:? 2\s*\/\s*6/);
+  assert.ok(model.percent<100);
+ }
+});

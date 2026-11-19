@@ -54,12 +54,13 @@ export function stagePresentation(stage, data, density=0) {
   }
   if(density>0){
     const apoDone=controls.filter(j=>j.id.startsWith("apo-")&&j.status==="completed").map(j=>j.id.slice(-1)).join("/");
+    const dnaDone=controls.filter(j=>j.id.startsWith("free-")&&j.status==="completed").length;
     const dnaStop=controls.find(j=>j.id.startsWith("free-")&&j.status==="stopped");
     const total=jobs.reduce((s,j)=>s+j.step,0);
     const brief={
       audit:[row(stage.state==="complete"?"Inputs and references fixed.":"Inputs under review."),row("Replicas, limits and guards recorded.")],
       baseline:[row("601 A/B/C: "+jobs.filter(j=>j.id.startsWith("601-")&&j.status==="completed").length+" / 3 done.","complete"),row("Control A/B/C: "+jobs.filter(j=>j.id.startsWith("control-")&&j.status==="completed").length+" / 3 done.","complete")],
-      components:[row(apoDone?"Apo "+apoDone+": complete.":"Apo replicas pending.",apoDone?"complete":"muted"),row(dnaStop?"DNA stopped; native "+n(dnaStop.native_step)+".":"DNA: "+controls.filter(j=>j.id.startsWith("free-")&&j.status==="completed").length+" / 6 complete.",dnaStop?"stopped":"muted")],
+      components:[row(apoDone?"Apo "+apoDone+": complete.":"Apo replicas pending.",apoDone?"complete":"muted"),row(dnaStop?"DNA stopped; native "+n(dnaStop.native_step)+".":"DNA: "+dnaDone+" / 6 complete.",dnaStop?"stopped":dnaDone===6?"complete":"muted")],
       pulling:[row("Scouts: 2, 5 and 12 pN."),row("6 initial; ≤12 extra if needed.")],
       heldout:[row("Held-out stage not started."),row("≤36 independent runs, conditional.")],
       conclusions:[row("Compare bound and intrinsic models."),row(stage.state==="complete"?"Synthesis complete.":"Conclusions pending.")]
@@ -69,7 +70,7 @@ export function stagePresentation(stage, data, density=0) {
       result.rows={
         audit:[row(stage.state==="complete"?"Inputs fixed":"Input review"),row(stage.state==="complete"?"Guards configured":"Guards planned")],
         baseline:[row(complete+" / 6 replicas done","complete"),row(n(total)+" steps saved")],
-        components:[row(apoDone?"Apo "+apoDone+" done":"Apo pending",apoDone?"complete":"muted"),row(dnaStop?"DNA: native "+n(dnaStop.native_step):"DNA controls pending",dnaStop?"stopped":"muted")],
+        components:[row(apoDone?"Apo "+apoDone+" done":"Apo pending",apoDone?"complete":"muted"),row(dnaStop?"DNA: native "+n(dnaStop.native_step):"DNA: "+dnaDone+" / 6 done",dnaStop?"stopped":dnaDone===6?"complete":"muted")],
         pulling:[row("2 / 5 / 12 pN scouts"),row("6 + ≤12 conditional")],
         heldout:[row("Held-out stage"),row("≤36 conditional runs")],
         conclusions:[row("Bound vs intrinsic"),row(stage.state==="complete"?"Synthesis complete":"Comparison pending")]
@@ -79,7 +80,7 @@ export function stagePresentation(stage, data, density=0) {
     if(density>=3)result.rows=[{
       audit:row(stage.state==="complete"?"Inputs · guards":"Input review"),
       baseline:row(complete+" / 6 · "+n(total/1000)+"k steps","complete"),
-      components:row((apoDone?apoDone+" done":"Apo pending")+(dnaStop?"; DNA stop":"; DNA queued")),
+      components:row((apoDone?apoDone+" done":"Apo pending")+(dnaStop?"; DNA stop":"; DNA "+dnaDone+"/6 done"),dnaStop?"stopped":done===9?"complete":"muted"),
       pulling:row("2 / 5 / 12 pN"),heldout:row("≤36 conditional"),conclusions:row("Model comparison")
     }[stage.id]||result.rows[0]];
   }
