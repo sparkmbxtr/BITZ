@@ -80,12 +80,17 @@ export function validateSnapshot(input) {
   const controlRows = input.controls != null ? validateControls(input.controls, input.information_updated_at) : null;
   const dailyTotal = jobs.reduce((n,j)=>n+j.step,0)+(controlRows??[]).reduce((n,j)=>n+j.step,0);
   const daily = input.daily_progress_samples != null ? validateDailyProgressSamples(input.daily_progress_samples,input.information_updated_at,dailyTotal) : null;
+  const activities = input.activities != null ? validateActivities(input.activities, input.information_updated_at) : null;
+  // Nested progress travels inside the original publisher's compared activities.
+  // The existing pinned workflow verifies and prints this complete object.
+  const validationData = activities?.find(activity => activity.validation_data)?.validation_data;
   return { version: 1, information_updated_at: input.information_updated_at, source_revision: input.source_revision,
     jobs, stages, watchdog_armed: input.watchdog_armed,
     ...(input.guard_summary != null ? {guard_summary:validateGuardSummary(input.guard_summary, input.information_updated_at, input.watchdog_armed)} : {}),
     ...(controlRows != null ? { controls: controlRows } : {}),
+    ...(validationData ? {validation_data: validationData} : {}),
     ...(daily != null ? { daily_progress_samples: daily } : {}),
-    ...(input.activities != null ? { activities: validateActivities(input.activities) } : {}),
+    ...(activities != null ? { activities } : {}),
     ...(input.next_actions != null ? { next_actions: validateNextActions(input.next_actions) } : {}),
     ...(input.wsl_connection != null ? { wsl_connection: validateWslConnection(input.wsl_connection) } : {}),
     ...(observation ? { runtime_observation: observation } : {}),

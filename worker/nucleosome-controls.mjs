@@ -28,14 +28,21 @@ export function validateControls(value, observedAt) {
       native_step:j.native_step,checkpoint_at:j.checkpoint_at,...(runtime?{runtime}:{})};
   });
 }
-export function validateActivities(value) {
+export function validateActivities(value, observedAt) {
   if (value == null) return undefined;
   if (!Array.isArray(value) || value.length > 6) throw Error("Activities rejected");
+  if (value.filter(a => a?.validation_data != null).length > 1) throw Error("Duplicate validation data activity");
   return value.map(a => {
     if (!a || typeof a.label !== "string" || !a.label.trim() || a.label.length > 80
       || typeof a.detail !== "string" || a.detail.length > 200
       || !["active","queued","complete","blocked"].includes(a.state)) throw Error("Activity rejected");
-    return {label:a.label,detail:a.detail,state:a.state};
+    const progress = a.validation_data != null ? validateValidationData(a.validation_data, observedAt) : null;
+    if (progress && ((progress.status === "running" && a.state !== "active")
+      || (progress.status === "completed" && a.state !== "complete")
+      || (progress.status === "stopped" && a.state !== "blocked")
+      || (!progress.budget_approved && a.state !== "blocked"))) throw Error("Validation activity state rejected");
+    return {label:a.label,detail:a.detail,state:a.state,
+      ...(progress ? {validation_data:progress} : {})};
   });
 }
 export function validateNextActions(value) {
@@ -61,4 +68,6 @@ export function controlsAreMonotonic(previous, incoming) {
     return next && next.step >= old.step && (old.status !== "completed" || next.status === "completed");
   });
 }
+
+import { validateValidationData } from "./nucleosome-validation-data.mjs";
 

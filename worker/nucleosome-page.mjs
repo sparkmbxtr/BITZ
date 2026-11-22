@@ -1,4 +1,5 @@
 import {FITTED_LAYOUT_CSS, createFittedLayout} from "./nucleosome-fit-layout.mjs";
+import {VALIDATION_DATA_CSS, validationDataPresentation} from "./nucleosome-validation-data.mjs";
 import { stagePresentation } from "./nucleosome-stage-details.mjs";
 import { workspaceNavigation, WORKSPACE_SHELL_CSS } from "./dashboard-tabs.mjs";
 import { DASHBOARD_BUILD_VERSION } from "../lib/dashboard-version.ts";
@@ -66,6 +67,7 @@ ${WORKSPACE_SHELL_CSS}
 
 ${FITTED_LAYOUT_CSS}
 ${FULLSCREEN_CSS}
+${VALIDATION_DATA_CSS}
 
 </style>
 </head>
@@ -82,6 +84,7 @@ ${FULLSCREEN_CSS}
 </section>
 <div class="attention" id="attention" role="status"><div class="attention-main"><i class="dot amber" aria-hidden="true"></i><span id="attention-title">—</span></div><div class="attention-meta" id="attention-meta">—</div></div>
 <div class="grid">
+<div class="completed-runs" id="completed-runs" aria-label="Completed baseline and control runs">
 <section class="panel baseline-panel" aria-labelledby="runs-heading"><div class="panel-head"><h2 class="panel-title" id="runs-heading">Baseline · six replicas</h2><span class="panel-hint">100 ps each</span></div><div class="runs" id="runs"></div></section>
 <div class="side">
 <section class="panel controls-panel" aria-labelledby="active-heading"><div class="panel-head"><h2 class="panel-title" id="active-heading">Controls</h2><span class="panel-hint" id="controls-complete">—</span></div><div class="control-columns">
@@ -90,6 +93,8 @@ ${FULLSCREEN_CSS}
 </div></section>
 <section class="panel" aria-labelledby="history-heading"><div class="panel-head"><h2 class="panel-title" id="history-heading">Saved progress</h2><span class="panel-hint" id="history-total">—</span></div><div class="chart-body"><svg id="history" class="history" viewBox="0 0 360 122" role="img" aria-label="Cumulative saved simulation progress"></svg><div class="chart-labels"><span id="history-start">—</span><span id="history-end">—</span></div></div></section>
 </div>
+</div>
+<section class="panel validation-panel" id="validation-panel" aria-labelledby="validation-heading"><div class="panel-head"><h2 class="panel-title" id="validation-heading">Validation data</h2><span class="panel-hint" id="validation-total">—</span></div><div class="validation-body"><div class="validation-state" id="validation-state" role="status">Awaiting verified plan</div><div id="validation-runs"></div></div></section>
 </div>
 </div>
 <section class="stages" id="stages" aria-label="Study stages"></section>
@@ -118,6 +123,7 @@ ${FULLSCREEN_CSS}
   function node(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
   function svgNode(tag,attributes){var n=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.keys(attributes).forEach(function(k){n.setAttribute(k,attributes[k])});return n}
   var stageModel=(${stagePresentation.toString()});
+  var validationModel=(${validationDataPresentation.toString()});
   var fittedLayout=(${createFittedLayout.toString()})(document,window,function(){render()});
   (${createFullscreenControl.toString()})(document,window,function(){fittedLayout.update()});
   function render(){
@@ -168,6 +174,18 @@ ${FULLSCREEN_CSS}
       });
     }
     controlRows('apo-runs',true);controlRows('dna-runs',false);
+    var validation=validationModel(data.validation_data);
+    $('validation-state').textContent=validation.status;
+    $('validation-total').textContent=validation.cap?nf.format(validation.total)+' / '+nf.format(validation.cap)+' steps':'—';
+    var validationRows=$('validation-runs');validationRows.replaceChildren();
+    validation.rows.forEach(function(item){
+      var row=node('div','validation-run');row.dataset.modelId=item.id;
+      var title=node('div','validation-run-title');title.append(node('span',null,item.name),node('span',null,item.percent.toFixed(item.percent%1?1:0)+'%'));row.append(title);
+      var track=node('div','run-track'),fill=node('div','run-fill');fill.style.width=item.percent+'%';track.append(fill);
+      track.setAttribute('role','progressbar');track.setAttribute('aria-label',item.name+' validation data');track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax',String(item.cap));track.setAttribute('aria-valuenow',String(item.step));row.append(track);
+      var stats=node('div','validation-stats');stats.append(node('span',null,nf.format(item.step)+' / '+nf.format(item.cap)),node('span','validation-time',item.time_ps.toLocaleString('en-US',{maximumFractionDigits:2})+' / '+item.duration_ps+' ps'));row.append(stats);
+      validationRows.append(row);
+    });
     if(current){
       $('active-name').textContent=controlLabels[current.id]||labels[current.id];$('active-percent').textContent=(current.step/1000)+'%';
       $('active-steps').textContent=nf.format(current.step)+' / 100,000';

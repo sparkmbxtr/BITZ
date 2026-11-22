@@ -194,7 +194,7 @@ export function createFittedLayout(doc,win,onChange) {
     scheduled=false;if(root.hidden)return;
     const bounds=root.getBoundingClientRect();
     let overflow=root.scrollHeight>root.clientHeight+1;
-    for(const e of root.querySelectorAll(".stage-detail,.detail,.activity-item,.guard-metrics>span,.guard-note,.guard-compact,.control-run,.control-current-evidence,.meta-current,.control-group-title")){
+    for(const e of root.querySelectorAll(".stage-detail,.detail,.activity-item,.guard-metrics>span,.guard-note,.guard-compact,.control-run,.control-current-evidence,.meta-current,.control-group-title,.validation-run,.validation-state,.validation-stats")){
       if(!e.getClientRects().length)continue;
       const b=e.getBoundingClientRect();if(b.bottom>bounds.bottom+1||b.right>bounds.right+1)overflow=true;
       const card=e.closest(".stage");if(card&&b.bottom>card.getBoundingClientRect().bottom-3)overflow=true;
