@@ -33,8 +33,23 @@ export function validateValidationData(input, observedAt) {
     : models.some(row => row.status === "stopped") ? "stopped"
     : models.some(row => row.status === "running") ? "running" : "prepared";
   if (input.status != null && input.status !== status) reject();
+  let accounting;
+  if (input.accounting != null) {
+    const a = input.accounting;
+    if (!input.budget_approved || !a || typeof a !== "object"
+      || Object.keys(a).sort().join(",") !== "component_budgets_unchanged,cumulative_cap_steps_per_model,prior_charged_steps_per_model"
+      || !Number.isInteger(a.prior_charged_steps_per_model) || a.prior_charged_steps_per_model < 0
+      || a.prior_charged_steps_per_model > 600 || a.component_budgets_unchanged !== true
+      || !Number.isInteger(a.cumulative_cap_steps_per_model)
+      || models[0].cap !== models[1].cap
+      || a.cumulative_cap_steps_per_model !== a.prior_charged_steps_per_model + models[0].cap) reject();
+    accounting = {prior_charged_steps_per_model: a.prior_charged_steps_per_model,
+      cumulative_cap_steps_per_model: a.cumulative_cap_steps_per_model,
+      component_budgets_unchanged: true};
+  }
   return {version: 1, budget_approved: input.budget_approved, dt_fs: 1,
-    sample_interval_steps: 20, force_pN: 0, status, models};
+    sample_interval_steps: 20, force_pN: 0, status, models,
+    ...(accounting ? {accounting} : {})};
 }
 
 // Kept self-contained because the authenticated HTML embeds this function.
