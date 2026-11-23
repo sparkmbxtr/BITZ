@@ -32,6 +32,7 @@ export function validateActivities(value, observedAt) {
   if (value == null) return undefined;
   if (!Array.isArray(value) || value.length > 6) throw Error("Activities rejected");
   if (value.filter(a => a?.validation_data != null).length > 1) throw Error("Duplicate validation data activity");
+  if (value.filter(a => a?.calibration_data != null).length > 1) throw Error("Duplicate calibration activity");
   return value.map(a => {
     if (!a || typeof a.label !== "string" || !a.label.trim() || a.label.length > 80
       || typeof a.detail !== "string" || a.detail.length > 200
@@ -41,7 +42,10 @@ export function validateActivities(value, observedAt) {
       || (progress.status === "completed" && a.state !== "complete")
       || (progress.status === "stopped" && a.state !== "blocked")
       || (!progress.budget_approved && a.state !== "blocked"))) throw Error("Validation activity state rejected");
+    const calibration = a.calibration_data != null ? validateCalibrationData(a.calibration_data, observedAt) : null;
+    if (calibration && ((a.state === "active" && !calibration.runs.some(r => r.status === "running")) || (a.state === "complete" && !calibration.runs.every(r => r.status === "completed")) || (a.state !== "active" && calibration.runs.some(r => r.status === "running")))) throw Error("Calibration activity state rejected");
     return {label:a.label,detail:a.detail,state:a.state,
+      ...(calibration ? {calibration_data:calibration} : {}),
       ...(progress ? {validation_data:progress} : {})};
   });
 }
@@ -70,4 +74,5 @@ export function controlsAreMonotonic(previous, incoming) {
 }
 
 import { validateValidationData } from "./nucleosome-validation-data.mjs";
+import { validateCalibrationData } from "./nucleosome-calibration.mjs";
 

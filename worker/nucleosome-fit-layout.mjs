@@ -183,15 +183,16 @@ export function createFittedLayout(doc,win,onChange) {
   const root=doc.getElementById("content");let density=0,size="",scheduled=false;
   function configuration(){
     const next=win.innerWidth+"x"+win.innerHeight;
-    if(size!==next){size=next;density=win.innerWidth>=1200&&win.innerHeight>=1000?0:win.innerWidth>=950&&win.innerHeight>=700?1:win.innerHeight>=700?2:3}
+    const compact=win.innerWidth<=1100||win.innerHeight<=780;
+    if(size!==next){size=next;density=compact?3:win.innerWidth>=1200&&win.innerHeight>=1000?0:win.innerWidth>=950&&win.innerHeight>=700?1:win.innerHeight>=700?2:3}
     const columns=win.innerHeight<500?6:win.innerWidth>=1000?6:3;
     const detail=density===0?Math.min(18,Math.max(16,win.innerHeight/80+2)):density===1?14:density===2?13:12;
     root.dataset.density=String(density);root.dataset.layout="single";
     for(const [name,value] of Object.entries({"--stage-columns":columns,"--stage-rows":6/columns,"--detail-size":detail+"px","--stage-header-height":(density===0?106:density===1?88:density===2?50:44)+"px","--detail-gap":(density===0?12:density===1?8:density===2?6:0)+"px","--card-padding":(density===0?14:density===1?11:density===2?9:6)+"px","--display-gap":(density<2?10:6)+"px"}))root.style.setProperty(name,value);
-    return {density};
+    return {density,compact};
   }
   function fit(){
-    scheduled=false;if(root.hidden)return;
+    scheduled=false;if(root.hidden||win.innerWidth<=1100||win.innerHeight<=780)return;
     const bounds=root.getBoundingClientRect();
     let overflow=root.scrollHeight>root.clientHeight+1;
     for(const e of root.querySelectorAll(".stage-detail,.detail,.activity-item,.guard-metrics>span,.guard-note,.guard-compact,.control-run,.control-current-evidence,.meta-current,.control-group-title,.validation-run,.validation-state,.validation-stats")){

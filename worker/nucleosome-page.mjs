@@ -1,3 +1,5 @@
+import {CALIBRATION_CSS, calibrationPresentation} from "./nucleosome-calibration.mjs";
+import {PHONE_LAYOUT_CSS} from "./nucleosome-phone-layout.mjs";
 import {FITTED_LAYOUT_CSS, createFittedLayout} from "./nucleosome-fit-layout.mjs";
 import {VALIDATION_DATA_CSS, validationDataPresentation} from "./nucleosome-validation-data.mjs";
 import { stagePresentation } from "./nucleosome-stage-details.mjs";
@@ -68,6 +70,8 @@ ${WORKSPACE_SHELL_CSS}
 ${FITTED_LAYOUT_CSS}
 ${FULLSCREEN_CSS}
 ${VALIDATION_DATA_CSS}
+${CALIBRATION_CSS}
+${PHONE_LAYOUT_CSS}
 
 </style>
 </head>
@@ -96,6 +100,7 @@ ${VALIDATION_DATA_CSS}
 </div>
 <section class="panel validation-panel" id="validation-panel" aria-labelledby="validation-heading"><div class="panel-head"><h2 class="panel-title" id="validation-heading">Validation data</h2><span class="panel-hint" id="validation-total">—</span></div><div class="validation-body"><div class="validation-state" id="validation-state" role="status">Awaiting verified plan</div><div id="validation-runs"></div></div></section>
 </div>
+<section class="panel calibration-panel" id="calibration-panel" aria-labelledby="calibration-heading" hidden><div class="panel-head"><h2 class="panel-title" id="calibration-heading">100 ps calibration benchmarks</h2><span class="panel-hint" id="calibration-summary"></span></div><div class="calibration-body"><div class="calibration-grid" id="calibration-runs"></div><p class="calibration-note"><span class="calibration-note-full">Bars show saved steps. Stopped runs remain incomplete; calibration is not physical validation.</span><span class="calibration-note-short">Calibration only; stopped runs are incomplete.</span></p></div></section>
 </div>
 <section class="stages" id="stages" aria-label="Study stages"></section>
 <div class="activity-pane">
@@ -124,6 +129,7 @@ ${VALIDATION_DATA_CSS}
   function svgNode(tag,attributes){var n=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.keys(attributes).forEach(function(k){n.setAttribute(k,attributes[k])});return n}
   var stageModel=(${stagePresentation.toString()});
   var validationModel=(${validationDataPresentation.toString()});
+  var calibrationModel=(${calibrationPresentation.toString()});
   var fittedLayout=(${createFittedLayout.toString()})(document,window,function(){render()});
   (${createFullscreenControl.toString()})(document,window,function(){fittedLayout.update()});
   function render(){
@@ -150,7 +156,7 @@ ${VALIDATION_DATA_CSS}
     var runRows=$('runs');runRows.replaceChildren();
     jobs.forEach(function(job){
       var isCurrent=job.status==='checkpoint',isStop=job.status==='guard_stop';
-      var row=node('div','run');row.append(node('div','run-label',labels[job.id]));
+      var row=node('div','run'),baselineLabel=node('div','run-label');baselineLabel.append(node('span','control-label-full',labels[job.id]),node('span','control-label-short',labels[job.id].replace('Control','Ctrl')));row.append(baselineLabel);
       var track=node('div','run-track'),fill=node('div','run-fill'+(isCurrent?' current':isStop?' failed':''));
       fill.style.width=(job.step/1000)+'%';track.append(fill);track.setAttribute('role','progressbar');track.setAttribute('aria-label',labels[job.id]);track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');track.setAttribute('aria-valuenow',String(job.step/1000));row.append(track);
       row.append(node('span','run-percent',(job.step/1000).toFixed(job.step%1000?1:0)+'%'));
@@ -185,6 +191,20 @@ ${VALIDATION_DATA_CSS}
       track.setAttribute('role','progressbar');track.setAttribute('aria-label',item.name+' validation data');track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax',String(item.cap));track.setAttribute('aria-valuenow',String(item.step));row.append(track);
       var stats=node('div','validation-stats');stats.append(node('span',null,nf.format(item.step)+' / '+nf.format(item.cap)),node('span','validation-time',item.time_ps.toLocaleString('en-US',{maximumFractionDigits:2})+' / '+item.duration_ps+' ps'));row.append(stats);
       validationRows.append(row);
+    });
+    var calibrationActivity=(data.activities||[]).find(function(a){return a.calibration_data});
+    var calibration=calibrationModel(calibrationActivity?calibrationActivity.calibration_data:null);
+    $('calibration-panel').hidden=!calibration.rows.length;
+    $('calibration-summary').textContent=calibration.summary;
+    var calibrationRows=$('calibration-runs');calibrationRows.replaceChildren();
+    calibration.rows.forEach(function(item){
+      var row=node('div','calibration-run');row.dataset.calibrationId=item.id;row.dataset.state=item.status;
+      var title=node('div','calibration-run-title'),state=node('span','calibration-run-state');state.append(node('span','calibration-state-full',item.label),node('span','calibration-state-short',item.status==='stopped'?'Incomplete':item.label));title.append(node('span','calibration-name',item.name),state);row.append(title);
+      var track=node('div','run-track'),fill=node('div','run-fill');fill.style.width=item.percent+'%';track.append(fill);
+      track.setAttribute('role','progressbar');track.setAttribute('aria-label',item.name+' saved calibration steps');track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax',String(item.cap));track.setAttribute('aria-valuenow',String(item.step));track.setAttribute('aria-valuetext',nf.format(item.step)+' of '+nf.format(item.cap)+' saved steps; '+item.label);row.append(track);
+      var stats=node('div','calibration-stats');stats.append(node('span',null,nf.format(item.step)+' / '+nf.format(item.cap)+' steps'),node('span','calibration-percent',item.percent.toFixed(2)+'%'));row.append(stats);
+      row.append(node('div','calibration-time',item.time_ps.toLocaleString('en-US',{maximumFractionDigits:2})+' / '+item.duration_ps+' ps · '+nf.format(item.samples)+' samples'));
+      calibrationRows.append(row);
     });
     if(current){
       $('active-name').textContent=controlLabels[current.id]||labels[current.id];$('active-percent').textContent=(current.step/1000)+'%';
@@ -242,6 +262,12 @@ ${VALIDATION_DATA_CSS}
       var activities=(data.activities||[]).filter(function(a){return (a.state==='active'||a.state==='blocked')&&a.label!=='Apo C'});
       todo=activities.map(function(a){return a.label==='Library migration'?(layout.density>=2?'Library: recovery/offload':'Library migration: verifying recovery and offloading files'):a.label+': '+a.detail});
       todo=todo.concat((data.next_actions||[]).map(function(t){return layout.density>=2?t.replace('Finish apo C','Finish C').replace('Review the remaining DNA controls','Review DNA controls'):t}));
+    }
+    if(layout.compact&&calibration.rows.length){
+      var runningCalibration=calibration.rows.find(function(r){return r.status==='running'});
+      todo=[runningCalibration?runningCalibration.name+': '+runningCalibration.time_ps.toLocaleString('en-US',{maximumFractionDigits:2})+' / '+runningCalibration.duration_ps+' ps saved':calibration.summary];
+      var queuedCalibrations=calibration.rows.filter(function(r){return r.status==='queued'}).length;
+      if(queuedCalibrations)todo.push(queuedCalibrations+' queued');
     }
     $('activity-label').textContent=Date.now()-Date.parse(data.information_updated_at)>900000?'LAST OBSERVED':'NOW / NEXT';
     $('next').replaceChildren();todo.slice(0,4).forEach(function(item){$('next').append(node('span','activity-item',item))});
